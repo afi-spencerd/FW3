@@ -16,8 +16,10 @@ const router = useRouter();
 const auth = useAuthStore();
 const isEdit = computed(() => Boolean(props.id));
 
-const finishedGoods = ref<InventoryItem[]>([]);
-const rawMaterials = ref<InventoryItem[]>([]);
+// Targets are manufactured items (finished goods + bases); components are inputs
+// (raw materials + bases). A base can be either.
+const targets = ref<InventoryItem[]>([]);
+const components = ref<InventoryItem[]>([]);
 
 const form = reactive({
   finishedGoodId: "",
@@ -46,12 +48,9 @@ function removeLine(index: number): void {
 
 onMounted(async () => {
   try {
-    const [fg, rm] = await Promise.all([
-      api.listInventory({ itemType: "FINISHED_GOOD", pageSize: 200 }),
-      api.listInventory({ itemType: "RAW_MATERIAL", pageSize: 200 }),
-    ]);
-    finishedGoods.value = fg.items;
-    rawMaterials.value = rm.items;
+    const all = await api.listInventory({ pageSize: 200 });
+    targets.value = all.items.filter((i) => i.itemType !== "RAW_MATERIAL");
+    components.value = all.items.filter((i) => i.itemType !== "FINISHED_GOOD");
 
     if (props.id) {
       const formula = await api.getFormula(props.id);
@@ -155,10 +154,10 @@ async function calculate(): Promise<void> {
       </ul>
 
       <div class="field">
-        <label for="fg">Finished good (fragrance)</label>
+        <label for="fg">Target (finished good or base)</label>
         <select id="fg" v-model="form.finishedGoodId" :disabled="isEdit">
-          <option value="" disabled>Select a finished good…</option>
-          <option v-for="g in finishedGoods" :key="g.id" :value="g.id">
+          <option value="" disabled>Select a target…</option>
+          <option v-for="g in targets" :key="g.id" :value="g.id">
             {{ g.name }} ({{ g.sku }})
           </option>
         </select>
@@ -188,7 +187,7 @@ async function calculate(): Promise<void> {
       <table>
         <thead>
           <tr>
-            <th>Raw material</th>
+            <th>Component (raw material or base)</th>
             <th class="num" style="width: 120px">Percent</th>
             <th style="width: 40px"></th>
           </tr>
@@ -197,8 +196,8 @@ async function calculate(): Promise<void> {
           <tr v-for="(line, index) in form.lines" :key="index">
             <td>
               <select v-model="line.rawMaterialId">
-                <option value="" disabled>Select a raw material…</option>
-                <option v-for="m in rawMaterials" :key="m.id" :value="m.id">
+                <option value="" disabled>Select a component…</option>
+                <option v-for="m in components" :key="m.id" :value="m.id">
                   {{ m.name }} ({{ m.sku }})
                 </option>
               </select>

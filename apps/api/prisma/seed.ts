@@ -21,6 +21,8 @@ const DEMO_ITEMS = [
   { sku: "RM-HEDIONE", name: "Hedione", type: "RAW_MATERIAL", uom: "LB", qty: "44.5000", cost: "38.5000", price: "0.0000" },
   { sku: "RM-ISO-E-SUPER", name: "Iso E Super", type: "RAW_MATERIAL", uom: "KG", qty: "12.0000", cost: "33.0000", price: "0.0000" },
   { sku: "RM-VANILLIN", name: "Vanillin", type: "RAW_MATERIAL", uom: "LB", qty: "8.2500", cost: "19.7500", price: "0.0000" },
+  { sku: "RM-IPM", name: "Isopropyl Myristate (IPM)", type: "RAW_MATERIAL", uom: "LB", qty: "120.0000", cost: "3.2500", price: "0.0000" },
+  { sku: "SF-AMBROXAN-10", name: "Ambroxan 10% Solution", type: "SEMI_FINISHED", uom: "LB", qty: "5.0000", cost: "23.7000", price: "0.0000" },
   { sku: "FG-NOIR-01", name: "Noir Extrait (fragrance)", type: "FINISHED_GOOD", uom: "LB", qty: "6.0000", cost: "62.4000", price: "180.0000" },
 ] as const;
 
@@ -100,47 +102,60 @@ async function main(): Promise<void> {
       });
     }
 
-    // 6. Demo formula for the finished good (percentages sum to 100).
-    const finishedGood = await prisma.inventoryItem.findUniqueOrThrow({
-      where: { tenantId_sku: { tenantId: tenant.id, sku: "FG-NOIR-01" } },
-    });
-    const lineDefs = [
+    // 6. Demo formulas (percentages sum to 100): a base, and the finished good.
+    const seedFormula = async (
+      targetSku: string,
+      name: string,
+      lineDefs: { sku: string; percentage: string }[],
+    ): Promise<void> => {
+      const target = await prisma.inventoryItem.findUniqueOrThrow({
+        where: { tenantId_sku: { tenantId: tenant.id, sku: targetSku } },
+      });
+      const lines = [];
+      for (const [index, def] of lineDefs.entries()) {
+        const material = await prisma.inventoryItem.findUniqueOrThrow({
+          where: { tenantId_sku: { tenantId: tenant.id, sku: def.sku } },
+        });
+        lines.push({
+          rawMaterialId: material.id,
+          percentage: def.percentage,
+          sortOrder: index,
+        });
+      }
+      const existing = await prisma.formula.findUnique({
+        where: {
+          tenantId_finishedGoodId_version: {
+            tenantId: tenant.id,
+            finishedGoodId: target.id,
+            version: 1,
+          },
+        },
+      });
+      if (!existing) {
+        await prisma.formula.create({
+          data: {
+            tenantId: tenant.id,
+            finishedGoodId: target.id,
+            name,
+            version: 1,
+            lines: { create: lines },
+          },
+        });
+      }
+    };
+
+    // A base (semi-finished): 10% Ambroxan in IPM.
+    await seedFormula("SF-AMBROXAN-10", "Ambroxan 10% Solution", [
+      { sku: "RM-AMBROXAN", percentage: "10" },
+      { sku: "RM-IPM", percentage: "90" },
+    ]);
+    // The finished fragrance.
+    await seedFormula("FG-NOIR-01", "Noir Extrait v1", [
       { sku: "RM-AMBROXAN", percentage: "10" },
       { sku: "RM-HEDIONE", percentage: "40" },
       { sku: "RM-ISO-E-SUPER", percentage: "35" },
       { sku: "RM-VANILLIN", percentage: "15" },
-    ];
-    const lines = [];
-    for (const [index, def] of lineDefs.entries()) {
-      const material = await prisma.inventoryItem.findUniqueOrThrow({
-        where: { tenantId_sku: { tenantId: tenant.id, sku: def.sku } },
-      });
-      lines.push({
-        rawMaterialId: material.id,
-        percentage: def.percentage,
-        sortOrder: index,
-      });
-    }
-    const existingFormula = await prisma.formula.findUnique({
-      where: {
-        tenantId_finishedGoodId_version: {
-          tenantId: tenant.id,
-          finishedGoodId: finishedGood.id,
-          version: 1,
-        },
-      },
-    });
-    if (!existingFormula) {
-      await prisma.formula.create({
-        data: {
-          tenantId: tenant.id,
-          finishedGoodId: finishedGood.id,
-          name: "Noir Extrait v1",
-          version: 1,
-          lines: { create: lines },
-        },
-      });
-    }
+    ]);
 
     console.log(`Seed complete. Tenant=${tenant.id} (slug=demo), admin user=${admin.id}`);
   } finally {

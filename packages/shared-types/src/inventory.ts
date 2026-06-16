@@ -15,8 +15,12 @@ export const UNITS_OF_MEASURE = ["LB", "KG"] as const;
 export const unitOfMeasureSchema = z.enum(UNITS_OF_MEASURE);
 export type UnitOfMeasure = (typeof UNITS_OF_MEASURE)[number];
 
-/** Raw materials (aroma chemicals/ingredients) vs finished goods (fragrances). */
-export const ITEM_TYPES = ["RAW_MATERIAL", "FINISHED_GOOD"] as const;
+/**
+ * Item tiers: raw materials (purchased ingredients), semi-finished "bases"
+ * (solutions/mixtures — made from a formula AND usable in other formulas), and
+ * finished goods (fragrances).
+ */
+export const ITEM_TYPES = ["RAW_MATERIAL", "SEMI_FINISHED", "FINISHED_GOOD"] as const;
 export const itemTypeSchema = z.enum(ITEM_TYPES);
 export type ItemType = (typeof ITEM_TYPES)[number];
 

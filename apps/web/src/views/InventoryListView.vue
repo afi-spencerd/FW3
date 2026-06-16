@@ -12,6 +12,7 @@ import { useAuthStore } from "../stores/auth";
 
 const ITEM_TYPE_LABELS: Record<ItemType, string> = {
   RAW_MATERIAL: "Raw material",
+  SEMI_FINISHED: "Base",
   FINISHED_GOOD: "Finished good",
 };
 

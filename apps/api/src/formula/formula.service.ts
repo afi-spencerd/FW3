@@ -225,11 +225,13 @@ export class FormulaService {
       where: { id: finishedGoodId, tenantId },
     });
     if (!finishedGood) {
-      throw new BadRequestException("Finished good not found in this tenant");
+      throw new BadRequestException("Formula target not found in this tenant");
     }
-    if (finishedGood.itemType !== "FINISHED_GOOD") {
+    // Only manufactured items can be a formula target: finished goods and bases.
+    // Raw materials are purchased, not formulated.
+    if (finishedGood.itemType === "RAW_MATERIAL") {
       throw new BadRequestException(
-        `Formula target ${finishedGood.sku} is not a finished good`,
+        `Formula target ${finishedGood.sku} is a raw material; targets must be a finished good or a base`,
       );
     }
 
@@ -241,10 +243,48 @@ export class FormulaService {
     for (const materialId of materialIds) {
       const material = byId.get(materialId);
       if (!material) {
-        throw new BadRequestException(`Raw material ${materialId} not found`);
+        throw new BadRequestException(`Component ${materialId} not found`);
       }
-      if (material.itemType !== "RAW_MATERIAL") {
-        throw new BadRequestException(`${material.sku} is not a raw material`);
+      // Components are raw materials or bases — never a finished good.
+      if (material.itemType === "FINISHED_GOOD") {
+        throw new BadRequestException(
+          `${material.sku} is a finished good and cannot be a formula component`,
+        );
+      }
+    }
+
+    await this.assertNoCycle(tx, tenantId, finishedGoodId, materialIds);
+  }
+
+  /**
+   * Bases can contain other bases, so formulas form a DAG. Walk the "what
+   * produces this item" graph upward from the components; if we reach the target
+   * we'd be closing a cycle (a base containing itself, directly or transitively).
+   */
+  private async assertNoCycle(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    targetId: string,
+    componentIds: string[],
+  ): Promise<void> {
+    const visited = new Set<string>();
+    const queue = [...componentIds];
+    while (queue.length > 0) {
+      const itemId = queue.shift() as string;
+      if (itemId === targetId) {
+        throw new BadRequestException(
+          "This would create a circular formula reference (a base cannot contain itself)",
+        );
+      }
+      if (visited.has(itemId)) continue;
+      visited.add(itemId);
+      // Formulas that PRODUCE this item; enqueue their components.
+      const producers = await tx.formula.findMany({
+        where: { tenantId, finishedGoodId: itemId },
+        include: { lines: { select: { rawMaterialId: true } } },
+      });
+      for (const producer of producers) {
+        for (const line of producer.lines) queue.push(line.rawMaterialId);
       }
     }
   }
