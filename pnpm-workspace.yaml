@@ -1,0 +1,23 @@
+packages:
+  - "apps/*"
+  - "packages/*"
+
+# Single source of truth for cross-package versions. Reference with "catalog:".
+# Prisma trio is pinned to 7.8.0 to match the nixpkgs prisma-engines build.
+catalog:
+  typescript: ^5.7.2
+  zod: ^3.23.8
+  prisma: 7.8.0
+  "@prisma/client": 7.8.0
+  "@prisma/adapter-mssql": 7.8.0
+
+# esbuild postinstall: static Go binary, runs on NixOS; needed by tsx.
+# Prisma postinstalls are blocked on purpose — they download engine binaries
+# that don't run on NixOS and aren't needed (schema-engine comes from the Nix
+# dev shell; Prisma 7 uses the driver-adapter query path).
+allowBuilds:
+  '@prisma/engines': false
+  esbuild: true
+  # optional native accel for msgpackr (BullMQ); pure-JS fallback is fine on NixOS
+  msgpackr-extract: false
+  prisma: false

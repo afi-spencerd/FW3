@@ -1,0 +1,38 @@
+/**
+ * RBAC permission catalogue. Permissions are the atomic unit of authorization;
+ * roles are bundles of permissions. The API guards endpoints by permission, not
+ * by role name, so roles can be reshaped without touching endpoint code.
+ *
+ * Naming: "<resource>:<action>". Keep this list as the single source of truth —
+ * the DB seed creates exactly these rows.
+ */
+export const PERMISSIONS = {
+  INVENTORY_READ: "inventory:read",
+  INVENTORY_CREATE: "inventory:create",
+  INVENTORY_UPDATE: "inventory:update",
+  INVENTORY_DELETE: "inventory:delete",
+  QB_SYNC_RUN: "qb:sync:run",
+  QB_SYNC_VIEW: "qb:sync:view",
+} as const;
+
+export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
+
+export const ALL_PERMISSIONS: readonly Permission[] = Object.values(PERMISSIONS);
+
+/**
+ * Built-in roles seeded per tenant. `admin` gets everything; `inventory_clerk`
+ * is the day-to-day CRUD role; `viewer` is read-only. These are seed defaults —
+ * tenants can define their own roles later.
+ */
+export const BUILTIN_ROLES = {
+  admin: ALL_PERMISSIONS,
+  inventory_clerk: [
+    PERMISSIONS.INVENTORY_READ,
+    PERMISSIONS.INVENTORY_CREATE,
+    PERMISSIONS.INVENTORY_UPDATE,
+    PERMISSIONS.QB_SYNC_VIEW,
+  ],
+  viewer: [PERMISSIONS.INVENTORY_READ, PERMISSIONS.QB_SYNC_VIEW],
+} as const satisfies Record<string, readonly Permission[]>;
+
+export type BuiltinRoleName = keyof typeof BUILTIN_ROLES;

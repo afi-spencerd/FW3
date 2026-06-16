@@ -1,0 +1,35 @@
+# dependencies
+node_modules/
+.pnpm-store/
+
+# build output
+dist/
+build/
+*.tsbuildinfo
+
+# turbo
+.turbo/
+
+# env / secrets
+.env
+.env.*
+!.env.example
+
+# prisma generated client (regenerated from schema)
+**/generated/prisma/
+
+# direnv
+.direnv/
+
+# container data
+.volumes/
+
+# logs / os
+*.log
+npm-debug.log*
+.DS_Store
+
+# editor
+.vscode/*
+!.vscode/extensions.json
+.idea/

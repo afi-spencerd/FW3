@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<QBXML>
+  <QBXMLMsgsRs>
+    <ItemInventoryQueryRs requestID="1" statusCode="0" statusSeverity="Info" statusMessage="Status OK">
+      <ItemInventoryRet>
+        <ListID>80000001-1234567890</ListID>
+        <EditSequence>1700000000</EditSequence>
+        <Name>Standard Widget</Name>
+        <QuantityOnHand>100</QuantityOnHand>
+        <SalesPrice>9.99</SalesPrice>
+        <PurchaseCost>4.50</PurchaseCost>
+      </ItemInventoryRet>
+      <ItemInventoryRet>
+        <ListID>80000002-1234567891</ListID>
+        <EditSequence>1700000001</EditSequence>
+        <Name>Deluxe Gadget</Name>
+        <QuantityOnHand>25</QuantityOnHand>
+        <SalesPrice>29.50</SalesPrice>
+        <PurchaseCost>12.25</PurchaseCost>
+      </ItemInventoryRet>
+    </ItemInventoryQueryRs>
+  </QBXMLMsgsRs>
+</QBXML>

@@ -1,0 +1,169 @@
+// fw3 data model — SQL Server, multi-tenant.
+// Money/qty are DECIMAL (never float). IDs are app-generated UUIDs stored as
+// CHAR(36) (NVarChar default for String would be too wide to index as a PK).
+// CHECK constraints + the valuation view are added in the migration SQL by hand
+// (Prisma can't express them declaratively).
+
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  runtime      = "nodejs"
+  moduleFormat = "cjs"
+}
+
+// Prisma 7: connection URL lives in prisma.config.ts (datasource.url), not here.
+datasource db {
+  provider = "sqlserver"
+}
+
+model Tenant {
+  id        String   @id @default(uuid()) @db.Char(36)
+  name      String   @db.NVarChar(200)
+  slug      String   @unique @db.NVarChar(100)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users          User[]
+  roles          Role[]
+  inventoryItems InventoryItem[]
+  auditLogs      AuditLog[]
+  qbConnections  QbConnection[]
+}
+
+model User {
+  id          String   @id @default(uuid()) @db.Char(36)
+  tenantId    String   @db.Char(36)
+  idpSub      String   @db.NVarChar(255) // OIDC subject (Entra)
+  email       String   @db.NVarChar(320)
+  displayName String   @db.NVarChar(200)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tenant    Tenant     @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  userRoles UserRole[]
+  auditLogs AuditLog[]
+
+  @@unique([tenantId, idpSub])
+  @@unique([tenantId, email])
+  @@index([tenantId])
+}
+
+model Role {
+  id        String   @id @default(uuid()) @db.Char(36)
+  tenantId  String   @db.Char(36)
+  name      String   @db.NVarChar(100)
+  createdAt DateTime @default(now())
+
+  tenant          Tenant           @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  rolePermissions RolePermission[]
+  userRoles       UserRole[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+}
+
+// Global catalogue — permissions are app constants, not tenant-scoped.
+model Permission {
+  id  String @id @default(uuid()) @db.Char(36)
+  key String @unique @db.NVarChar(100) // e.g. "inventory:read"
+
+  rolePermissions RolePermission[]
+}
+
+model RolePermission {
+  roleId       String @db.Char(36)
+  permissionId String @db.Char(36)
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@id([roleId, permissionId])
+  @@index([permissionId])
+}
+
+model UserRole {
+  userId String @db.Char(36)
+  roleId String @db.Char(36)
+
+  user User @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  role Role @relation(fields: [roleId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@id([userId, roleId])
+  @@index([roleId])
+}
+
+model InventoryItem {
+  id             String    @id @default(uuid()) @db.Char(36)
+  tenantId       String    @db.Char(36)
+  sku            String    @db.NVarChar(64)
+  name           String    @db.NVarChar(200)
+  description    String?   @db.NVarChar(2000)
+  unitOfMeasure  String    @default("EA") @db.NVarChar(16)
+  quantityOnHand Decimal   @default(0) @db.Decimal(18, 4)
+  unitCost       Decimal   @default(0) @db.Decimal(19, 4)
+  salesPrice     Decimal   @default(0) @db.Decimal(19, 4)
+  active         Boolean   @default(true)
+  // QuickBooks linkage from the QBWC round-trip (per tenant).
+  qbListId       String?   @db.NVarChar(64)
+  qbEditSequence String?   @db.NVarChar(64)
+  qbSyncedAt     DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([tenantId, sku])
+  @@index([tenantId])
+}
+
+model AuditLog {
+  id         String   @id @default(uuid()) @db.Char(36)
+  tenantId   String   @db.Char(36)
+  actorId    String?  @db.Char(36) // null for system/QBWC actions
+  entityType String   @db.NVarChar(100)
+  entityId   String   @db.NVarChar(64)
+  action     String   @db.NVarChar(50) // CREATE | UPDATE | DELETE | SYNC
+  before     String?  @db.NVarChar(Max) // JSON snapshot
+  after      String?  @db.NVarChar(Max) // JSON snapshot
+  createdAt  DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  actor  User?  @relation(fields: [actorId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([tenantId, entityType, entityId])
+  @@index([tenantId, createdAt])
+}
+
+// Per-tenant QuickBooks Web Connector connection.
+model QbConnection {
+  id               String    @id @default(uuid()) @db.Char(36)
+  tenantId         String    @db.Char(36)
+  name             String    @db.NVarChar(200)
+  qbwcUsername     String    @unique @db.NVarChar(100) // login QBWC authenticates with
+  qbwcPasswordHash String    @db.NVarChar(255) // argon2 hash
+  companyFile      String?   @db.NVarChar(500)
+  lastSyncAt       DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  tenant   Tenant        @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  sessions QbwcSession[]
+
+  @@index([tenantId])
+}
+
+// One in-flight QBWC sync session (ticket lifecycle).
+model QbwcSession {
+  id           String   @id @default(uuid()) @db.Char(36)
+  connectionId String   @db.Char(36)
+  ticket       String   @unique @db.NVarChar(100)
+  status       String   @db.NVarChar(50) // OPEN | DONE | ERROR
+  lastError    String?  @db.NVarChar(Max)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  connection QbConnection @relation(fields: [connectionId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([connectionId])
+}
