@@ -17,8 +17,16 @@ async function signIn(): Promise<void> {
     await auth.devLogin(tenant.value);
     await router.push({ name: "inventory" });
   } catch (err) {
-    error.value =
-      err instanceof ApiError ? err.message : "Sign-in failed";
+    // Surface the real cause: API message for HTTP errors, otherwise the network
+    // error (e.g. proxy/API unreachable) instead of a generic string.
+    console.error("dev sign-in failed", err);
+    if (err instanceof ApiError) {
+      error.value = `${err.message} (HTTP ${err.status})`;
+    } else if (err instanceof Error) {
+      error.value = `${err.message} — is the API running on :3001?`;
+    } else {
+      error.value = "Sign-in failed";
+    }
   } finally {
     busy.value = false;
   }
