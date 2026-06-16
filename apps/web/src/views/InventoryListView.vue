@@ -1,9 +1,19 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
 import { RouterLink } from "vue-router";
-import { PERMISSIONS, type InventoryItem } from "@fw3/shared-types";
+import {
+  ITEM_TYPES,
+  type ItemType,
+  PERMISSIONS,
+  type InventoryItem,
+} from "@fw3/shared-types";
 import { api, ApiError, type ValuationSummary } from "../lib/api";
 import { useAuthStore } from "../stores/auth";
+
+const ITEM_TYPE_LABELS: Record<ItemType, string> = {
+  RAW_MATERIAL: "Raw material",
+  FINISHED_GOOD: "Finished good",
+};
 
 const auth = useAuthStore();
 
@@ -11,6 +21,7 @@ const items = ref<InventoryItem[]>([]);
 const total = ref(0);
 const valuation = ref<ValuationSummary | null>(null);
 const search = ref("");
+const itemType = ref<ItemType | "">("");
 const loading = ref(false);
 const error = ref<string | null>(null);
 const notice = ref<string | null>(null);
@@ -20,7 +31,11 @@ async function load(): Promise<void> {
   error.value = null;
   try {
     const [page, val] = await Promise.all([
-      api.listInventory({ search: search.value || undefined, pageSize: 100 }),
+      api.listInventory({
+        search: search.value || undefined,
+        itemType: itemType.value || undefined,
+        pageSize: 100,
+      }),
       api.valuation(),
     ]);
     items.value = page.items;
@@ -84,6 +99,12 @@ onMounted(load);
         @keyup.enter="load"
       />
       <button @click="load">Search</button>
+      <select v-model="itemType" style="max-width: 180px" @change="load">
+        <option value="">All types</option>
+        <option v-for="t in ITEM_TYPES" :key="t" :value="t">
+          {{ ITEM_TYPE_LABELS[t] }}
+        </option>
+      </select>
       <span class="spacer" />
       <button
         v-if="auth.hasPermission(PERMISSIONS.QB_SYNC_RUN)"
@@ -106,6 +127,7 @@ onMounted(load);
           <tr>
             <th>SKU</th>
             <th>Name</th>
+            <th>Type</th>
             <th>UoM</th>
             <th class="num">Qty</th>
             <th class="num">Unit cost</th>
@@ -118,6 +140,7 @@ onMounted(load);
           <tr v-for="item in items" :key="item.id" :class="{ inactive: !item.active }">
             <td>{{ item.sku }}</td>
             <td>{{ item.name }}</td>
+            <td>{{ ITEM_TYPE_LABELS[item.itemType] }}</td>
             <td>{{ item.unitOfMeasure }}</td>
             <td class="num">{{ item.quantityOnHand }}</td>
             <td class="num">{{ item.unitCost }}</td>
@@ -141,7 +164,7 @@ onMounted(load);
             </td>
           </tr>
           <tr v-if="!loading && items.length === 0">
-            <td colspan="8" class="inactive">No items.</td>
+            <td colspan="9" class="inactive">No items.</td>
           </tr>
         </tbody>
       </table>

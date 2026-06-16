@@ -3,9 +3,17 @@ import { onMounted, reactive, ref } from "vue";
 import { useRouter } from "vue-router";
 import {
   createInventoryItemSchema,
+  ITEM_TYPES,
+  type ItemType,
+  UNITS_OF_MEASURE,
   updateInventoryItemSchema,
 } from "@fw3/shared-types";
 import { api, ApiError } from "../lib/api";
+
+const ITEM_TYPE_LABELS: Record<ItemType, string> = {
+  RAW_MATERIAL: "Raw material",
+  FINISHED_GOOD: "Finished good",
+};
 
 const props = defineProps<{ id?: string }>();
 const router = useRouter();
@@ -15,7 +23,8 @@ const form = reactive({
   sku: "",
   name: "",
   description: "",
-  unitOfMeasure: "EA",
+  itemType: "RAW_MATERIAL" as ItemType,
+  unitOfMeasure: "LB",
   quantityOnHand: "0",
   unitCost: "0",
   salesPrice: "0",
@@ -43,6 +52,7 @@ onMounted(async () => {
       sku: item.sku,
       name: item.name,
       description: item.description ?? "",
+      itemType: item.itemType,
       unitOfMeasure: item.unitOfMeasure,
       quantityOnHand: item.quantityOnHand,
       unitCost: item.unitCost,
@@ -61,6 +71,7 @@ async function submit(): Promise<void> {
     const payload = {
       name: form.name,
       description: form.description || undefined,
+      itemType: form.itemType,
       unitOfMeasure: form.unitOfMeasure,
       quantityOnHand: form.quantityOnHand,
       unitCost: form.unitCost,
@@ -135,10 +146,22 @@ async function submit(): Promise<void> {
         <div v-if="errors.description" class="error">{{ errors.description }}</div>
       </div>
 
+      <div class="field">
+        <label for="itemType">Item type</label>
+        <select id="itemType" v-model="form.itemType">
+          <option v-for="t in ITEM_TYPES" :key="t" :value="t">
+            {{ ITEM_TYPE_LABELS[t] }}
+          </option>
+        </select>
+        <div v-if="errors.itemType" class="error">{{ errors.itemType }}</div>
+      </div>
+
       <div class="grid-2">
         <div class="field">
           <label for="uom">Unit of measure</label>
-          <input id="uom" v-model="form.unitOfMeasure" />
+          <select id="uom" v-model="form.unitOfMeasure">
+            <option v-for="u in UNITS_OF_MEASURE" :key="u" :value="u">{{ u }}</option>
+          </select>
           <div v-if="errors.unitOfMeasure" class="error">{{ errors.unitOfMeasure }}</div>
         </div>
         <div class="field">

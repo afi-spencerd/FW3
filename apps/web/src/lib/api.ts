@@ -2,6 +2,7 @@ import type {
   AuthenticatedUser,
   CreateInventoryItem,
   InventoryItem,
+  ItemType,
   PaginatedInventory,
   UpdateInventoryItem,
 } from "@fw3/shared-types";
@@ -45,6 +46,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export interface InventoryQuery {
   search?: string;
+  itemType?: ItemType;
   active?: boolean;
   page?: number;
   pageSize?: number;
@@ -53,6 +55,7 @@ export interface InventoryQuery {
 function toQueryString(query: InventoryQuery): string {
   const params = new URLSearchParams();
   if (query.search) params.set("search", query.search);
+  if (query.itemType) params.set("itemType", query.itemType);
   if (query.active !== undefined) params.set("active", String(query.active));
   if (query.page) params.set("page", String(query.page));
   if (query.pageSize) params.set("pageSize", String(query.pageSize));

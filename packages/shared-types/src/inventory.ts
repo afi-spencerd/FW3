@@ -7,14 +7,26 @@ import { moneyString, quantityString } from "./money.js";
  * the browser only does UX-level validation against these same schemas.
  */
 
-export const unitOfMeasure = z.string().trim().min(1).max(16);
+/**
+ * Stocking units. Fragrance materials are stored by weight — pounds (most) and
+ * kilograms. Conversion (1 kg = 2.20462262 lb) is handled server-side.
+ */
+export const UNITS_OF_MEASURE = ["LB", "KG"] as const;
+export const unitOfMeasureSchema = z.enum(UNITS_OF_MEASURE);
+export type UnitOfMeasure = (typeof UNITS_OF_MEASURE)[number];
+
+/** Raw materials (aroma chemicals/ingredients) vs finished goods (fragrances). */
+export const ITEM_TYPES = ["RAW_MATERIAL", "FINISHED_GOOD"] as const;
+export const itemTypeSchema = z.enum(ITEM_TYPES);
+export type ItemType = (typeof ITEM_TYPES)[number];
 
 /** Fields a user can submit when creating an item. */
 export const createInventoryItemSchema = z.object({
   sku: z.string().trim().min(1).max(64),
   name: z.string().trim().min(1).max(200),
   description: z.string().trim().max(2000).optional(),
-  unitOfMeasure: unitOfMeasure.default("EA"),
+  itemType: itemTypeSchema,
+  unitOfMeasure: unitOfMeasureSchema.default("LB"),
   quantityOnHand: quantityString.default("0"),
   unitCost: moneyString.default("0"),
   salesPrice: moneyString.default("0"),
@@ -33,7 +45,8 @@ export const inventoryItemSchema = z.object({
   sku: z.string(),
   name: z.string(),
   description: z.string().nullable(),
-  unitOfMeasure: z.string(),
+  itemType: itemTypeSchema,
+  unitOfMeasure: unitOfMeasureSchema,
   quantityOnHand: z.string(),
   unitCost: z.string(),
   salesPrice: z.string(),
@@ -46,6 +59,7 @@ export const inventoryItemSchema = z.object({
 
 export const inventoryListQuerySchema = z.object({
   search: z.string().trim().max(200).optional(),
+  itemType: itemTypeSchema.optional(),
   // Query strings: compare explicitly — z.coerce.boolean("false") would be true.
   active: z
     .enum(["true", "false"])

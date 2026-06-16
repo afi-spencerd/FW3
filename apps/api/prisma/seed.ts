@@ -17,10 +17,11 @@ import { mssqlConfigFromUrl } from "../src/database/mssql-config";
 loadEnv({ path: path.resolve(__dirname, "../../../.env") });
 
 const DEMO_ITEMS = [
-  { sku: "WIDGET-001", name: "Standard Widget", qty: "100.0000", cost: "4.5000", price: "9.9900" },
-  { sku: "GADGET-002", name: "Deluxe Gadget", qty: "25.0000", cost: "12.2500", price: "29.5000" },
-  { sku: "BOLT-M6-50", name: "M6x50 Bolt (box of 100)", qty: "500.0000", cost: "0.0850", price: "0.2500" },
-  { sku: "CABLE-USB-C", name: "USB-C Cable 1m", qty: "0.0000", cost: "1.7500", price: "6.9900" },
+  { sku: "RM-AMBROXAN", name: "Ambroxan", type: "RAW_MATERIAL", uom: "LB", qty: "1.3000", cost: "210.0000", price: "0.0000" },
+  { sku: "RM-HEDIONE", name: "Hedione", type: "RAW_MATERIAL", uom: "LB", qty: "44.5000", cost: "38.5000", price: "0.0000" },
+  { sku: "RM-ISO-E-SUPER", name: "Iso E Super", type: "RAW_MATERIAL", uom: "KG", qty: "12.0000", cost: "33.0000", price: "0.0000" },
+  { sku: "RM-VANILLIN", name: "Vanillin", type: "RAW_MATERIAL", uom: "LB", qty: "8.2500", cost: "19.7500", price: "0.0000" },
+  { sku: "FG-NOIR-01", name: "Noir Extrait (fragrance)", type: "FINISHED_GOOD", uom: "LB", qty: "6.0000", cost: "62.4000", price: "180.0000" },
 ] as const;
 
 async function main(): Promise<void> {
@@ -89,6 +90,8 @@ async function main(): Promise<void> {
           tenantId: tenant.id,
           sku: item.sku,
           name: item.name,
+          itemType: item.type,
+          unitOfMeasure: item.uom,
           quantityOnHand: item.qty,
           unitCost: item.cost,
           salesPrice: item.price,

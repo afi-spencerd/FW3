@@ -8,7 +8,9 @@ import type {
   CreateInventoryItem,
   InventoryItem,
   InventoryListQuery,
+  ItemType,
   PaginatedInventory,
+  UnitOfMeasure,
   UpdateInventoryItem,
 } from "@fw3/shared-types";
 import { AuditService } from "../audit/audit.service";
@@ -40,6 +42,7 @@ export class InventoryService {
   ): Promise<PaginatedInventory> {
     const where: Prisma.InventoryItemWhereInput = {
       tenantId,
+      ...(query.itemType === undefined ? {} : { itemType: query.itemType }),
       ...(query.active === undefined ? {} : { active: query.active }),
       ...(query.search
         ? {
@@ -89,6 +92,7 @@ export class InventoryService {
             sku: input.sku,
             name: input.name,
             description: input.description ?? null,
+            itemType: input.itemType,
             unitOfMeasure: input.unitOfMeasure,
             quantityOnHand: input.quantityOnHand,
             unitCost: input.unitCost,
@@ -131,6 +135,7 @@ export class InventoryService {
             ...(input.description === undefined
               ? {}
               : { description: input.description ?? null }),
+            ...(input.itemType === undefined ? {} : { itemType: input.itemType }),
             ...(input.unitOfMeasure === undefined
               ? {}
               : { unitOfMeasure: input.unitOfMeasure }),
@@ -213,7 +218,9 @@ export class InventoryService {
       sku: row.sku,
       name: row.name,
       description: row.description,
-      unitOfMeasure: row.unitOfMeasure,
+      // DB CHECK constraints guarantee these are within the allowed sets.
+      itemType: row.itemType as ItemType,
+      unitOfMeasure: row.unitOfMeasure as UnitOfMeasure,
       quantityOnHand: row.quantityOnHand.toString(),
       unitCost: row.unitCost.toString(),
       salesPrice: row.salesPrice.toString(),
