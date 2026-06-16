@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { RouterView, useRouter } from "vue-router";
+import { RouterLink, RouterView, useRouter } from "vue-router";
 import { useAuthStore } from "./stores/auth";
 
 const auth = useAuthStore();
@@ -14,6 +14,10 @@ async function logout(): Promise<void> {
 <template>
   <header class="app-header">
     <span class="brand">fw3 ERP</span>
+    <nav v-if="auth.isAuthenticated" class="nav">
+      <RouterLink :to="{ name: 'inventory' }">Inventory</RouterLink>
+      <RouterLink :to="{ name: 'formulas' }">Formulas</RouterLink>
+    </nav>
     <span class="spacer" />
     <template v-if="auth.isAuthenticated">
       <span class="user">{{ auth.user?.email }}</span>

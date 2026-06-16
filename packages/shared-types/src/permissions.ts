@@ -11,6 +11,10 @@ export const PERMISSIONS = {
   INVENTORY_CREATE: "inventory:create",
   INVENTORY_UPDATE: "inventory:update",
   INVENTORY_DELETE: "inventory:delete",
+  FORMULA_READ: "formula:read",
+  FORMULA_CREATE: "formula:create",
+  FORMULA_UPDATE: "formula:update",
+  FORMULA_DELETE: "formula:delete",
   QB_SYNC_RUN: "qb:sync:run",
   QB_SYNC_VIEW: "qb:sync:view",
 } as const;
@@ -30,9 +34,16 @@ export const BUILTIN_ROLES = {
     PERMISSIONS.INVENTORY_READ,
     PERMISSIONS.INVENTORY_CREATE,
     PERMISSIONS.INVENTORY_UPDATE,
+    PERMISSIONS.FORMULA_READ,
+    PERMISSIONS.FORMULA_CREATE,
+    PERMISSIONS.FORMULA_UPDATE,
     PERMISSIONS.QB_SYNC_VIEW,
   ],
-  viewer: [PERMISSIONS.INVENTORY_READ, PERMISSIONS.QB_SYNC_VIEW],
+  viewer: [
+    PERMISSIONS.INVENTORY_READ,
+    PERMISSIONS.FORMULA_READ,
+    PERMISSIONS.QB_SYNC_VIEW,
+  ],
 } as const satisfies Record<string, readonly Permission[]>;
 
 export type BuiltinRoleName = keyof typeof BUILTIN_ROLES;

@@ -28,6 +28,25 @@ export const router = createRouter({
       meta: { requiresAuth: true },
       props: true,
     },
+    {
+      path: "/formulas",
+      name: "formulas",
+      component: () => import("./views/FormulaListView.vue"),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: "/formulas/new",
+      name: "formula-new",
+      component: () => import("./views/FormulaFormView.vue"),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: "/formulas/:id",
+      name: "formula-edit",
+      component: () => import("./views/FormulaFormView.vue"),
+      meta: { requiresAuth: true },
+      props: true,
+    },
   ],
 });
 

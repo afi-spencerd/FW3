@@ -28,6 +28,7 @@ model Tenant {
   inventoryItems InventoryItem[]
   auditLogs      AuditLog[]
   qbConnections  QbConnection[]
+  formulas       Formula[]
 }
 
 model User {
@@ -116,9 +117,50 @@ model InventoryItem {
   updatedAt      DateTime  @updatedAt
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  // Formulas where this item is the finished good, and formula lines that use it
+  // as a raw material.
+  finishedGoodFormulas    Formula[]     @relation("FinishedGoodFormulas")
+  rawMaterialFormulaLines FormulaLine[] @relation("RawMaterialFormulaLines")
 
   @@unique([tenantId, sku])
   @@index([tenantId])
+}
+
+// A fragrance formula: finished good = raw materials by percentage of weight.
+model Formula {
+  id             String   @id @default(uuid()) @db.Char(36)
+  tenantId       String   @db.Char(36)
+  finishedGoodId String   @db.Char(36)
+  name           String   @db.NVarChar(200)
+  version        Int      @default(1)
+  notes          String?  @db.NVarChar(2000)
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  tenant       Tenant        @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  finishedGood InventoryItem @relation("FinishedGoodFormulas", fields: [finishedGoodId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  lines        FormulaLine[]
+
+  @@unique([tenantId, finishedGoodId, version])
+  @@index([tenantId])
+}
+
+model FormulaLine {
+  id            String  @id @default(uuid()) @db.Char(36)
+  formulaId     String  @db.Char(36)
+  rawMaterialId String  @db.Char(36)
+  // Percent of total weight; 0 < percentage <= 100 (CHECK in migration). Lines
+  // for a formula must sum to 100 (enforced in the service).
+  percentage    Decimal @db.Decimal(7, 4)
+  sortOrder     Int     @default(0)
+
+  formula     Formula       @relation(fields: [formulaId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  rawMaterial InventoryItem @relation("RawMaterialFormulaLines", fields: [rawMaterialId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([formulaId, rawMaterialId])
+  @@index([formulaId])
+  @@index([rawMaterialId])
 }
 
 model AuditLog {

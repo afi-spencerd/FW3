@@ -1,9 +1,15 @@
 import type {
   AuthenticatedUser,
+  BatchRequirements,
+  BatchRequirementsRequest,
+  CreateFormula,
   CreateInventoryItem,
+  Formula,
+  FormulaSummary,
   InventoryItem,
   ItemType,
   PaginatedInventory,
+  UpdateFormula,
   UpdateInventoryItem,
 } from "@fw3/shared-types";
 
@@ -94,6 +100,23 @@ export const api = {
   deleteInventory: (id: string) =>
     request<void>(`/inventory/${id}`, { method: "DELETE" }),
   valuation: () => request<ValuationSummary>("/inventory/valuation"),
+
+  listFormulas: () => request<FormulaSummary[]>("/formulas"),
+  getFormula: (id: string) => request<Formula>(`/formulas/${id}`),
+  createFormula: (data: CreateFormula) =>
+    request<Formula>("/formulas", { method: "POST", body: JSON.stringify(data) }),
+  updateFormula: (id: string, data: UpdateFormula) =>
+    request<Formula>(`/formulas/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    }),
+  deleteFormula: (id: string) =>
+    request<void>(`/formulas/${id}`, { method: "DELETE" }),
+  formulaRequirements: (id: string, body: BatchRequirementsRequest) =>
+    request<BatchRequirements>(`/formulas/${id}/requirements`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
 
   qbSync: () =>
     request<{ jobId: string; queued: boolean }>("/qb/sync", { method: "POST" }),

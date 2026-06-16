@@ -100,6 +100,48 @@ async function main(): Promise<void> {
       });
     }
 
+    // 6. Demo formula for the finished good (percentages sum to 100).
+    const finishedGood = await prisma.inventoryItem.findUniqueOrThrow({
+      where: { tenantId_sku: { tenantId: tenant.id, sku: "FG-NOIR-01" } },
+    });
+    const lineDefs = [
+      { sku: "RM-AMBROXAN", percentage: "10" },
+      { sku: "RM-HEDIONE", percentage: "40" },
+      { sku: "RM-ISO-E-SUPER", percentage: "35" },
+      { sku: "RM-VANILLIN", percentage: "15" },
+    ];
+    const lines = [];
+    for (const [index, def] of lineDefs.entries()) {
+      const material = await prisma.inventoryItem.findUniqueOrThrow({
+        where: { tenantId_sku: { tenantId: tenant.id, sku: def.sku } },
+      });
+      lines.push({
+        rawMaterialId: material.id,
+        percentage: def.percentage,
+        sortOrder: index,
+      });
+    }
+    const existingFormula = await prisma.formula.findUnique({
+      where: {
+        tenantId_finishedGoodId_version: {
+          tenantId: tenant.id,
+          finishedGoodId: finishedGood.id,
+          version: 1,
+        },
+      },
+    });
+    if (!existingFormula) {
+      await prisma.formula.create({
+        data: {
+          tenantId: tenant.id,
+          finishedGoodId: finishedGood.id,
+          name: "Noir Extrait v1",
+          version: 1,
+          lines: { create: lines },
+        },
+      });
+    }
+
     console.log(`Seed complete. Tenant=${tenant.id} (slug=demo), admin user=${admin.id}`);
   } finally {
     await prisma.$disconnect();

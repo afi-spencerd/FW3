@@ -31,6 +31,9 @@ a:hover { text-decoration: underline; }
 }
 .app-header .brand { font-weight: 700; }
 .app-header .spacer { flex: 1; }
+.app-header .nav { display: flex; gap: 1rem; margin-left: 1.5rem; }
+.app-header .nav a { color: var(--muted); font-size: 0.92rem; }
+.app-header .nav a.router-link-active { color: var(--accent); font-weight: 600; }
 .app-header .user { color: var(--muted); margin-right: 1rem; font-size: 0.9rem; }
 
 .container { max-width: 1000px; margin: 1.5rem auto; padding: 0 1.5rem; }
