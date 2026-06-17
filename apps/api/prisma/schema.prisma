@@ -36,6 +36,8 @@ model Tenant {
   customers           Customer[]
   salesOrders         SalesOrder[]
   productionWorkOrders ProductionWorkOrder[]
+  itemQualitySpecs    ItemQualitySpec[]
+  receivedLots        ReceivedLot[]
 }
 
 model User {
@@ -134,9 +136,76 @@ model InventoryItem {
   salesOrderLines         SalesOrderLine[]      @relation("ItemSalesOrderLines")
   targetWorkOrders        ProductionWorkOrder[]     @relation("TargetProductionRuns")
   componentWorkOrderLines ProductionWorkOrderLine[] @relation("ComponentProductionRunLines")
+  qualitySpecs            ItemQualitySpec[]
+  receivedLots            ReceivedLot[]
 
   @@unique([tenantId, sku])
   @@index([tenantId])
+}
+
+// Per-item QC acceptance criteria for a test type. NUMERIC tests use min/max;
+// DESCRIPTIVE tests use expectedValue.
+model ItemQualitySpec {
+  id            String   @id @default(uuid()) @db.Char(36)
+  tenantId      String   @db.Char(36)
+  itemId        String   @db.Char(36)
+  testType      String   @db.NVarChar(30) // SPECIFIC_GRAVITY | REFRACTIVE_INDEX | COLOR | ODOR
+  minValue      Decimal? @db.Decimal(18, 6)
+  maxValue      Decimal? @db.Decimal(18, 6)
+  expectedValue String?  @db.NVarChar(200)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  tenant Tenant        @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  item   InventoryItem @relation(fields: [itemId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([itemId, testType])
+  @@index([tenantId])
+}
+
+// A received supplier lot, quarantined pending QC. Vendor/PO are snapshotted by
+// name to avoid extra joins on this quality record.
+model ReceivedLot {
+  id                  String    @id @default(uuid()) @db.Char(36)
+  tenantId            String    @db.Char(36)
+  itemId              String    @db.Char(36)
+  purchaseOrderId     String?   @db.Char(36)
+  purchaseOrderLineId String?   @db.Char(36)
+  purchaseOrderNumber String?   @db.NVarChar(50)
+  vendorName          String?   @db.NVarChar(200)
+  supplierLotNumber   String    @db.NVarChar(80)
+  quantity            Decimal   @db.Decimal(18, 4)
+  unitCost            Decimal   @db.Decimal(19, 4)
+  qcStatus            String    @default("PENDING") @db.NVarChar(20) // PENDING | APPROVED | REJECTED
+  rejectionReason     String?   @db.NVarChar(500)
+  receivedAt          DateTime  @default(now())
+  reviewedAt          DateTime?
+  reviewedById        String?   @db.Char(36)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  tenant  Tenant              @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  item    InventoryItem       @relation(fields: [itemId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  results QualityTestResult[]
+
+  @@index([tenantId, qcStatus])
+  @@index([itemId])
+}
+
+model QualityTestResult {
+  id            String   @id @default(uuid()) @db.Char(36)
+  receivedLotId String   @db.Char(36)
+  testType      String   @db.NVarChar(30)
+  measuredValue String?  @db.NVarChar(200)
+  passed        Boolean?
+  notes         String?  @db.NVarChar(500)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  receivedLot ReceivedLot @relation(fields: [receivedLotId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([receivedLotId, testType])
+  @@index([receivedLotId])
 }
 
 // Per-(item, state) position. State separates LOT-traceable inventory (INV) from

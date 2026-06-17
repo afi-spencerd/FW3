@@ -2,8 +2,12 @@ import { z } from "zod";
 import { moneyString, quantityString } from "./money.js";
 import { itemTypeSchema, unitOfMeasureSchema } from "./inventory.js";
 
-/** Inventory status: LOT-traceable (INV) vs work-in-progress (WIP). */
-export const STOCK_STATUSES = ["INV", "WIP"] as const;
+/**
+ * Inventory status: QUARANTINE (received, awaiting QC), INV (LOT-traceable /
+ * usable), WIP (work-in-progress). Received goods land in QUARANTINE; QC approval
+ * transfers QUARANTINE -> INV.
+ */
+export const STOCK_STATUSES = ["INV", "WIP", "QUARANTINE"] as const;
 export const stockStatusSchema = z.enum(STOCK_STATUSES);
 export type StockStatus = (typeof STOCK_STATUSES)[number];
 

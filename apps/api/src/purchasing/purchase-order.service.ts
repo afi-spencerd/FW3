@@ -5,14 +5,15 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import Decimal from "decimal.js";
-import type {
-  AuthenticatedUser,
-  CreatePurchaseOrder,
-  PurchaseOrder,
-  PurchaseOrderStatus,
-  PurchaseOrderSummary,
-  ReceivePurchaseOrder,
-  UpdatePurchaseOrder,
+import {
+  type AuthenticatedUser,
+  type CreatePurchaseOrder,
+  type PurchaseOrder,
+  type PurchaseOrderStatus,
+  type PurchaseOrderSummary,
+  QC_TEST_TYPES,
+  type ReceivePurchaseOrder,
+  type UpdatePurchaseOrder,
 } from "@fw3/shared-types";
 import { AuditService } from "../audit/audit.service";
 import { PrismaService } from "../database/prisma.service";
@@ -204,23 +205,47 @@ export class PurchaseOrderService {
             `Cannot receive ${qty} of ${line.item.sku}: only ${remaining} remaining`,
           );
         }
+        // Received goods land in QUARANTINE pending QC.
         movements.push({
           itemId: line.itemId,
           type: "RECEIPT",
           direction: "IN",
           quantity: recv.quantity,
           unitCost: line.unitCost.toString(),
+          status: "QUARANTINE",
         });
         await tx.purchaseOrderLine.update({
           where: { id: line.id },
           data: { quantityReceived: line.quantityReceived.plus(qty) },
+        });
+
+        // One quarantined lot per received line, with an empty QC test suite.
+        const supplierLotNumber =
+          recv.supplierLotNumber?.trim() ||
+          `${order.poNumber}-${line.item.sku}-${Date.now().toString(36)}`;
+        await tx.receivedLot.create({
+          data: {
+            tenantId: user.tenantId,
+            itemId: line.itemId,
+            purchaseOrderId: id,
+            purchaseOrderLineId: line.id,
+            purchaseOrderNumber: order.poNumber,
+            vendorName: order.vendor.name,
+            supplierLotNumber,
+            quantity: recv.quantity,
+            unitCost: line.unitCost,
+            qcStatus: "PENDING",
+            results: {
+              create: QC_TEST_TYPES.map((testType) => ({ testType })),
+            },
+          },
         });
       }
 
       await this.stock.post(tx, user.tenantId, movements, {
         docType: "PURCHASE_ORDER",
         docId: id,
-        note: `PO ${order.poNumber} receipt`,
+        note: `PO ${order.poNumber} receipt to quarantine`,
       });
 
       const refreshed = await tx.purchaseOrderLine.findMany({

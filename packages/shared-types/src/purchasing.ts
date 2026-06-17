@@ -54,13 +54,15 @@ export const updatePurchaseOrderSchema = z.object({
   lines: z.array(poLineInputSchema).min(1).optional(),
 });
 
-/** Receive specified quantities against PO lines. */
+/** Receive specified quantities against PO lines (each creates a quarantined lot). */
 export const receivePurchaseOrderSchema = z.object({
   lines: z
     .array(
       z.object({
         purchaseOrderLineId: z.string().uuid(),
         quantity: positiveQty,
+        /** Supplier's lot number for QC traceability; auto-generated if omitted. */
+        supplierLotNumber: z.string().trim().max(80).optional(),
       }),
     )
     .min(1),
