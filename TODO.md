@@ -1,0 +1,25 @@
+# TODO
+
+- [ ] Separate Inventory from Item Details
+- [ ] Facilitate sending QC Failed RMs back to Vendor
+- [ ] Facilitate Scrap in all Inventory stages
+- [ ] Unique views for specific User Roles
+- [ ] fix: correct broken references to "Stock" page
+- [ ] create API for Compounder Tool to report consumptions and batch progress
+- [ ] complete QBWC sync
+- [ ] fix: broken inventory delete button
+  - [ ] should only allow adjusting out all inventory, not deleting. all adjustments should be recorded.
+  - [ ] should not be able to delete an item if inventory transactions exist for it
+- [ ] cycle count tool
+- [ ] allow packing before QC
+- [ ] show cost when generating SO
+  - [ ] prevent "losing our shirt"
+  - [ ] factor in production costs to SO (use 80% RMC)
+  - [ ] set default profit margin
+  - [ ] customer purchase & cost history
+- [ ] location rules. (i.e. no move back to receiving dock after moved to warehouse)
+- [ ] headers on stock adjustment
+- [ ] always use lbs for UOM
+- [ ] allow receiving from vendor as KG, auto convert. disclaimer for conversion formula used.
+- [x] location visibility (what's currently on a location)
+- [ ] sub-locations
