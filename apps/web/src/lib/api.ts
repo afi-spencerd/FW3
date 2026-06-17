@@ -14,11 +14,16 @@ import type {
   FormulaSummary,
   InventoryItem,
   CreateProductionWorkOrder,
+  CreateLocation,
   InventoryPosition,
   InventoryTxn,
+  ItemLocationPosition,
   ItemQualitySpec,
   ItemType,
+  Location,
+  LocationMove,
   Lot,
+  MoveStock,
   LotSummary,
   PaginatedInventory,
   ProductionWorkOrder,
@@ -36,6 +41,7 @@ import type {
   UpdateCustomer,
   UpdateFormula,
   UpdateInventoryItem,
+  UpdateLocation,
   UpdateVendor,
   Vendor,
 } from "@fw3/shared-types";
@@ -142,6 +148,27 @@ export const api = {
     request<InventoryPosition>(`/inventory/${id}/pack-off`, {
       method: "POST",
       body: JSON.stringify({ quantity }),
+    }),
+  itemLocations: (id: string) =>
+    request<ItemLocationPosition[]>(`/inventory/${id}/locations`),
+  itemLocationMoves: (id: string) =>
+    request<LocationMove[]>(`/inventory/${id}/location-moves`),
+  moveStock: (id: string, body: MoveStock) =>
+    request<ItemLocationPosition[]>(`/inventory/${id}/move`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  listLocations: () => request<Location[]>("/locations"),
+  createLocation: (data: CreateLocation) =>
+    request<Location>("/locations", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  updateLocation: (id: string, data: UpdateLocation) =>
+    request<Location>(`/locations/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
     }),
 
   listProductionWorkOrders: () =>

@@ -10,7 +10,11 @@ import type {
   DocType,
   InventoryPosition,
   InventoryTxn as InventoryTxnDto,
+  ItemLocationPosition,
   ItemType,
+  LocatedStockStatus,
+  LocationMove,
+  MoveStock,
   StockPosition,
   StockStatus,
   TxnType,
@@ -37,6 +41,17 @@ export interface Movement {
   unitCost?: string;
   /** Which bucket the movement lands in. Defaults to INV (LOT-traceable). */
   status?: StockStatus;
+  /**
+   * For located statuses (INV/QUARANTINE): which location to place into
+   * (inbound) or prefer when drawing down (outbound). Defaults are resolved
+   * per status (receiving for QUARANTINE inbound, default storage otherwise).
+   */
+  locationId?: string;
+}
+
+/** INV and QUARANTINE quantity is tracked by physical location; WIP is not. */
+function isLocated(status: StockStatus): status is LocatedStockStatus {
+  return status === "INV" || status === "QUARANTINE";
 }
 
 export interface PostingDoc {
@@ -152,6 +167,36 @@ export class StockService {
         });
       }
 
+      // Maintain the per-location quantity breakdown for located statuses, so
+      // the sum over locations stays equal to the ItemStock quantity. Cost is
+      // item-level and untouched here.
+      if (isLocated(status)) {
+        if (movement.direction === "IN") {
+          const locationId =
+            movement.locationId ??
+            (await this.resolveInboundLocationId(tx, tenantId, status));
+          if (locationId) {
+            await this.placeAtLocation(
+              tx,
+              tenantId,
+              movement.itemId,
+              status,
+              locationId,
+              movement.quantity,
+            );
+          }
+        } else {
+          await this.removeFromLocations(
+            tx,
+            tenantId,
+            movement.itemId,
+            status,
+            movement.quantity,
+            movement.locationId,
+          );
+        }
+      }
+
       posted.push({ itemId: movement.itemId, type: movement.type, status, ...result });
     }
     return posted;
@@ -171,18 +216,42 @@ export class StockService {
     quantity: string,
     doc: PostingDoc,
     type: TxnType = "TRANSFER",
+    locations?: { fromLocationId?: string; toLocationId?: string },
   ): Promise<void> {
     const [out] = await this.post(
       tx,
       tenantId,
-      [{ itemId, type, direction: "OUT", quantity, status: fromStatus }],
+      [
+        {
+          itemId,
+          type,
+          direction: "OUT",
+          quantity,
+          status: fromStatus,
+          ...(locations?.fromLocationId
+            ? { locationId: locations.fromLocationId }
+            : {}),
+        },
+      ],
       doc,
     );
     if (!out) return;
     await this.post(
       tx,
       tenantId,
-      [{ itemId, type, direction: "IN", quantity, unitCost: out.unitCost, status: toStatus }],
+      [
+        {
+          itemId,
+          type,
+          direction: "IN",
+          quantity,
+          unitCost: out.unitCost,
+          status: toStatus,
+          ...(locations?.toLocationId
+            ? { locationId: locations.toLocationId }
+            : {}),
+        },
+      ],
       doc,
     );
   }
@@ -350,5 +419,232 @@ export class StockService {
         totalValue: extendedValue(r.quantity.toString(), r.avgCost.toString()),
       }))
       .sort((a, b) => a.sku.localeCompare(b.sku) || a.status.localeCompare(b.status));
+  }
+
+  // ---- Physical locations ----
+
+  /**
+   * Move a quantity of an item between two locations within one stock status.
+   * Pure quantity reallocation: ItemStock (qty+cost) and the cost ledger are
+   * untouched; only the per-location breakdown changes, plus a LocationMove row.
+   */
+  async moveLocation(
+    user: AuthenticatedUser,
+    itemId: string,
+    input: MoveStock,
+  ): Promise<ItemLocationPosition[]> {
+    await this.prisma.$transaction(async (tx) => {
+      const item = await tx.inventoryItem.findFirst({
+        where: { id: itemId, tenantId: user.tenantId },
+      });
+      if (!item) throw new NotFoundException("Inventory item not found");
+
+      const [from, to] = await Promise.all([
+        tx.location.findFirst({
+          where: { id: input.fromLocationId, tenantId: user.tenantId },
+        }),
+        tx.location.findFirst({
+          where: { id: input.toLocationId, tenantId: user.tenantId },
+        }),
+      ]);
+      if (!from) throw new BadRequestException("Source location not found");
+      if (!to) throw new BadRequestException("Destination location not found");
+      if (!to.active) {
+        throw new BadRequestException(`Destination ${to.name} is inactive`);
+      }
+
+      const requested = new Decimal(input.quantity);
+      const src = await tx.itemStockLocation.findUnique({
+        where: {
+          itemId_status_locationId: {
+            itemId,
+            status: input.status,
+            locationId: input.fromLocationId,
+          },
+        },
+      });
+      const available = src?.quantity ?? new Decimal(0);
+      if (requested.greaterThan(available)) {
+        throw new BadRequestException(
+          `Cannot move ${requested} of ${item.sku} from ${from.name}: only ${available} ${input.status} there`,
+        );
+      }
+
+      await this.removeFromLocations(
+        tx,
+        user.tenantId,
+        itemId,
+        input.status,
+        input.quantity,
+        input.fromLocationId,
+      );
+      await this.placeAtLocation(
+        tx,
+        user.tenantId,
+        itemId,
+        input.status,
+        input.toLocationId,
+        input.quantity,
+      );
+      await tx.locationMove.create({
+        data: {
+          tenantId: user.tenantId,
+          itemId,
+          status: input.status,
+          fromLocationId: input.fromLocationId,
+          toLocationId: input.toLocationId,
+          quantity: input.quantity,
+          note: input.note ?? null,
+          actorId: user.id,
+        },
+      });
+      await this.audit.record(tx, {
+        tenantId: user.tenantId,
+        actorId: user.id,
+        entityType: "InventoryItem",
+        entityId: itemId,
+        action: "UPDATE",
+        after: { locationMove: input },
+      });
+    });
+    return this.getItemLocations(user.tenantId, itemId);
+  }
+
+  /** Per-(status, location) quantity breakdown for an item. */
+  async getItemLocations(
+    tenantId: string,
+    itemId: string,
+  ): Promise<ItemLocationPosition[]> {
+    const rows = await this.prisma.itemStockLocation.findMany({
+      where: { tenantId, itemId },
+      include: { location: true },
+    });
+    return rows
+      .filter((r) => !r.quantity.isZero())
+      .map((r) => ({
+        itemId,
+        status: r.status as LocatedStockStatus,
+        locationId: r.locationId,
+        locationName: r.location.name,
+        locationCode: r.location.code,
+        quantity: r.quantity.toString(),
+      }))
+      .sort(
+        (a, b) =>
+          a.status.localeCompare(b.status) ||
+          a.locationName.localeCompare(b.locationName),
+      );
+  }
+
+  /** Physical move history for an item (newest first). */
+  async getLocationMoves(
+    tenantId: string,
+    itemId: string,
+  ): Promise<LocationMove[]> {
+    const rows = await this.prisma.locationMove.findMany({
+      where: { tenantId, itemId },
+      include: { fromLocation: true, toLocation: true },
+      orderBy: { occurredAt: "desc" },
+    });
+    return rows.map((r) => ({
+      id: r.id,
+      itemId: r.itemId,
+      status: r.status as LocatedStockStatus,
+      fromLocationId: r.fromLocationId,
+      fromLocationName: r.fromLocation?.name ?? null,
+      toLocationId: r.toLocationId,
+      toLocationName: r.toLocation?.name ?? null,
+      quantity: r.quantity.toString(),
+      note: r.note,
+      occurredAt: r.occurredAt.toISOString(),
+    }));
+  }
+
+  /** Where inbound stock of a status lands by default. */
+  private async resolveInboundLocationId(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    status: LocatedStockStatus,
+  ): Promise<string | null> {
+    if (status === "QUARANTINE") {
+      const receiving = await tx.location.findFirst({
+        where: { tenantId, isReceiving: true, active: true },
+      });
+      if (receiving) return receiving.id;
+    }
+    const def = await tx.location.findFirst({
+      where: { tenantId, isDefault: true, active: true },
+    });
+    if (def) return def.id;
+    const any = await tx.location.findFirst({
+      where: { tenantId, active: true },
+      orderBy: { name: "asc" },
+    });
+    return any?.id ?? null;
+  }
+
+  /** Add quantity to one (item, status, location) cell. */
+  private async placeAtLocation(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    itemId: string,
+    status: LocatedStockStatus,
+    locationId: string,
+    quantity: string,
+  ): Promise<void> {
+    const qty = new Decimal(quantity);
+    const existing = await tx.itemStockLocation.findUnique({
+      where: { itemId_status_locationId: { itemId, status, locationId } },
+    });
+    if (existing) {
+      await tx.itemStockLocation.update({
+        where: { id: existing.id },
+        data: { quantity: existing.quantity.plus(qty).toString() },
+      });
+    } else {
+      await tx.itemStockLocation.create({
+        data: { tenantId, itemId, status, locationId, quantity: qty.toString() },
+      });
+    }
+  }
+
+  /**
+   * Draw a quantity down across an item's locations for a status, preferring a
+   * given location, then the default, then by name. Tolerant: if location rows
+   * don't cover the amount (legacy data with no breakdown), it removes what's
+   * there and stops rather than going negative.
+   */
+  private async removeFromLocations(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    itemId: string,
+    status: LocatedStockStatus,
+    quantity: string,
+    preferredLocationId?: string,
+  ): Promise<void> {
+    let remaining = new Decimal(quantity);
+    if (remaining.lessThanOrEqualTo(0)) return;
+    const rows = await tx.itemStockLocation.findMany({
+      where: { tenantId, itemId, status, quantity: { gt: 0 } },
+      include: { location: true },
+    });
+    rows.sort((a, b) => {
+      const ap = a.locationId === preferredLocationId ? 0 : 1;
+      const bp = b.locationId === preferredLocationId ? 0 : 1;
+      if (ap !== bp) return ap - bp;
+      if (a.location.isDefault !== b.location.isDefault) {
+        return a.location.isDefault ? -1 : 1;
+      }
+      return a.location.name.localeCompare(b.location.name);
+    });
+    for (const row of rows) {
+      if (remaining.lessThanOrEqualTo(0)) break;
+      const take = Decimal.min(remaining, row.quantity);
+      await tx.itemStockLocation.update({
+        where: { id: row.id },
+        data: { quantity: row.quantity.minus(take).toString() },
+      });
+      remaining = remaining.minus(take);
+    }
   }
 }

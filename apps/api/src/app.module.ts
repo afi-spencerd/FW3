@@ -7,6 +7,7 @@ import { AuthModule } from "./auth/auth.module";
 import { AuditModule } from "./audit/audit.module";
 import { InventoryModule } from "./inventory/inventory.module";
 import { StockModule } from "./stock/stock.module";
+import { LocationModule } from "./location/location.module";
 import { FormulaModule } from "./formula/formula.module";
 import { PurchasingModule } from "./purchasing/purchasing.module";
 import { SalesModule } from "./sales/sales.module";
@@ -29,6 +30,7 @@ import { JobsModule } from "./jobs/jobs.module";
     AuditModule,
     InventoryModule,
     StockModule,
+    LocationModule,
     FormulaModule,
     PurchasingModule,
     SalesModule,

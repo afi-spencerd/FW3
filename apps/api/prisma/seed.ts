@@ -85,7 +85,29 @@ async function main(): Promise<void> {
       update: {},
     });
 
-    // 5. Demo inventory items (with an opening INV stock position).
+    // 5. Physical locations: a default storage warehouse + a receiving dock.
+    const mainLocation = await prisma.location.upsert({
+      where: { tenantId_name: { tenantId: tenant.id, name: "Main Warehouse" } },
+      create: {
+        tenantId: tenant.id,
+        name: "Main Warehouse",
+        code: "MAIN",
+        isDefault: true,
+      },
+      update: { isDefault: true, code: "MAIN" },
+    });
+    await prisma.location.upsert({
+      where: { tenantId_name: { tenantId: tenant.id, name: "Receiving Dock" } },
+      create: {
+        tenantId: tenant.id,
+        name: "Receiving Dock",
+        code: "RECV",
+        isReceiving: true,
+      },
+      update: { isReceiving: true, code: "RECV" },
+    });
+
+    // 6. Demo inventory items (with an opening INV stock position).
     for (const item of DEMO_ITEMS) {
       const created = await prisma.inventoryItem.upsert({
         where: { tenantId_sku: { tenantId: tenant.id, sku: item.sku } },
@@ -113,9 +135,28 @@ async function main(): Promise<void> {
         },
         update: {},
       });
+      // Opening INV sits at the default warehouse so the per-location breakdown
+      // ties out to ItemStock from the start.
+      await prisma.itemStockLocation.upsert({
+        where: {
+          itemId_status_locationId: {
+            itemId: created.id,
+            status: "INV",
+            locationId: mainLocation.id,
+          },
+        },
+        create: {
+          tenantId: tenant.id,
+          itemId: created.id,
+          status: "INV",
+          locationId: mainLocation.id,
+          quantity: item.qty,
+        },
+        update: { quantity: item.qty },
+      });
     }
 
-    // 6. Demo formulas (percentages sum to 100): a base, and the finished good.
+    // 7. Demo formulas (percentages sum to 100): a base, and the finished good.
     const seedFormula = async (
       targetSku: string,
       name: string,
@@ -170,7 +211,7 @@ async function main(): Promise<void> {
       { sku: "RM-VANILLIN", percentage: "15" },
     ]);
 
-    // 7. A vendor + an open purchase order (demo).
+    // 8. A vendor + an open purchase order (demo).
     const vendor = await prisma.vendor.upsert({
       where: { tenantId_name: { tenantId: tenant.id, name: "Aroma Supply Co" } },
       create: {
@@ -207,7 +248,7 @@ async function main(): Promise<void> {
       });
     }
 
-    // 8. A customer + an open sales order for the finished good (demo).
+    // 9. A customer + an open sales order for the finished good (demo).
     const customer = await prisma.customer.upsert({
       where: { tenantId_name: { tenantId: tenant.id, name: "Maison Aurelia" } },
       create: {

@@ -16,6 +16,7 @@ async function logout(): Promise<void> {
     <span class="brand">fw3 ERP</span>
     <nav v-if="auth.isAuthenticated" class="nav">
       <RouterLink :to="{ name: 'inventory' }">Inventory</RouterLink>
+      <RouterLink :to="{ name: 'locations' }">Locations</RouterLink>
       <RouterLink :to="{ name: 'quality' }">Quality</RouterLink>
       <RouterLink :to="{ name: 'formulas' }">Formulas</RouterLink>
       <RouterLink :to="{ name: 'production' }">Work Orders</RouterLink>

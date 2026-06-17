@@ -4,6 +4,7 @@ export * from "./tenant.js";
 export * from "./inventory.js";
 export * from "./formula.js";
 export * from "./stock.js";
+export * from "./location.js";
 export * from "./purchasing.js";
 export * from "./sales.js";
 export * from "./production.js";

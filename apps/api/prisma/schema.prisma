@@ -38,6 +38,9 @@ model Tenant {
   productionWorkOrders ProductionWorkOrder[]
   itemQualitySpecs    ItemQualitySpec[]
   receivedLots        ReceivedLot[]
+  locations           Location[]
+  itemStockLocations  ItemStockLocation[]
+  locationMoves       LocationMove[]
 }
 
 model User {
@@ -140,6 +143,8 @@ model InventoryItem {
   componentWorkOrderLines ProductionWorkOrderLine[] @relation("ComponentProductionRunLines")
   qualitySpecs            ItemQualitySpec[]
   receivedLots            ReceivedLot[]
+  stockLocations          ItemStockLocation[]
+  locationMoves           LocationMove[]
 
   @@unique([tenantId, sku])
   @@index([tenantId])
@@ -235,6 +240,75 @@ model ItemStock {
 
   @@unique([itemId, status])
   @@index([tenantId, status])
+}
+
+// A physical inventory location (warehouse, room, bin, receiving dock). Per
+// tenant, at most one isDefault (where usable INV stock lands) and one
+// isReceiving (where received goods are quarantined) — enforced by filtered
+// unique indexes in the migration.
+model Location {
+  id          String   @id @default(uuid()) @db.Char(36)
+  tenantId    String   @db.Char(36)
+  name        String   @db.NVarChar(100)
+  code        String?  @db.NVarChar(30)
+  isDefault   Boolean  @default(false)
+  isReceiving Boolean  @default(false)
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tenant       Tenant              @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  stocks       ItemStockLocation[]
+  movesFrom    LocationMove[]      @relation("MoveFromLocation")
+  movesTo      LocationMove[]      @relation("MoveToLocation")
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+}
+
+// Quantity of an item, in one stock status, sitting at one location. Cost is
+// item-level (kept on ItemStock), so this is a pure quantity breakdown: the sum
+// over locations for a (item, status) equals that ItemStock row's quantity.
+// Only located statuses (INV, QUARANTINE) get rows here; WIP is not located.
+model ItemStockLocation {
+  id         String   @id @default(uuid()) @db.Char(36)
+  tenantId   String   @db.Char(36)
+  itemId     String   @db.Char(36)
+  status     String   @map("state") @db.NVarChar(10) // INV | QUARANTINE
+  locationId String   @db.Char(36)
+  quantity   Decimal  @default(0) @db.Decimal(18, 4)
+  updatedAt  DateTime @updatedAt
+
+  tenant   Tenant        @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  item     InventoryItem @relation(fields: [itemId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  location Location      @relation(fields: [locationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([itemId, status, locationId])
+  @@index([tenantId])
+  @@index([locationId])
+}
+
+// Append-only ledger of physical moves between locations. Null from/to allows
+// recording placements/removals driven by other flows if ever needed; the
+// move-stock operation always sets both.
+model LocationMove {
+  id             String   @id @default(uuid()) @db.Char(36)
+  tenantId       String   @db.Char(36)
+  itemId         String   @db.Char(36)
+  status         String   @map("state") @db.NVarChar(10) // INV | QUARANTINE
+  fromLocationId String?  @db.Char(36)
+  toLocationId   String?  @db.Char(36)
+  quantity       Decimal  @db.Decimal(18, 4)
+  note           String?  @db.NVarChar(500)
+  actorId        String?  @db.Char(36)
+  occurredAt     DateTime @default(now())
+
+  tenant       Tenant    @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  item         InventoryItem @relation(fields: [itemId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  fromLocation Location? @relation("MoveFromLocation", fields: [fromLocationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  toLocation   Location? @relation("MoveToLocation", fields: [toLocationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([tenantId, itemId, occurredAt])
 }
 
 // Append-only stock ledger. Every quantity change is one signed line; an item's

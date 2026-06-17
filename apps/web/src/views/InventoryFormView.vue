@@ -5,9 +5,14 @@ import {
   createInventoryItemSchema,
   type InventoryPosition,
   type InventoryTxn,
+  type ItemLocationPosition,
   type ItemQualitySpec,
   ITEM_TYPES,
   type ItemType,
+  type LocatedStockStatus,
+  LOCATED_STOCK_STATUSES,
+  type Location,
+  type LocationMove,
   PERMISSIONS,
   PHYSICAL_FORMS,
   type PhysicalForm,
@@ -97,6 +102,58 @@ async function doAdjust(): Promise<void> {
   }
 }
 
+// --- Physical locations (edit mode only) ---
+const itemLocations = ref<ItemLocationPosition[]>([]);
+const allLocations = ref<Location[]>([]);
+const locationMoves = ref<LocationMove[]>([]);
+const canMove = auth.hasPermission(PERMISSIONS.STOCK_MOVE);
+const move = reactive({
+  status: "INV" as LocatedStockStatus,
+  fromLocationId: "",
+  toLocationId: "",
+  quantity: "0",
+  note: "",
+});
+const moveError = ref<string | null>(null);
+const moveBusy = ref(false);
+
+// Locations the item actually has stock in, for the chosen status (move source).
+const moveSources = computed(() =>
+  itemLocations.value.filter((p) => p.status === move.status),
+);
+
+async function loadLocations(): Promise<void> {
+  if (!props.id) return;
+  [itemLocations.value, allLocations.value, locationMoves.value] =
+    await Promise.all([
+      api.itemLocations(props.id),
+      api.listLocations(),
+      api.itemLocationMoves(props.id),
+    ]);
+}
+
+async function doMove(): Promise<void> {
+  if (!props.id) return;
+  moveError.value = null;
+  moveBusy.value = true;
+  try {
+    await api.moveStock(props.id, {
+      status: move.status,
+      fromLocationId: move.fromLocationId,
+      toLocationId: move.toLocationId,
+      quantity: move.quantity,
+      note: move.note || undefined,
+    });
+    move.quantity = "0";
+    move.note = "";
+    await loadLocations();
+  } catch (err) {
+    moveError.value = err instanceof ApiError ? err.message : "Move failed";
+  } finally {
+    moveBusy.value = false;
+  }
+}
+
 function setIssues(issues: { path: string; message: string }[]): void {
   for (const issue of issues) errors[issue.path] = issue.message;
 }
@@ -177,6 +234,7 @@ onMounted(async () => {
       active: item.active,
     });
     await loadStock();
+    await loadLocations();
     await loadSpecs();
   } catch (err) {
     formError.value = err instanceof ApiError ? err.message : "Failed to load";
@@ -396,6 +454,82 @@ async function submit(): Promise<void> {
           </tr>
         </tbody>
       </table>
+    </div>
+
+    <div v-if="isEdit" class="panel" style="margin-top: 1rem">
+      <h3>Physical locations</h3>
+      <p class="inactive" style="font-size: 0.85rem">
+        Where this item physically sits. Cost is item-level; moving between
+        locations shifts quantity only.
+      </p>
+      <table>
+        <thead>
+          <tr><th>Status</th><th>Location</th><th class="num">Quantity</th></tr>
+        </thead>
+        <tbody>
+          <tr v-for="p in itemLocations" :key="p.status + p.locationId">
+            <td>{{ p.status }}</td>
+            <td>{{ p.locationName }}<span v-if="p.locationCode" class="inactive"> ({{ p.locationCode }})</span></td>
+            <td class="num">{{ p.quantity }}</td>
+          </tr>
+          <tr v-if="itemLocations.length === 0">
+            <td colspan="3" class="inactive">No located stock.</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div v-if="canMove" style="margin-top: 1rem">
+        <h4>Move stock between locations</h4>
+        <div v-if="moveError" class="banner error">{{ moveError }}</div>
+        <div class="toolbar">
+          <select v-model="move.status" style="max-width: 130px">
+            <option v-for="s in LOCATED_STOCK_STATUSES" :key="s" :value="s">{{ s }}</option>
+          </select>
+          <select v-model="move.fromLocationId" style="max-width: 200px">
+            <option value="">From…</option>
+            <option v-for="p in moveSources" :key="p.locationId" :value="p.locationId">
+              {{ p.locationName }} ({{ p.quantity }})
+            </option>
+          </select>
+          <select v-model="move.toLocationId" style="max-width: 200px">
+            <option value="">To…</option>
+            <option
+              v-for="l in allLocations.filter((l) => l.active && l.id !== move.fromLocationId)"
+              :key="l.id"
+              :value="l.id"
+            >
+              {{ l.name }}
+            </option>
+          </select>
+          <input v-model="move.quantity" inputmode="decimal" placeholder="Qty" style="max-width: 100px" />
+          <input v-model="move.note" placeholder="Note (optional)" />
+          <button
+            :disabled="moveBusy || !move.fromLocationId || !move.toLocationId"
+            @click="doMove"
+          >
+            {{ moveBusy ? "Moving…" : "Move" }}
+          </button>
+        </div>
+      </div>
+
+      <template v-if="locationMoves.length">
+        <h4>Recent moves</h4>
+        <table>
+          <thead>
+            <tr><th>When</th><th>Status</th><th>From</th><th>To</th><th class="num">Qty</th><th>Note</th></tr>
+          </thead>
+          <tbody>
+            <tr v-for="m in locationMoves" :key="m.id">
+              <td>{{ new Date(m.occurredAt).toLocaleString() }}</td>
+              <td>{{ m.status }}</td>
+              <td>{{ m.fromLocationName ?? "—" }}</td>
+              <td>{{ m.toLocationName ?? "—" }}</td>
+              <td class="num">{{ m.quantity }}</td>
+              <td>{{ m.note }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </template>
     </div>
 
     <div v-if="isEdit" class="panel" style="margin-top: 1rem">

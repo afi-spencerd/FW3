@@ -12,6 +12,15 @@ export const stockStatusSchema = z.enum(STOCK_STATUSES);
 export type StockStatus = (typeof STOCK_STATUSES)[number];
 
 /**
+ * Statuses whose quantity is tracked by physical location. INV (usable) and
+ * QUARANTINE (received, on the dock) sit in real warehouse locations; WIP is
+ * material on the production floor / in the vat and is not bin-located.
+ */
+export const LOCATED_STOCK_STATUSES = ["INV", "QUARANTINE"] as const;
+export const locatedStockStatusSchema = z.enum(LOCATED_STOCK_STATUSES);
+export type LocatedStockStatus = (typeof LOCATED_STOCK_STATUSES)[number];
+
+/**
  * Stock ledger contracts. Every quantity change is an InventoryTxn; an item's
  * position is the running balance carried on the latest line. Weighted-average
  * costing — see the API's stock-costing module.

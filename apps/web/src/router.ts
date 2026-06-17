@@ -29,6 +29,12 @@ export const router = createRouter({
       props: true,
     },
     {
+      path: "/locations",
+      name: "locations",
+      component: () => import("./views/LocationsView.vue"),
+      meta: { requiresAuth: true },
+    },
+    {
       path: "/formulas",
       name: "formulas",
       component: () => import("./views/FormulaListView.vue"),

@@ -3,6 +3,8 @@ import {
   type AdjustStock,
   adjustStockSchema,
   type AuthenticatedUser,
+  type MoveStock,
+  moveStockSchema,
   type PackOff,
   packOffSchema,
   PERMISSIONS,
@@ -46,6 +48,28 @@ export class StockController {
     @Body(new ZodValidationPipe(adjustStockSchema)) body: AdjustStock,
   ) {
     return this.stock.adjust(user, id, body);
+  }
+
+  @Get(":id/locations")
+  @RequirePermissions(PERMISSIONS.LOCATION_READ)
+  locations(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string) {
+    return this.stock.getItemLocations(user.tenantId, id);
+  }
+
+  @Get(":id/location-moves")
+  @RequirePermissions(PERMISSIONS.LOCATION_READ)
+  locationMoves(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string) {
+    return this.stock.getLocationMoves(user.tenantId, id);
+  }
+
+  @Post(":id/move")
+  @RequirePermissions(PERMISSIONS.STOCK_MOVE)
+  move(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param("id") id: string,
+    @Body(new ZodValidationPipe(moveStockSchema)) body: MoveStock,
+  ) {
+    return this.stock.moveLocation(user, id, body);
   }
 
   @Post(":id/pack-off")
