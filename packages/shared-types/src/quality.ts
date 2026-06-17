@@ -1,26 +1,39 @@
 import { z } from "zod";
+import { type PhysicalForm } from "./inventory.js";
 
 /**
- * Quality control for received material. Each received supplier lot lands in
- * QUARANTINE and gets an acceptance test suite; results are checked against the
- * item's per-test spec, and the lot is approved (-> usable) or rejected.
+ * Quality control. A lot (received or produced) gets an acceptance-test suite
+ * determined by the item's physical form; results are checked against the item's
+ * per-test spec, and the lot is approved (-> usable) or rejected.
  */
 
 export const QC_TEST_TYPES = [
   "SPECIFIC_GRAVITY",
   "REFRACTIVE_INDEX",
-  "COLOR",
-  "ODOR",
+  "GARDNER_COLOR", // numeric 1-18 Gardner scale (1 = clear, 18 = dark amber)
+  "ODOR", // pass/fail by perfumer judgment
+  "APPEARANCE", // pass/fail vs a visual description (solids)
+  "MELTING_POINT", // numeric degC (solids)
 ] as const;
 export type QcTestType = (typeof QC_TEST_TYPES)[number];
 
-/** NUMERIC tests check a min/max range; DESCRIPTIVE tests match an expected value. */
+/** NUMERIC tests check a min/max range; JUDGMENT tests are a manual pass/fail. */
+export const QC_TEST_KINDS = ["NUMERIC", "JUDGMENT"] as const;
+export type QcTestKind = (typeof QC_TEST_KINDS)[number];
 export const QC_TEST_KIND = {
   SPECIFIC_GRAVITY: "NUMERIC",
   REFRACTIVE_INDEX: "NUMERIC",
-  COLOR: "DESCRIPTIVE",
-  ODOR: "DESCRIPTIVE",
-} as const satisfies Record<QcTestType, "NUMERIC" | "DESCRIPTIVE">;
+  GARDNER_COLOR: "NUMERIC",
+  MELTING_POINT: "NUMERIC",
+  ODOR: "JUDGMENT",
+  APPEARANCE: "JUDGMENT",
+} as const satisfies Record<QcTestType, QcTestKind>;
+
+/** Which tests apply, by the item's physical form. */
+export const QC_SUITE_BY_FORM = {
+  LIQUID: ["SPECIFIC_GRAVITY", "REFRACTIVE_INDEX", "GARDNER_COLOR", "ODOR"],
+  SOLID: ["ODOR", "APPEARANCE", "MELTING_POINT"],
+} as const satisfies Record<PhysicalForm, readonly QcTestType[]>;
 
 export const QC_LOT_STATUSES = ["PENDING", "APPROVED", "REJECTED"] as const;
 export type QcLotStatus = (typeof QC_LOT_STATUSES)[number];
@@ -42,7 +55,7 @@ export const setItemQualitySpecsSchema = z.object({
 
 export const itemQualitySpecSchema = z.object({
   testType: z.enum(QC_TEST_TYPES),
-  kind: z.enum(["NUMERIC", "DESCRIPTIVE"]),
+  kind: z.enum(QC_TEST_KINDS),
   minValue: z.string().nullable(),
   maxValue: z.string().nullable(),
   expectedValue: z.string().nullable(),
@@ -62,7 +75,7 @@ export const recordQualityResultsSchema = z.object({
 
 export const qualityResultSchema = z.object({
   testType: z.enum(QC_TEST_TYPES),
-  kind: z.enum(["NUMERIC", "DESCRIPTIVE"]),
+  kind: z.enum(QC_TEST_KINDS),
   measuredValue: z.string().nullable(),
   passed: z.boolean().nullable(),
   notes: z.string().nullable(),

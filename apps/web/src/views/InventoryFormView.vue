@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from "vue";
+import { computed, onMounted, reactive, ref } from "vue";
 import { useRouter } from "vue-router";
 import {
   createInventoryItemSchema,
@@ -9,6 +9,9 @@ import {
   ITEM_TYPES,
   type ItemType,
   PERMISSIONS,
+  PHYSICAL_FORMS,
+  type PhysicalForm,
+  QC_SUITE_BY_FORM,
   QC_TEST_KIND,
   QC_TEST_TYPES,
   type QcTestType,
@@ -26,6 +29,11 @@ const ITEM_TYPE_LABELS: Record<ItemType, string> = {
   FINISHED_GOOD: "Finished good",
 };
 
+const PHYSICAL_FORM_LABELS: Record<PhysicalForm, string> = {
+  LIQUID: "Liquid",
+  SOLID: "Solid (crystal)",
+};
+
 const props = defineProps<{ id?: string }>();
 const router = useRouter();
 const isEdit = Boolean(props.id);
@@ -35,6 +43,7 @@ const form = reactive({
   name: "",
   description: "",
   itemType: "RAW_MATERIAL" as ItemType,
+  physicalForm: "LIQUID" as PhysicalForm,
   unitOfMeasure: "LB",
   quantityOnHand: "0",
   unitCost: "0",
@@ -101,14 +110,18 @@ function clearErrors(): void {
 const QC_TEST_LABELS: Record<QcTestType, string> = {
   SPECIFIC_GRAVITY: "Specific gravity",
   REFRACTIVE_INDEX: "Refractive index",
-  COLOR: "Color",
+  GARDNER_COLOR: "Gardner color (1–18)",
   ODOR: "Odor",
+  APPEARANCE: "Appearance",
+  MELTING_POINT: "Melting point (°C)",
 };
 const specForm = reactive(
   Object.fromEntries(
     QC_TEST_TYPES.map((t) => [t, { minValue: "", maxValue: "", expectedValue: "" }]),
   ) as Record<QcTestType, { minValue: string; maxValue: string; expectedValue: string }>,
 );
+// The acceptance suite is driven by the item's physical form.
+const specSuite = computed(() => QC_SUITE_BY_FORM[form.physicalForm]);
 const specNotice = ref<string | null>(null);
 const specBusy = ref(false);
 const canManageSpec = auth.hasPermission(PERMISSIONS.QC_SPEC_MANAGE);
@@ -132,7 +145,7 @@ async function saveSpecs(): Promise<void> {
   specBusy.value = true;
   specNotice.value = null;
   try {
-    const specs = QC_TEST_TYPES.map((testType) => ({
+    const specs = specSuite.value.map((testType) => ({
       testType,
       minValue: specForm[testType].minValue || undefined,
       maxValue: specForm[testType].maxValue || undefined,
@@ -156,6 +169,7 @@ onMounted(async () => {
       name: item.name,
       description: item.description ?? "",
       itemType: item.itemType,
+      physicalForm: item.physicalForm,
       unitOfMeasure: item.unitOfMeasure,
       quantityOnHand: item.quantityOnHand,
       unitCost: item.unitCost,
@@ -177,6 +191,7 @@ async function submit(): Promise<void> {
       name: form.name,
       description: form.description || undefined,
       itemType: form.itemType,
+      physicalForm: form.physicalForm,
       unitOfMeasure: form.unitOfMeasure,
       quantityOnHand: form.quantityOnHand,
       unitCost: form.unitCost,
@@ -259,6 +274,19 @@ async function submit(): Promise<void> {
           </option>
         </select>
         <div v-if="errors.itemType" class="error">{{ errors.itemType }}</div>
+      </div>
+
+      <div class="field">
+        <label for="physicalForm">Physical form</label>
+        <select id="physicalForm" v-model="form.physicalForm">
+          <option v-for="f in PHYSICAL_FORMS" :key="f" :value="f">
+            {{ PHYSICAL_FORM_LABELS[f] }}
+          </option>
+        </select>
+        <div class="inactive" style="font-size: 0.8rem">
+          Drives the QC acceptance suite (liquids vs. crystalline solids).
+        </div>
+        <div v-if="errors.physicalForm" class="error">{{ errors.physicalForm }}</div>
       </div>
 
       <div class="grid-2">
@@ -373,16 +401,18 @@ async function submit(): Promise<void> {
     <div v-if="isEdit" class="panel" style="margin-top: 1rem">
       <h3>QC acceptance spec</h3>
       <p class="inactive" style="font-size: 0.85rem">
-        Used to auto-evaluate received lots. Numeric tests use a min/max range;
-        descriptive tests match an expected value.
+        Suite is set by the item's physical form. Numeric tests (e.g. specific
+        gravity, Gardner color, melting point) auto-evaluate against a min/max
+        range; judgment tests (odor, appearance) are passed/failed by the
+        analyst, with an optional reference description.
       </p>
       <div v-if="specNotice" class="banner ok">{{ specNotice }}</div>
       <table>
         <thead>
-          <tr><th>Test</th><th>Min</th><th>Max</th><th>Expected</th></tr>
+          <tr><th>Test</th><th>Min</th><th>Max</th><th>Reference</th></tr>
         </thead>
         <tbody>
-          <tr v-for="t in QC_TEST_TYPES" :key="t">
+          <tr v-for="t in specSuite" :key="t">
             <td>{{ QC_TEST_LABELS[t] }}</td>
             <td>
               <input
@@ -406,10 +436,11 @@ async function submit(): Promise<void> {
             </td>
             <td>
               <input
-                v-if="QC_KIND[t] === 'DESCRIPTIVE'"
+                v-if="QC_KIND[t] === 'JUDGMENT'"
                 v-model="specForm[t].expectedValue"
                 :disabled="!canManageSpec"
-                style="max-width: 160px"
+                placeholder="e.g. white crystalline powder"
+                style="max-width: 200px"
               />
               <span v-else class="inactive">—</span>
             </td>

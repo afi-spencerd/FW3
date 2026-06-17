@@ -10,8 +10,9 @@ import {
   type CreatePurchaseOrder,
   type PurchaseOrder,
   type PurchaseOrderStatus,
+  type PhysicalForm,
   type PurchaseOrderSummary,
-  QC_TEST_TYPES,
+  QC_SUITE_BY_FORM,
   type ReceivePurchaseOrder,
   type UpdatePurchaseOrder,
 } from "@fw3/shared-types";
@@ -236,7 +237,9 @@ export class PurchaseOrderService {
             unitCost: line.unitCost,
             qcStatus: "PENDING",
             results: {
-              create: QC_TEST_TYPES.map((testType) => ({ testType })),
+              create: QC_SUITE_BY_FORM[line.item.physicalForm as PhysicalForm].map(
+                (testType) => ({ testType }),
+              ),
             },
           },
         });

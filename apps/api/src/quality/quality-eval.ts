@@ -9,33 +9,26 @@ export interface SpecLike {
 
 /**
  * Pass/fail of a measured QC result against the item's spec. Pure + tested.
- * Returns null when it can't be determined automatically (no spec, or a
- * descriptive test with no expected value) — a human still approves the lot.
+ * NUMERIC tests (specific gravity, refractive index, Gardner color, melting
+ * point) auto-evaluate against a min/max range. JUDGMENT tests (odor, appearance)
+ * are decided by a person, so this returns null and the analyst sets pass/fail.
  */
 export function evaluateResult(
   testType: QcTestType,
   measuredValue: string,
   spec: SpecLike | undefined,
 ): boolean | null {
-  if (!spec) return null;
+  if (QC_TEST_KIND[testType] !== "NUMERIC") return null; // judgment: manual
+  if (!spec || (spec.minValue == null && spec.maxValue == null)) return null;
 
-  if (QC_TEST_KIND[testType] === "NUMERIC") {
-    let value: Decimal;
-    try {
-      value = new Decimal(measuredValue);
-    } catch {
-      return false; // non-numeric reading for a numeric test
-    }
-    if (!value.isFinite()) return false;
-    if (spec.minValue == null && spec.maxValue == null) return null;
-    if (spec.minValue != null && value.lessThan(spec.minValue)) return false;
-    if (spec.maxValue != null && value.greaterThan(spec.maxValue)) return false;
-    return true;
+  let value: Decimal;
+  try {
+    value = new Decimal(measuredValue);
+  } catch {
+    return false; // non-numeric reading for a numeric test
   }
-
-  // DESCRIPTIVE
-  if (spec.expectedValue == null || spec.expectedValue.trim() === "") return null;
-  return (
-    measuredValue.trim().toLowerCase() === spec.expectedValue.trim().toLowerCase()
-  );
+  if (!value.isFinite()) return false;
+  if (spec.minValue != null && value.lessThan(spec.minValue)) return false;
+  if (spec.maxValue != null && value.greaterThan(spec.maxValue)) return false;
+  return true;
 }

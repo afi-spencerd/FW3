@@ -9,8 +9,9 @@ import {
   type Lot,
   type LotOrigin,
   type LotSummary,
+  type PhysicalForm,
+  QC_SUITE_BY_FORM,
   QC_TEST_KIND,
-  QC_TEST_TYPES,
   type QcLotStatus,
   type QcTestType,
   type RecordQualityResults,
@@ -115,11 +116,10 @@ export class QualityService {
       if (lot.qcStatus !== "PENDING") {
         throw new BadRequestException(`Lot is already ${lot.qcStatus}`);
       }
-      if (lot.results.some((r) => r.measuredValue === null)) {
-        throw new BadRequestException("All tests must be recorded before approval");
-      }
-      if (lot.results.some((r) => r.passed === false)) {
-        throw new BadRequestException("Cannot approve — one or more tests failed");
+      if (lot.results.some((r) => r.passed !== true)) {
+        throw new BadRequestException(
+          "All QC tests must pass before approval (record numeric values; pass each judgment test)",
+        );
       }
       // Received lots move QUARANTINE -> INV on approval. Production lots stay in
       // FG_WIP (the FG is in the vat); approval just makes them eligible to pack off.
@@ -189,14 +189,14 @@ export class QualityService {
   async getItemSpecs(tenantId: string, itemId: string): Promise<ItemQualitySpec[]> {
     const item = await this.prisma.inventoryItem.findFirst({
       where: { id: itemId, tenantId },
-      select: { id: true },
+      select: { id: true, physicalForm: true },
     });
     if (!item) throw new NotFoundException("Inventory item not found");
     const rows = await this.prisma.itemQualitySpec.findMany({
       where: { tenantId, itemId },
     });
     const byType = new Map(rows.map((r) => [r.testType, r]));
-    return QC_TEST_TYPES.map((testType) => {
+    return QC_SUITE_BY_FORM[item.physicalForm as PhysicalForm].map((testType) => {
       const row = byType.get(testType);
       return {
         testType,
@@ -296,16 +296,18 @@ export class QualityService {
       receivedAt: lot.receivedAt.toISOString(),
       reviewedAt: lot.reviewedAt ? lot.reviewedAt.toISOString() : null,
       rejectionReason: lot.rejectionReason,
-      results: QC_TEST_TYPES.map((testType) => {
-        const r = byType.get(testType);
-        return {
-          testType,
-          kind: QC_TEST_KIND[testType],
-          measuredValue: r?.measuredValue ?? null,
-          passed: r?.passed ?? null,
-          notes: r?.notes ?? null,
-        };
-      }),
+      results: QC_SUITE_BY_FORM[lot.item.physicalForm as PhysicalForm].map(
+        (testType) => {
+          const r = byType.get(testType);
+          return {
+            testType,
+            kind: QC_TEST_KIND[testType],
+            measuredValue: r?.measuredValue ?? null,
+            passed: r?.passed ?? null,
+            notes: r?.notes ?? null,
+          };
+        },
+      ),
     };
   }
 }

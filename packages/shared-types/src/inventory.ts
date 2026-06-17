@@ -24,12 +24,18 @@ export const ITEM_TYPES = ["RAW_MATERIAL", "SEMI_FINISHED", "FINISHED_GOOD"] as 
 export const itemTypeSchema = z.enum(ITEM_TYPES);
 export type ItemType = (typeof ITEM_TYPES)[number];
 
+/** Physical form — selects the QC acceptance-test suite. Crystals = SOLID. */
+export const PHYSICAL_FORMS = ["LIQUID", "SOLID"] as const;
+export const physicalFormSchema = z.enum(PHYSICAL_FORMS);
+export type PhysicalForm = (typeof PHYSICAL_FORMS)[number];
+
 /** Fields a user can submit when creating an item. */
 export const createInventoryItemSchema = z.object({
   sku: z.string().trim().min(1).max(64),
   name: z.string().trim().min(1).max(200),
   description: z.string().trim().max(2000).optional(),
   itemType: itemTypeSchema,
+  physicalForm: physicalFormSchema.default("LIQUID"),
   unitOfMeasure: unitOfMeasureSchema.default("LB"),
   quantityOnHand: quantityString.default("0"),
   unitCost: moneyString.default("0"),
@@ -50,6 +56,7 @@ export const inventoryItemSchema = z.object({
   name: z.string(),
   description: z.string().nullable(),
   itemType: itemTypeSchema,
+  physicalForm: physicalFormSchema,
   unitOfMeasure: unitOfMeasureSchema,
   quantityOnHand: z.string(),
   unitCost: z.string(),

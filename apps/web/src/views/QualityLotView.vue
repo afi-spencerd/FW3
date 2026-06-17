@@ -5,7 +5,6 @@ import {
   type ItemQualitySpec,
   type Lot,
   PERMISSIONS,
-  QC_TEST_TYPES,
   type QcTestType,
 } from "@fw3/shared-types";
 import { api, ApiError } from "../lib/api";
@@ -18,6 +17,8 @@ const auth = useAuthStore();
 const lot = ref<Lot | null>(null);
 const specs = ref<ItemQualitySpec[]>([]);
 const measured = reactive<Record<string, string>>({});
+// Judgment tests (odor, appearance) are passed/failed manually by the analyst.
+const judgment = reactive<Record<string, "" | "PASS" | "FAIL">>({});
 const error = ref<string | null>(null);
 const notice = ref<string | null>(null);
 const busy = ref(false);
@@ -25,8 +26,10 @@ const busy = ref(false);
 const TEST_LABELS: Record<QcTestType, string> = {
   SPECIFIC_GRAVITY: "Specific gravity",
   REFRACTIVE_INDEX: "Refractive index",
-  COLOR: "Color",
+  GARDNER_COLOR: "Gardner color (1–18)",
   ODOR: "Odor",
+  APPEARANCE: "Appearance",
+  MELTING_POINT: "Melting point (°C)",
 };
 
 const canReview = ref(auth.hasPermission(PERMISSIONS.QC_REVIEW));
@@ -54,6 +57,10 @@ async function load(): Promise<void> {
     specs.value = await api.getItemQualitySpec(lot.value.itemId);
     for (const r of lot.value.results) {
       measured[r.testType] = r.measuredValue ?? "";
+      if (r.kind === "JUDGMENT") {
+        judgment[r.testType] =
+          r.passed === true ? "PASS" : r.passed === false ? "FAIL" : "";
+      }
     }
   } catch (err) {
     error.value = err instanceof ApiError ? err.message : "Failed to load";
@@ -65,10 +72,24 @@ async function recordResults(): Promise<void> {
   error.value = null;
   notice.value = null;
   try {
-    const results = QC_TEST_TYPES.map((t) => ({
-      testType: t,
-      measuredValue: (measured[t] ?? "").trim(),
-    })).filter((r) => r.measuredValue !== "");
+    // Only the lot's own suite is recorded. Numeric tests auto-evaluate against
+    // the spec; judgment tests carry the analyst's explicit pass/fail.
+    const results = (lot.value?.results ?? []).flatMap((r) => {
+      const measuredValue = (measured[r.testType] ?? "").trim();
+      if (measuredValue === "") return [];
+      if (r.kind === "JUDGMENT") {
+        const j = judgment[r.testType];
+        return [
+          {
+            testType: r.testType,
+            measuredValue,
+            ...(j === "PASS" ? { passed: true } : {}),
+            ...(j === "FAIL" ? { passed: false } : {}),
+          },
+        ];
+      }
+      return [{ testType: r.testType, measuredValue }];
+    });
     if (results.length === 0) {
       error.value = "Enter at least one measured value.";
       return;
@@ -145,14 +166,30 @@ onMounted(load);
         </thead>
         <tbody>
           <tr v-for="r in lot.results" :key="r.testType">
-            <td>{{ TEST_LABELS[r.testType] }}</td>
+            <td>
+              {{ TEST_LABELS[r.testType] }}
+              <span class="inactive" style="font-size: 0.75rem">
+                ({{ r.kind === "NUMERIC" ? "numeric" : "judgment" }})
+              </span>
+            </td>
             <td class="inactive">{{ specText(r.testType) }}</td>
             <td>
-              <input
-                v-if="canReview && lot.qcStatus === 'PENDING'"
-                v-model="measured[r.testType]"
-                style="max-width: 140px"
-              />
+              <template v-if="canReview && lot.qcStatus === 'PENDING'">
+                <input
+                  v-model="measured[r.testType]"
+                  :placeholder="r.kind === 'JUDGMENT' ? 'observation' : 'value'"
+                  style="max-width: 140px"
+                />
+                <select
+                  v-if="r.kind === 'JUDGMENT'"
+                  v-model="judgment[r.testType]"
+                  style="max-width: 110px; margin-left: 0.4rem"
+                >
+                  <option value="">—</option>
+                  <option value="PASS">Pass</option>
+                  <option value="FAIL">Fail</option>
+                </select>
+              </template>
               <span v-else>{{ r.measuredValue ?? "—" }}</span>
             </td>
             <td :style="{ color: r.passed === true ? 'var(--ok)' : r.passed === false ? 'var(--danger)' : 'inherit' }">

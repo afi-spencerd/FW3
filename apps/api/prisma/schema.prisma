@@ -112,6 +112,8 @@ model InventoryItem {
   // RAW_MATERIAL | FINISHED_GOOD — enforced by a CHECK constraint (SQL Server
   // has no native enum; see migration). Most inventory is raw materials.
   itemType       String    @default("RAW_MATERIAL") @db.NVarChar(20)
+  // LIQUID | SOLID — selects the QC acceptance-test suite (crystals = SOLID).
+  physicalForm   String    @default("LIQUID") @db.NVarChar(10)
   // LB | KG — also CHECK-constrained. Fragrance is stored by weight, mostly lbs.
   unitOfMeasure  String    @default("LB") @db.NVarChar(16)
   quantityOnHand Decimal   @default(0) @db.Decimal(18, 4)
@@ -143,13 +145,15 @@ model InventoryItem {
   @@index([tenantId])
 }
 
-// Per-item QC acceptance criteria for a test type. NUMERIC tests use min/max;
-// DESCRIPTIVE tests use expectedValue.
+// Per-item QC acceptance criteria for a test type. NUMERIC tests (specific
+// gravity, refractive index, Gardner color, melting point) use min/max; JUDGMENT
+// tests (odor, appearance) are passed/failed by the analyst, optionally against
+// an expectedValue reference description.
 model ItemQualitySpec {
   id            String   @id @default(uuid()) @db.Char(36)
   tenantId      String   @db.Char(36)
   itemId        String   @db.Char(36)
-  testType      String   @db.NVarChar(30) // SPECIFIC_GRAVITY | REFRACTIVE_INDEX | COLOR | ODOR
+  testType      String   @db.NVarChar(30) // SPECIFIC_GRAVITY | REFRACTIVE_INDEX | GARDNER_COLOR | ODOR | APPEARANCE | MELTING_POINT
   minValue      Decimal? @db.Decimal(18, 6)
   maxValue      Decimal? @db.Decimal(18, 6)
   expectedValue String?  @db.NVarChar(200)

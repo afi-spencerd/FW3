@@ -11,7 +11,8 @@ import {
   type ProductionStatus,
   type ProductionWorkOrder,
   type ProductionWorkOrderSummary,
-  QC_TEST_TYPES,
+  type PhysicalForm,
+  QC_SUITE_BY_FORM,
   type UnitOfMeasure,
 } from "@fw3/shared-types";
 import { AuditService } from "../audit/audit.service";
@@ -223,7 +224,11 @@ export class ProductionService {
           quantity: workOrder.outputQty,
           unitCost,
           qcStatus: "PENDING",
-          results: { create: QC_TEST_TYPES.map((testType) => ({ testType })) },
+          results: {
+            create: QC_SUITE_BY_FORM[
+              workOrder.target.physicalForm as PhysicalForm
+            ].map((testType) => ({ testType })),
+          },
         },
       });
 

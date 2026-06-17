@@ -17,13 +17,14 @@ import { mssqlConfigFromUrl } from "../src/database/mssql-config";
 loadEnv({ path: path.resolve(__dirname, "../../../.env") });
 
 const DEMO_ITEMS = [
-  { sku: "RM-AMBROXAN", name: "Ambroxan", type: "RAW_MATERIAL", uom: "LB", qty: "1.3000", cost: "210.0000", price: "0.0000" },
-  { sku: "RM-HEDIONE", name: "Hedione", type: "RAW_MATERIAL", uom: "LB", qty: "44.5000", cost: "38.5000", price: "0.0000" },
-  { sku: "RM-ISO-E-SUPER", name: "Iso E Super", type: "RAW_MATERIAL", uom: "KG", qty: "12.0000", cost: "33.0000", price: "0.0000" },
-  { sku: "RM-VANILLIN", name: "Vanillin", type: "RAW_MATERIAL", uom: "LB", qty: "8.2500", cost: "19.7500", price: "0.0000" },
-  { sku: "RM-IPM", name: "Isopropyl Myristate (IPM)", type: "RAW_MATERIAL", uom: "LB", qty: "120.0000", cost: "3.2500", price: "0.0000" },
-  { sku: "SF-AMBROXAN-10", name: "Ambroxan 10% Solution", type: "SEMI_FINISHED", uom: "LB", qty: "5.0000", cost: "23.7000", price: "0.0000" },
-  { sku: "FG-NOIR-01", name: "Noir Extrait (fragrance)", type: "FINISHED_GOOD", uom: "LB", qty: "6.0000", cost: "62.4000", price: "180.0000" },
+  // Ambroxan and Vanillin are crystalline solids -> SOLID QC suite (odor, appearance, melting point).
+  { sku: "RM-AMBROXAN", name: "Ambroxan", type: "RAW_MATERIAL", form: "SOLID", uom: "LB", qty: "1.3000", cost: "210.0000", price: "0.0000" },
+  { sku: "RM-HEDIONE", name: "Hedione", type: "RAW_MATERIAL", form: "LIQUID", uom: "LB", qty: "44.5000", cost: "38.5000", price: "0.0000" },
+  { sku: "RM-ISO-E-SUPER", name: "Iso E Super", type: "RAW_MATERIAL", form: "LIQUID", uom: "KG", qty: "12.0000", cost: "33.0000", price: "0.0000" },
+  { sku: "RM-VANILLIN", name: "Vanillin", type: "RAW_MATERIAL", form: "SOLID", uom: "LB", qty: "8.2500", cost: "19.7500", price: "0.0000" },
+  { sku: "RM-IPM", name: "Isopropyl Myristate (IPM)", type: "RAW_MATERIAL", form: "LIQUID", uom: "LB", qty: "120.0000", cost: "3.2500", price: "0.0000" },
+  { sku: "SF-AMBROXAN-10", name: "Ambroxan 10% Solution", type: "SEMI_FINISHED", form: "LIQUID", uom: "LB", qty: "5.0000", cost: "23.7000", price: "0.0000" },
+  { sku: "FG-NOIR-01", name: "Noir Extrait (fragrance)", type: "FINISHED_GOOD", form: "LIQUID", uom: "LB", qty: "6.0000", cost: "62.4000", price: "180.0000" },
 ] as const;
 
 async function main(): Promise<void> {
@@ -93,12 +94,13 @@ async function main(): Promise<void> {
           sku: item.sku,
           name: item.name,
           itemType: item.type,
+          physicalForm: item.form,
           unitOfMeasure: item.uom,
           quantityOnHand: item.qty,
           unitCost: item.cost,
           salesPrice: item.price,
         },
-        update: {},
+        update: { physicalForm: item.form },
       });
       await prisma.itemStock.upsert({
         where: { itemId_status: { itemId: created.id, status: "INV" } },

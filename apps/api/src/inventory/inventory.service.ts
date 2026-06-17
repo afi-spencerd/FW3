@@ -10,6 +10,7 @@ import type {
   InventoryListQuery,
   ItemType,
   PaginatedInventory,
+  PhysicalForm,
   UnitOfMeasure,
   UpdateInventoryItem,
 } from "@fw3/shared-types";
@@ -93,6 +94,7 @@ export class InventoryService {
             name: input.name,
             description: input.description ?? null,
             itemType: input.itemType,
+            physicalForm: input.physicalForm,
             unitOfMeasure: input.unitOfMeasure,
             quantityOnHand: input.quantityOnHand,
             unitCost: input.unitCost,
@@ -146,6 +148,9 @@ export class InventoryService {
               ? {}
               : { description: input.description ?? null }),
             ...(input.itemType === undefined ? {} : { itemType: input.itemType }),
+            ...(input.physicalForm === undefined
+              ? {}
+              : { physicalForm: input.physicalForm }),
             ...(input.unitOfMeasure === undefined
               ? {}
               : { unitOfMeasure: input.unitOfMeasure }),
@@ -230,6 +235,7 @@ export class InventoryService {
       description: row.description,
       // DB CHECK constraints guarantee these are within the allowed sets.
       itemType: row.itemType as ItemType,
+      physicalForm: row.physicalForm as PhysicalForm,
       unitOfMeasure: row.unitOfMeasure as UnitOfMeasure,
       quantityOnHand: row.quantityOnHand.toString(),
       unitCost: row.unitCost.toString(),

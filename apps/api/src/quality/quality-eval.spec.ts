@@ -11,10 +11,22 @@ describe("evaluateResult", () => {
     ).toBe(true);
   });
 
-  it("fails a numeric value out of range", () => {
-    const spec = { minValue: "1.45", maxValue: "1.48", expectedValue: null };
-    expect(evaluateResult("REFRACTIVE_INDEX", "1.50", spec)).toBe(false);
-    expect(evaluateResult("REFRACTIVE_INDEX", "1.44", spec)).toBe(false);
+  it("fails a numeric value out of range (incl. Gardner color)", () => {
+    const ri = { minValue: "1.45", maxValue: "1.48", expectedValue: null };
+    expect(evaluateResult("REFRACTIVE_INDEX", "1.50", ri)).toBe(false);
+    // Gardner color: max 5 -> a 7 reading fails (too dark).
+    expect(
+      evaluateResult("GARDNER_COLOR", "7", { minValue: null, maxValue: "5", expectedValue: null }),
+    ).toBe(false);
+    expect(
+      evaluateResult("GARDNER_COLOR", "3", { minValue: null, maxValue: "5", expectedValue: null }),
+    ).toBe(true);
+  });
+
+  it("evaluates melting point as a numeric range", () => {
+    const mp = { minValue: "81", maxValue: "83", expectedValue: null };
+    expect(evaluateResult("MELTING_POINT", "82", mp)).toBe(true);
+    expect(evaluateResult("MELTING_POINT", "78", mp)).toBe(false);
   });
 
   it("fails a non-numeric reading for a numeric test", () => {
@@ -27,23 +39,20 @@ describe("evaluateResult", () => {
     ).toBe(false);
   });
 
-  it("matches a descriptive value case-insensitively", () => {
-    const spec = { minValue: null, maxValue: null, expectedValue: "Pale yellow" };
-    expect(evaluateResult("COLOR", "pale yellow", spec)).toBe(true);
-    expect(evaluateResult("COLOR", "amber", spec)).toBe(false);
-  });
-
-  it("returns null when no spec / no criteria (human decides)", () => {
-    expect(evaluateResult("ODOR", "woody", undefined)).toBeNull();
+  it("returns null for judgment tests (odor, appearance) — set manually", () => {
+    expect(evaluateResult("ODOR", "conforms", undefined)).toBeNull();
     expect(
-      evaluateResult("SPECIFIC_GRAVITY", "0.97", {
+      evaluateResult("APPEARANCE", "white crystalline powder", {
         minValue: null,
         maxValue: null,
-        expectedValue: null,
+        expectedValue: "white crystalline powder",
       }),
     ).toBeNull();
+  });
+
+  it("returns null for a numeric test with no range set", () => {
     expect(
-      evaluateResult("ODOR", "woody", {
+      evaluateResult("SPECIFIC_GRAVITY", "0.97", {
         minValue: null,
         maxValue: null,
         expectedValue: null,
