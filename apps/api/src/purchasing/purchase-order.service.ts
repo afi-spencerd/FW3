@@ -189,6 +189,27 @@ export class PurchaseOrderService {
         throw new BadRequestException(`Cannot receive a ${order.status} purchase order`);
       }
 
+      // Resolve the receiving area: the one requested (must be a receiving
+      // location) or the tenant's first. Goods quarantine here; QC approval
+      // later routes to this building's default storage.
+      let receivingLocationId: string | null = null;
+      if (input.locationId) {
+        const loc = await tx.location.findFirst({
+          where: { id: input.locationId, tenantId: user.tenantId },
+        });
+        if (!loc) throw new BadRequestException("Receiving location not found");
+        if (!loc.isReceiving) {
+          throw new BadRequestException(`${loc.name} is not a receiving location`);
+        }
+        receivingLocationId = loc.id;
+      } else {
+        const fallback = await tx.location.findFirst({
+          where: { tenantId: user.tenantId, isReceiving: true, active: true },
+          orderBy: { code: "asc" },
+        });
+        receivingLocationId = fallback?.id ?? null;
+      }
+
       const linesById = new Map(order.lines.map((l) => [l.id, l]));
       const movements: Movement[] = [];
 
@@ -206,7 +227,7 @@ export class PurchaseOrderService {
             `Cannot receive ${qty} of ${line.item.sku}: only ${remaining} remaining`,
           );
         }
-        // Received goods land in QUARANTINE pending QC.
+        // Received goods land in QUARANTINE at the receiving dock pending QC.
         movements.push({
           itemId: line.itemId,
           type: "RECEIPT",
@@ -214,6 +235,7 @@ export class PurchaseOrderService {
           quantity: recv.quantity,
           unitCost: line.unitCost.toString(),
           status: "QUARANTINE",
+          ...(receivingLocationId ? { locationId: receivingLocationId } : {}),
         });
         await tx.purchaseOrderLine.update({
           where: { id: line.id },
@@ -233,6 +255,7 @@ export class PurchaseOrderService {
             purchaseOrderNumber: order.poNumber,
             vendorName: order.vendor.name,
             supplierLotNumber,
+            locationId: receivingLocationId,
             quantity: recv.quantity,
             unitCost: line.unitCost,
             qcStatus: "PENDING",

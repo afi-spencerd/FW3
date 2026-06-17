@@ -1,7 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from "vue";
 import { useRouter } from "vue-router";
-import { PERMISSIONS, type PurchaseOrder } from "@fw3/shared-types";
+import {
+  type Location,
+  PERMISSIONS,
+  type PurchaseOrder,
+} from "@fw3/shared-types";
 import { api, ApiError } from "../lib/api";
 import { useAuthStore } from "../stores/auth";
 
@@ -16,6 +20,9 @@ const busy = ref(false);
 // lineId -> quantity / supplier lot to receive now
 const receiveQty = reactive<Record<string, string>>({});
 const lotNumber = reactive<Record<string, string>>({});
+// Receiving docks to choose which building the goods land in.
+const receivingLocations = ref<Location[]>([]);
+const receivingLocationId = ref<string>("");
 
 const canReceive = computed(
   () =>
@@ -41,6 +48,11 @@ async function load(): Promise<void> {
   try {
     po.value = await api.getPurchaseOrder(props.id);
     for (const line of po.value.lines) receiveQty[line.id] = "0";
+    const locs = await api.listLocations();
+    receivingLocations.value = locs.filter((l) => l.isReceiving && l.active);
+    if (!receivingLocationId.value && receivingLocations.value.length) {
+      receivingLocationId.value = receivingLocations.value[0]!.id;
+    }
   } catch (err) {
     error.value = err instanceof ApiError ? err.message : "Failed to load";
   }
@@ -63,7 +75,10 @@ async function receive(): Promise<void> {
   }
   busy.value = true;
   try {
-    po.value = await api.receivePurchaseOrder(props.id, { lines });
+    po.value = await api.receivePurchaseOrder(props.id, {
+      lines,
+      ...(receivingLocationId.value ? { locationId: receivingLocationId.value } : {}),
+    });
     for (const line of po.value.lines) receiveQty[line.id] = "0";
     notice.value = "Receipt posted — stock and cost updated.";
   } catch (err) {
@@ -142,7 +157,15 @@ onMounted(load);
         </tbody>
       </table>
 
-      <div v-if="canReceive" class="toolbar">
+      <div v-if="canReceive" class="toolbar" style="align-items: center">
+        <label v-if="receivingLocations.length" style="display: inline-flex; align-items: center; gap: 0.4rem">
+          Receive into
+          <select v-model="receivingLocationId" style="max-width: 240px">
+            <option v-for="l in receivingLocations" :key="l.id" :value="l.id">
+              {{ l.code }} — {{ l.name }}
+            </option>
+          </select>
+        </label>
         <button class="primary" :disabled="busy" @click="receive">
           {{ busy ? "Posting…" : "Post receipt" }}
         </button>

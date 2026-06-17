@@ -1,16 +1,22 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
-import type {
-  AuthenticatedUser,
-  CreateLocation,
-  ItemType,
-  LocatedStockStatus,
-  Location as LocationDto,
-  LocationStockRow,
-  UpdateLocation,
+import {
+  type AuthenticatedUser,
+  composeLocationCode,
+  type CreateLocation,
+  type ItemType,
+  type LocatedStockStatus,
+  type Location as LocationDto,
+  type LocationStockRow,
+  locationSegment,
+  PARENT_KIND,
+  rackSide,
+  type RackSide,
+  type UpdateLocation,
 } from "@fw3/shared-types";
 import { AuditService } from "../audit/audit.service";
 import { PrismaService } from "../database/prisma.service";
@@ -27,9 +33,11 @@ export class LocationService {
   ) {}
 
   async list(tenantId: string): Promise<LocationDto[]> {
+    // Code sorts hierarchically (075 < 075-A < 075-A-100 < 075-RECV), so this
+    // groups each building's tree together.
     const rows = await this.prisma.location.findMany({
       where: { tenantId },
-      orderBy: [{ isDefault: "desc" }, { name: "asc" }],
+      orderBy: [{ code: "asc" }],
     });
     return rows.map((r) => this.toDto(r));
   }
@@ -40,28 +48,63 @@ export class LocationService {
   ): Promise<LocationDto> {
     try {
       const id = await this.prisma.$transaction(async (tx) => {
-        // At most one default / one receiving per tenant: clear the existing
-        // flag before setting it here.
-        if (input.isDefault) await this.clearFlag(tx, user.tenantId, "isDefault");
-        if (input.isReceiving)
-          await this.clearFlag(tx, user.tenantId, "isReceiving");
+        // Validate the parent matches the kind's required level and resolve the
+        // building ancestor (for code composition + per-building flag scope).
+        const expectedParent = PARENT_KIND[input.kind];
+        let parent: Prisma.LocationGetPayload<object> | null = null;
+        if (expectedParent) {
+          parent = await tx.location.findFirst({
+            where: { id: input.parentId, tenantId: user.tenantId },
+          });
+          if (!parent) throw new BadRequestException("Parent location not found");
+          if (parent.kind !== expectedParent) {
+            throw new BadRequestException(
+              `A ${input.kind.toLowerCase()} must sit under ${expectedParent.toLowerCase()}, not ${parent.kind.toLowerCase()}`,
+            );
+          }
+        }
+
+        const segment = locationSegment(input.kind, input.value);
+        const code = composeLocationCode(input.kind, parent?.code ?? null, input.value);
+        const side: RackSide | null =
+          input.kind === "RACK" ? rackSide(Number(input.value)) : null;
+        // buildingId: a building is its own; everything else inherits its parent's.
+        const buildingId = parent?.buildingId ?? null;
+
+        if (input.isDefault && buildingId)
+          await this.clearFlag(tx, user.tenantId, buildingId, "isDefault");
+        if (input.isReceiving && buildingId)
+          await this.clearFlag(tx, user.tenantId, buildingId, "isReceiving");
+
         const row = await tx.location.create({
           data: {
             tenantId: user.tenantId,
+            kind: input.kind,
+            parentId: parent?.id ?? null,
+            buildingId,
             name: input.name,
-            code: input.code ?? null,
+            segment,
+            code,
+            side,
             isDefault: input.isDefault,
             isReceiving: input.isReceiving,
             active: input.active,
           },
         });
+        // A building is the root of its own subtree.
+        if (input.kind === "BUILDING") {
+          await tx.location.update({
+            where: { id: row.id },
+            data: { buildingId: row.id },
+          });
+        }
         await this.audit.record(tx, {
           tenantId: user.tenantId,
           actorId: user.id,
           entityType: "Location",
           entityId: row.id,
           action: "CREATE",
-          after: input,
+          after: { ...input, code },
         });
         return row.id;
       });
@@ -82,15 +125,21 @@ export class LocationService {
           where: { id, tenantId: user.tenantId },
         });
         if (!existing) throw new NotFoundException("Location not found");
-        if (input.isDefault === true)
-          await this.clearFlag(tx, user.tenantId, "isDefault", id);
-        if (input.isReceiving === true)
-          await this.clearFlag(tx, user.tenantId, "isReceiving", id);
+        if ((input.isDefault === true || input.isReceiving === true) &&
+            existing.kind !== "RACK" && existing.kind !== "AREA") {
+          throw new BadRequestException(
+            "Only racks and areas can be default/receiving",
+          );
+        }
+        // Flags are scoped to the building the node belongs to.
+        if (input.isDefault === true && existing.buildingId)
+          await this.clearFlag(tx, user.tenantId, existing.buildingId, "isDefault", id);
+        if (input.isReceiving === true && existing.buildingId)
+          await this.clearFlag(tx, user.tenantId, existing.buildingId, "isReceiving", id);
         await tx.location.update({
           where: { id },
           data: {
             ...(input.name === undefined ? {} : { name: input.name }),
-            ...(input.code === undefined ? {} : { code: input.code ?? null }),
             ...(input.isDefault === undefined
               ? {}
               : { isDefault: input.isDefault }),
@@ -131,7 +180,7 @@ export class LocationService {
           ? { locationId: { in: locationIds } }
           : {}),
       },
-      include: { item: true, location: true },
+      include: { item: true, location: { include: { building: true } } },
     });
     return rows
       .filter((r) => !r.quantity.isZero())
@@ -139,6 +188,7 @@ export class LocationService {
         locationId: r.locationId,
         locationName: r.location.name,
         locationCode: r.location.code,
+        buildingName: r.location.building?.name ?? null,
         itemId: r.itemId,
         sku: r.item.sku,
         name: r.item.name,
@@ -168,12 +218,14 @@ export class LocationService {
   private async clearFlag(
     tx: Prisma.TransactionClient,
     tenantId: string,
+    buildingId: string,
     flag: "isDefault" | "isReceiving",
     exceptId?: string,
   ): Promise<void> {
     await tx.location.updateMany({
       where: {
         tenantId,
+        buildingId,
         [flag]: true,
         ...(exceptId ? { id: { not: exceptId } } : {}),
       },
@@ -185,8 +237,13 @@ export class LocationService {
     return {
       id: row.id,
       tenantId: row.tenantId,
+      kind: row.kind as LocationDto["kind"],
+      parentId: row.parentId,
+      buildingId: row.buildingId,
       name: row.name,
+      segment: row.segment,
       code: row.code,
+      side: row.side as RackSide | null,
       isDefault: row.isDefault,
       isReceiving: row.isReceiving,
       active: row.active,

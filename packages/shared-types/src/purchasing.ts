@@ -56,6 +56,12 @@ export const updatePurchaseOrderSchema = z.object({
 
 /** Receive specified quantities against PO lines (each creates a quarantined lot). */
 export const receivePurchaseOrderSchema = z.object({
+  /**
+   * Receiving area the goods land in (a location flagged isReceiving). Drives
+   * which building's default storage QC approval routes to. Defaults to the
+   * tenant's first receiving area if omitted.
+   */
+  locationId: z.string().uuid().optional(),
   lines: z
     .array(
       z.object({

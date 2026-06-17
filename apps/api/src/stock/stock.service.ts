@@ -4,21 +4,23 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import Decimal from "decimal.js";
-import type {
-  AdjustStock,
-  AuthenticatedUser,
-  DocType,
-  InventoryPosition,
-  InventoryTxn as InventoryTxnDto,
-  ItemLocationPosition,
-  ItemType,
-  LocatedStockStatus,
-  LocationMove,
-  MoveStock,
-  StockPosition,
-  StockStatus,
-  TxnType,
-  UnitOfMeasure,
+import {
+  type AdjustStock,
+  type AuthenticatedUser,
+  type DocType,
+  type InventoryPosition,
+  type InventoryTxn as InventoryTxnDto,
+  type ItemLocationPosition,
+  type ItemType,
+  isStockableKind,
+  type LocatedStockStatus,
+  type LocationKind,
+  type LocationMove,
+  type MoveStock,
+  type StockPosition,
+  type StockStatus,
+  type TxnType,
+  type UnitOfMeasure,
 } from "@fw3/shared-types";
 import { AuditService } from "../audit/audit.service";
 import { PrismaService } from "../database/prisma.service";
@@ -452,6 +454,14 @@ export class StockService {
       if (!to.active) {
         throw new BadRequestException(`Destination ${to.name} is inactive`);
       }
+      // Stock only sits at leaves (racks/areas), not buildings or aisles.
+      for (const loc of [from, to]) {
+        if (!isStockableKind(loc.kind as LocationKind)) {
+          throw new BadRequestException(
+            `${loc.name} is a ${loc.kind.toLowerCase()}; stock can only sit in racks or areas`,
+          );
+        }
+      }
 
       const requested = new Decimal(input.quantity);
       const src = await tx.itemStockLocation.findUnique({
@@ -560,27 +570,34 @@ export class StockService {
     }));
   }
 
-  /** Where inbound stock of a status lands by default. */
+  /**
+   * Where inbound stock of a status lands by default — the receiving area (for
+   * QUARANTINE) or default storage (otherwise), scoped to a building when known,
+   * else the first one in the tenant. Falls back to any active leaf.
+   */
   private async resolveInboundLocationId(
     tx: Prisma.TransactionClient,
     tenantId: string,
     status: LocatedStockStatus,
+    buildingId?: string,
   ): Promise<string | null> {
-    if (status === "QUARANTINE") {
-      const receiving = await tx.location.findFirst({
-        where: { tenantId, isReceiving: true, active: true },
+    const flag = status === "QUARANTINE" ? "isReceiving" : "isDefault";
+    if (buildingId) {
+      const inBuilding = await tx.location.findFirst({
+        where: { tenantId, buildingId, [flag]: true, active: true },
       });
-      if (receiving) return receiving.id;
+      if (inBuilding) return inBuilding.id;
     }
-    const def = await tx.location.findFirst({
-      where: { tenantId, isDefault: true, active: true },
+    const flagged = await tx.location.findFirst({
+      where: { tenantId, [flag]: true, active: true },
+      orderBy: { code: "asc" },
     });
-    if (def) return def.id;
-    const any = await tx.location.findFirst({
-      where: { tenantId, active: true },
-      orderBy: { name: "asc" },
+    if (flagged) return flagged.id;
+    const anyLeaf = await tx.location.findFirst({
+      where: { tenantId, active: true, kind: { in: ["RACK", "AREA"] } },
+      orderBy: { code: "asc" },
     });
-    return any?.id ?? null;
+    return anyLeaf?.id ?? null;
   }
 
   /** Add quantity to one (item, status, location) cell. */

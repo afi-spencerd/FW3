@@ -187,6 +187,7 @@ model ReceivedLot {
   sourceWorkOrderId   String?   @db.Char(36)
   workOrderNumber     String?   @db.NVarChar(50)
   supplierLotNumber   String    @db.NVarChar(80) // lot number (supplier's, or WO-derived)
+  locationId          String?   @db.Char(36) // where it was quarantined (drives QC-approve routing)
   quantity            Decimal   @db.Decimal(18, 4)
   packedQty           Decimal   @default(0) @db.Decimal(18, 4) // packed off so far (production lots)
   unitCost            Decimal   @db.Decimal(19, 4)
@@ -198,9 +199,10 @@ model ReceivedLot {
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
 
-  tenant  Tenant              @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  item    InventoryItem       @relation(fields: [itemId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  results QualityTestResult[]
+  tenant   Tenant              @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  item     InventoryItem       @relation(fields: [itemId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  location Location?           @relation(fields: [locationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  results  QualityTestResult[]
 
   @@index([tenantId, qcStatus])
   @@index([itemId])
@@ -242,28 +244,43 @@ model ItemStock {
   @@index([tenantId, status])
 }
 
-// A physical inventory location (warehouse, room, bin, receiving dock). Per
-// tenant, at most one isDefault (where usable INV stock lands) and one
-// isReceiving (where received goods are quarantined) — enforced by filtered
-// unique indexes in the migration.
+// A physical inventory location, as a tree of typed levels:
+//   BUILDING (bbb) -> AISLE (a) -> RACK (first n; bin/sub-bin reserved)
+// plus AREA nodes (e.g. receiving) hanging off a building. `code` is the full
+// composed "bbb-a-nnn" address; `segment` is this node's own part. Stock sits at
+// leaves (RACK/AREA). Per building, at most one isDefault and one isReceiving
+// (filtered unique indexes in the migration). buildingId is the building
+// ancestor (its own id for a building node) for fast per-building scoping.
 model Location {
-  id          String   @id @default(uuid()) @db.Char(36)
-  tenantId    String   @db.Char(36)
-  name        String   @db.NVarChar(100)
-  code        String?  @db.NVarChar(30)
-  isDefault   Boolean  @default(false)
-  isReceiving Boolean  @default(false)
-  active      Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id          String     @id @default(uuid()) @db.Char(36)
+  tenantId    String     @db.Char(36)
+  kind        String     @default("AREA") @db.NVarChar(10) // BUILDING | AISLE | RACK | AREA
+  parentId    String?    @db.Char(36)
+  buildingId  String?    @db.Char(36)
+  name        String     @db.NVarChar(100)
+  segment     String     @default("") @db.NVarChar(20) // own code part: "075" | "A" | "100" | "RECV"
+  code        String     @default("") @db.NVarChar(40) // full composed code, e.g. "075-A-100"
+  side        String?    @db.NVarChar(8) // LEFT | RIGHT (racks)
+  isDefault   Boolean    @default(false)
+  isReceiving Boolean    @default(false)
+  active      Boolean    @default(true)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
 
   tenant       Tenant              @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  parent       Location?           @relation("LocationChildren", fields: [parentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  children     Location[]          @relation("LocationChildren")
+  building     Location?           @relation("LocationBuilding", fields: [buildingId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  inBuilding   Location[]          @relation("LocationBuilding")
   stocks       ItemStockLocation[]
   movesFrom    LocationMove[]      @relation("MoveFromLocation")
   movesTo      LocationMove[]      @relation("MoveToLocation")
+  receivedLots ReceivedLot[]
 
-  @@unique([tenantId, name])
+  @@unique([tenantId, code])
   @@index([tenantId])
+  @@index([parentId])
+  @@index([buildingId])
 }
 
 // Quantity of an item, in one stock status, sitting at one location. Cost is

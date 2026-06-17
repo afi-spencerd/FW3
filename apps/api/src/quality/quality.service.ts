@@ -124,6 +124,22 @@ export class QualityService {
       // Received lots move QUARANTINE -> INV on approval. Production lots stay in
       // FG_WIP (the FG is in the vat); approval just makes them eligible to pack off.
       if (lot.origin === "RECEIPT") {
+        // Route from the receiving dock to that building's default storage.
+        let toLocationId: string | undefined;
+        if (lot.locationId) {
+          const from = await tx.location.findUnique({
+            where: { id: lot.locationId },
+          });
+          const def = await tx.location.findFirst({
+            where: {
+              tenantId: user.tenantId,
+              isDefault: true,
+              active: true,
+              ...(from?.buildingId ? { buildingId: from.buildingId } : {}),
+            },
+          });
+          toLocationId = def?.id;
+        }
         await this.stock.transfer(
           tx,
           user.tenantId,
@@ -135,6 +151,11 @@ export class QualityService {
             docType: "PURCHASE_ORDER",
             docId: lot.purchaseOrderId ?? undefined,
             note: `QC approved lot ${lot.supplierLotNumber}`,
+          },
+          "TRANSFER",
+          {
+            ...(lot.locationId ? { fromLocationId: lot.locationId } : {}),
+            ...(toLocationId ? { toLocationId } : {}),
           },
         );
       }

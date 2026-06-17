@@ -10,6 +10,10 @@ import {
   ALL_PERMISSIONS,
   BUILTIN_ROLES,
   type BuiltinRoleName,
+  composeLocationCode,
+  type LocationKind,
+  locationSegment,
+  rackSide,
 } from "@fw3/shared-types";
 import { PrismaClient } from "../src/generated/prisma/client";
 import { mssqlConfigFromUrl } from "../src/database/mssql-config";
@@ -85,27 +89,72 @@ async function main(): Promise<void> {
       update: {},
     });
 
-    // 5. Physical locations: a default storage warehouse + a receiving dock.
-    const mainLocation = await prisma.location.upsert({
-      where: { tenantId_name: { tenantId: tenant.id, name: "Main Warehouse" } },
-      create: {
-        tenantId: tenant.id,
-        name: "Main Warehouse",
-        code: "MAIN",
-        isDefault: true,
-      },
-      update: { isDefault: true, code: "MAIN" },
+    // 5. Physical locations: a typed-level tree per building.
+    //    BUILDING (bbb) -> AISLE (a) -> RACK (bbb-a-n00), plus a Receiving area.
+    // Rebuilt from scratch each run so the hierarchy stays clean.
+    await prisma.locationMove.deleteMany({ where: { tenantId: tenant.id } });
+    await prisma.itemStockLocation.deleteMany({ where: { tenantId: tenant.id } });
+    await prisma.receivedLot.updateMany({
+      where: { tenantId: tenant.id },
+      data: { locationId: null },
     });
-    await prisma.location.upsert({
-      where: { tenantId_name: { tenantId: tenant.id, name: "Receiving Dock" } },
-      create: {
-        tenantId: tenant.id,
-        name: "Receiving Dock",
-        code: "RECV",
-        isReceiving: true,
-      },
-      update: { isReceiving: true, code: "RECV" },
+    await prisma.location.deleteMany({ where: { tenantId: tenant.id } });
+
+    interface LocNode {
+      id: string;
+      code: string;
+      buildingId: string;
+    }
+    const makeLocation = async (
+      kind: LocationKind,
+      name: string,
+      value: string,
+      parent: LocNode | null,
+      flags: { isDefault?: boolean; isReceiving?: boolean } = {},
+    ): Promise<LocNode> => {
+      const segment = locationSegment(kind, value);
+      const code = composeLocationCode(kind, parent?.code ?? null, value);
+      const side = kind === "RACK" ? rackSide(Number(value)) : null;
+      const row = await prisma.location.create({
+        data: {
+          tenantId: tenant.id,
+          kind,
+          name,
+          segment,
+          code,
+          side,
+          parentId: parent?.id ?? null,
+          buildingId: kind === "BUILDING" ? null : (parent?.buildingId ?? null),
+          isDefault: flags.isDefault ?? false,
+          isReceiving: flags.isReceiving ?? false,
+        },
+      });
+      if (kind === "BUILDING") {
+        await prisma.location.update({
+          where: { id: row.id },
+          data: { buildingId: row.id },
+        });
+        return { id: row.id, code, buildingId: row.id };
+      }
+      return { id: row.id, code, buildingId: parent?.buildingId ?? row.id };
+    };
+
+    // Warehouse 75: aisle A with racks 1 (left, default storage) & 2 (right),
+    // plus a receiving dock.
+    const b75 = await makeLocation("BUILDING", "Warehouse 75", "075", null);
+    const b75AisleA = await makeLocation("AISLE", "Aisle A", "A", b75);
+    const defaultRack = await makeLocation("RACK", "Rack 1", "1", b75AisleA, {
+      isDefault: true,
     });
+    await makeLocation("RACK", "Rack 2", "2", b75AisleA);
+    await makeLocation("AREA", "Receiving", "RECV", b75, { isReceiving: true });
+
+    // Warehouse 12: aisle A with rack 1 (default), plus a receiving dock — shows
+    // that each building has its own "Receiving".
+    const b12 = await makeLocation("BUILDING", "Warehouse 12", "012", null);
+    const b12AisleA = await makeLocation("AISLE", "Aisle A", "A", b12);
+    await makeLocation("RACK", "Rack 1", "1", b12AisleA, { isDefault: true });
+    await makeLocation("AREA", "Receiving", "RECV", b12, { isReceiving: true });
 
     // 6. Demo inventory items (with an opening INV stock position).
     for (const item of DEMO_ITEMS) {
@@ -135,21 +184,21 @@ async function main(): Promise<void> {
         },
         update: {},
       });
-      // Opening INV sits at the default warehouse so the per-location breakdown
-      // ties out to ItemStock from the start.
+      // Opening INV sits at Warehouse 75's default rack so the per-location
+      // breakdown ties out to ItemStock from the start.
       await prisma.itemStockLocation.upsert({
         where: {
           itemId_status_locationId: {
             itemId: created.id,
             status: "INV",
-            locationId: mainLocation.id,
+            locationId: defaultRack.id,
           },
         },
         create: {
           tenantId: tenant.id,
           itemId: created.id,
           status: "INV",
-          locationId: mainLocation.id,
+          locationId: defaultRack.id,
           quantity: item.qty,
         },
         update: { quantity: item.qty },

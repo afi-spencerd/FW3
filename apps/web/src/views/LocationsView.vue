@@ -2,8 +2,13 @@
 import { computed, onMounted, reactive, ref, watch } from "vue";
 import { RouterLink } from "vue-router";
 import {
+  composeLocationCode,
+  isStockableKind,
   type Location,
+  type LocationKind,
+  LOCATION_KINDS,
   type LocationStockRow,
+  PARENT_KIND,
   PERMISSIONS,
 } from "@fw3/shared-types";
 import { api, ApiError } from "../lib/api";
@@ -15,65 +20,31 @@ const error = ref<string | null>(null);
 const busy = ref(false);
 const canManage = auth.hasPermission(PERMISSIONS.LOCATION_MANAGE);
 
-// --- Location contents browser ---
-const contents = ref<LocationStockRow[]>([]);
-const selectedIds = ref<string[]>([]); // empty = all locations
-const contentsBusy = ref(false);
-
-function toggleLocation(id: string): void {
-  selectedIds.value = selectedIds.value.includes(id)
-    ? selectedIds.value.filter((x) => x !== id)
-    : [...selectedIds.value, id];
-}
-
-async function loadContents(): Promise<void> {
-  contentsBusy.value = true;
-  try {
-    contents.value = await api.locationContents(
-      selectedIds.value.length ? selectedIds.value : undefined,
-    );
-  } catch (err) {
-    error.value = err instanceof ApiError ? err.message : "Failed to load contents";
-  } finally {
-    contentsBusy.value = false;
-  }
-}
-
-watch(selectedIds, loadContents);
-
-interface ContentsGroup {
-  locationId: string;
-  name: string;
-  code: string | null;
-  rows: LocationStockRow[];
-  totalValue: number;
-}
-
-// Group the flat rows by location for display, summing value per location.
-const grouped = computed<ContentsGroup[]>(() => {
-  const map = new Map<string, ContentsGroup>();
-  for (const r of contents.value) {
-    let g = map.get(r.locationId);
-    if (!g) {
-      g = {
-        locationId: r.locationId,
-        name: r.locationName,
-        code: r.locationCode,
-        rows: [],
-        totalValue: 0,
-      };
-      map.set(r.locationId, g);
-    }
-    g.rows.push(r);
-    g.totalValue += Number(r.totalValue);
-  }
-  return [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
-});
+const KIND_LABELS: Record<LocationKind, string> = {
+  BUILDING: "Building",
+  AISLE: "Aisle",
+  RACK: "Rack",
+  AREA: "Area",
+};
+const VALUE_LABELS: Record<LocationKind, string> = {
+  BUILDING: "Building code (3 digits, e.g. 075)",
+  AISLE: "Aisle letter (A–Z)",
+  RACK: "Rack number (1–9; odd = left, even = right)",
+  AREA: "Area code (e.g. RECV)",
+};
+const KIND_INDENT: Record<LocationKind, number> = {
+  BUILDING: 0,
+  AISLE: 1,
+  RACK: 2,
+  AREA: 1,
+};
 
 const form = reactive({
   id: null as string | null,
+  kind: "BUILDING" as LocationKind,
+  parentId: "",
+  value: "",
   name: "",
-  code: "",
   isDefault: false,
   isReceiving: false,
   active: true,
@@ -81,17 +52,50 @@ const form = reactive({
 
 function reset(): void {
   form.id = null;
+  form.kind = "BUILDING";
+  form.parentId = "";
+  form.value = "";
   form.name = "";
-  form.code = "";
   form.isDefault = false;
   form.isReceiving = false;
   form.active = true;
 }
 
-function edit(l: Location): void {
+const parentKind = computed(() => PARENT_KIND[form.kind]);
+const parentOptions = computed(() =>
+  parentKind.value ? locations.value.filter((l) => l.kind === parentKind.value) : [],
+);
+const stockableKind = computed(() => isStockableKind(form.kind));
+const codePreview = computed(() => {
+  if (!form.value) return "";
+  const parent = locations.value.find((l) => l.id === form.parentId);
+  if (form.kind !== "BUILDING" && !parent) return "(choose a parent)";
+  try {
+    return composeLocationCode(form.kind, parent?.code ?? null, form.value);
+  } catch {
+    return "";
+  }
+});
+
+// Reset parent + flags whenever the kind changes (valid parents / flags differ).
+watch(
+  () => form.kind,
+  () => {
+    if (form.id) return;
+    form.parentId = "";
+    if (!isStockableKind(form.kind)) {
+      form.isDefault = false;
+      form.isReceiving = false;
+    }
+  },
+);
+
+function editLocation(l: Location): void {
   form.id = l.id;
+  form.kind = l.kind;
+  form.parentId = l.parentId ?? "";
+  form.value = l.segment;
   form.name = l.name;
-  form.code = l.code ?? "";
   form.isDefault = l.isDefault;
   form.isReceiving = l.isReceiving;
   form.active = l.active;
@@ -111,15 +115,25 @@ async function save(): Promise<void> {
   busy.value = true;
   error.value = null;
   try {
-    const payload = {
-      name: form.name,
-      code: form.code || undefined,
-      isDefault: form.isDefault,
-      isReceiving: form.isReceiving,
-      active: form.active,
-    };
-    if (form.id) await api.updateLocation(form.id, payload);
-    else await api.createLocation(payload);
+    if (form.id) {
+      // Editing only touches the label / role / active (code & kind are fixed).
+      await api.updateLocation(form.id, {
+        name: form.name,
+        isDefault: form.isDefault,
+        isReceiving: form.isReceiving,
+        active: form.active,
+      });
+    } else {
+      await api.createLocation({
+        kind: form.kind,
+        name: form.name,
+        value: form.value,
+        parentId: form.parentId || undefined,
+        isDefault: form.isDefault,
+        isReceiving: form.isReceiving,
+        active: form.active,
+      });
+    }
     reset();
     await load();
   } catch (err) {
@@ -128,6 +142,74 @@ async function save(): Promise<void> {
     busy.value = false;
   }
 }
+
+// --- Location contents browser ---
+const contents = ref<LocationStockRow[]>([]);
+const selectedIds = ref<string[]>([]); // empty = all
+const contentsBusy = ref(false);
+
+function toggleLocation(id: string): void {
+  selectedIds.value = selectedIds.value.includes(id)
+    ? selectedIds.value.filter((x) => x !== id)
+    : [...selectedIds.value, id];
+}
+
+// A selection may include buildings/aisles; expand to the stockable leaves under
+// them (a leaf matches if it, its aisle, or its building is selected).
+const selectedLeafIds = computed<string[] | undefined>(() => {
+  if (!selectedIds.value.length) return undefined;
+  const sel = new Set(selectedIds.value);
+  return locations.value
+    .filter((l) => isStockableKind(l.kind))
+    .filter(
+      (l) =>
+        sel.has(l.id) ||
+        (l.parentId !== null && sel.has(l.parentId)) ||
+        (l.buildingId !== null && sel.has(l.buildingId)),
+    )
+    .map((l) => l.id);
+});
+
+async function loadContents(): Promise<void> {
+  contentsBusy.value = true;
+  try {
+    contents.value = await api.locationContents(selectedLeafIds.value);
+  } catch (err) {
+    error.value = err instanceof ApiError ? err.message : "Failed to load contents";
+  } finally {
+    contentsBusy.value = false;
+  }
+}
+watch(selectedIds, loadContents);
+
+interface ContentsGroup {
+  locationId: string;
+  code: string;
+  name: string;
+  buildingName: string | null;
+  rows: LocationStockRow[];
+  totalValue: number;
+}
+const grouped = computed<ContentsGroup[]>(() => {
+  const map = new Map<string, ContentsGroup>();
+  for (const r of contents.value) {
+    let g = map.get(r.locationId);
+    if (!g) {
+      g = {
+        locationId: r.locationId,
+        code: r.locationCode ?? "",
+        name: r.locationName,
+        buildingName: r.buildingName,
+        rows: [],
+        totalValue: 0,
+      };
+      map.set(r.locationId, g);
+    }
+    g.rows.push(r);
+    g.totalValue += Number(r.totalValue);
+  }
+  return [...map.values()].sort((a, b) => a.code.localeCompare(b.code));
+});
 
 onMounted(load);
 </script>
@@ -139,15 +221,21 @@ onMounted(load);
     <div class="panel" style="margin-bottom: 1rem">
       <h3 style="margin-top: 0">What's in a location</h3>
       <p class="inactive" style="font-size: 0.85rem">
-        Pick one or more locations to see their contents. With none selected,
-        every location is shown. Located stock only (INV &amp; quarantine).
+        Pick locations to see their contents — choosing a building or aisle
+        includes everything under it. With none selected, all stock is shown.
+        Located stock only (INV &amp; quarantine).
       </p>
-      <div class="toolbar" style="flex-wrap: wrap; gap: 0.5rem">
+      <div class="toolbar" style="flex-wrap: wrap; gap: 0.3rem 1rem">
         <label
           v-for="l in locations"
           :key="l.id"
           :class="{ inactive: !l.active }"
-          style="display: inline-flex; align-items: center; gap: 0.3rem; margin-right: 0.5rem"
+          :style="{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '0.3rem',
+            paddingLeft: KIND_INDENT[l.kind] * 0.9 + 'rem',
+          }"
         >
           <input
             type="checkbox"
@@ -155,7 +243,8 @@ onMounted(load);
             :checked="selectedIds.includes(l.id)"
             @change="toggleLocation(l.id)"
           />
-          {{ l.name }}
+          <span style="font-variant-numeric: tabular-nums">{{ l.code }}</span>
+          <span class="inactive">{{ l.name }}</span>
         </label>
         <button v-if="selectedIds.length" @click="selectedIds = []">Show all</button>
       </div>
@@ -166,9 +255,10 @@ onMounted(load);
 
       <div v-for="g in grouped" :key="g.locationId" style="margin-top: 1rem">
         <h4 style="margin-bottom: 0.25rem">
-          {{ g.name }}<span v-if="g.code" class="inactive"> ({{ g.code }})</span>
+          <span style="font-variant-numeric: tabular-nums">{{ g.code }}</span>
+          — {{ g.buildingName ? g.buildingName + " · " : "" }}{{ g.name }}
           <span class="inactive" style="font-weight: normal; font-size: 0.85rem">
-            — {{ g.rows.length }} item(s), ${{ g.totalValue.toFixed(2) }}
+            ({{ g.rows.length }} item(s), ${{ g.totalValue.toFixed(2) }})
           </span>
         </h4>
         <table>
@@ -199,24 +289,42 @@ onMounted(load);
     <div v-if="canManage" class="panel" style="margin-bottom: 1rem">
       <h3>{{ form.id ? "Edit location" : "New location" }}</h3>
       <div class="grid-2">
+        <div v-if="!form.id" class="field">
+          <label>Kind</label>
+          <select v-model="form.kind">
+            <option v-for="k in LOCATION_KINDS" :key="k" :value="k">{{ KIND_LABELS[k] }}</option>
+          </select>
+        </div>
+        <div v-if="!form.id && parentKind" class="field">
+          <label>Parent ({{ KIND_LABELS[parentKind] }})</label>
+          <select v-model="form.parentId">
+            <option value="">Select…</option>
+            <option v-for="p in parentOptions" :key="p.id" :value="p.id">
+              {{ p.code }} — {{ p.name }}
+            </option>
+          </select>
+        </div>
+        <div v-if="!form.id" class="field">
+          <label>{{ VALUE_LABELS[form.kind] }}</label>
+          <input v-model="form.value" />
+          <div class="inactive" style="font-size: 0.8rem">
+            Code: <strong>{{ codePreview || "—" }}</strong>
+          </div>
+        </div>
         <div class="field">
           <label>Name</label>
           <input v-model="form.name" />
         </div>
-        <div class="field">
-          <label>Code</label>
-          <input v-model="form.code" />
-        </div>
-        <div class="field">
+        <div v-if="stockableKind" class="field">
           <label>
             <input type="checkbox" v-model="form.isDefault" style="width: auto" />
             Default storage (usable stock lands here)
           </label>
         </div>
-        <div class="field">
+        <div v-if="stockableKind" class="field">
           <label>
             <input type="checkbox" v-model="form.isReceiving" style="width: auto" />
-            Receiving dock (received goods quarantine here)
+            Receiving (received goods quarantine here)
           </label>
         </div>
         <div class="field">
@@ -224,7 +332,11 @@ onMounted(load);
         </div>
       </div>
       <div class="toolbar">
-        <button class="primary" :disabled="busy || !form.name" @click="save">
+        <button
+          class="primary"
+          :disabled="busy || !form.name || (!form.id && !form.value)"
+          @click="save"
+        >
           {{ form.id ? "Save" : "Add location" }}
         </button>
         <button v-if="form.id" @click="reset">Cancel</button>
@@ -234,28 +346,32 @@ onMounted(load);
     <div class="panel">
       <h3 style="margin-top: 0">Locations</h3>
       <p class="inactive" style="font-size: 0.85rem">
-        Physical places inventory sits. Quantity is split across locations; cost
-        is item-level, so moving stock between locations never changes cost.
+        Tree of building → aisle → rack (bin/sub-bin reserved), plus areas like
+        receiving. Codes follow bbb-a-nnn. Stock sits at racks and areas.
       </p>
       <table>
         <thead>
-          <tr><th>Name</th><th>Code</th><th>Role</th><th>Active</th><th></th></tr>
+          <tr><th>Code</th><th>Name</th><th>Kind</th><th>Side</th><th>Role</th><th>Active</th><th></th></tr>
         </thead>
         <tbody>
           <tr v-for="l in locations" :key="l.id" :class="{ inactive: !l.active }">
+            <td :style="{ paddingLeft: KIND_INDENT[l.kind] * 1 + 'rem', fontVariantNumeric: 'tabular-nums' }">
+              {{ l.code }}
+            </td>
             <td>{{ l.name }}</td>
-            <td>{{ l.code }}</td>
+            <td>{{ KIND_LABELS[l.kind] }}</td>
+            <td>{{ l.side ?? "" }}</td>
             <td>
-              <span v-if="l.isDefault" class="badge">Default storage</span>
+              <span v-if="l.isDefault" class="badge">Default</span>
               <span v-if="l.isReceiving" class="badge">Receiving</span>
             </td>
             <td>{{ l.active ? "Yes" : "No" }}</td>
             <td>
-              <button v-if="canManage" @click="edit(l)">Edit</button>
+              <button v-if="canManage" @click="editLocation(l)">Edit</button>
             </td>
           </tr>
           <tr v-if="locations.length === 0">
-            <td colspan="5" class="inactive">No locations yet.</td>
+            <td colspan="7" class="inactive">No locations yet.</td>
           </tr>
         </tbody>
       </table>

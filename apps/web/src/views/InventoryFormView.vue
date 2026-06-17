@@ -9,6 +9,7 @@ import {
   type ItemQualitySpec,
   ITEM_TYPES,
   type ItemType,
+  isStockableKind,
   type LocatedStockStatus,
   LOCATED_STOCK_STATUSES,
   type Location,
@@ -469,7 +470,10 @@ async function submit(): Promise<void> {
         <tbody>
           <tr v-for="p in itemLocations" :key="p.status + p.locationId">
             <td>{{ p.status }}</td>
-            <td>{{ p.locationName }}<span v-if="p.locationCode" class="inactive"> ({{ p.locationCode }})</span></td>
+            <td>
+              <span style="font-variant-numeric: tabular-nums">{{ p.locationCode }}</span>
+              <span class="inactive"> {{ p.locationName }}</span>
+            </td>
             <td class="num">{{ p.quantity }}</td>
           </tr>
           <tr v-if="itemLocations.length === 0">
@@ -485,20 +489,20 @@ async function submit(): Promise<void> {
           <select v-model="move.status" style="max-width: 130px">
             <option v-for="s in LOCATED_STOCK_STATUSES" :key="s" :value="s">{{ s }}</option>
           </select>
-          <select v-model="move.fromLocationId" style="max-width: 200px">
+          <select v-model="move.fromLocationId" style="max-width: 220px">
             <option value="">From…</option>
             <option v-for="p in moveSources" :key="p.locationId" :value="p.locationId">
-              {{ p.locationName }} ({{ p.quantity }})
+              {{ p.locationCode }} — {{ p.locationName }} ({{ p.quantity }})
             </option>
           </select>
-          <select v-model="move.toLocationId" style="max-width: 200px">
+          <select v-model="move.toLocationId" style="max-width: 220px">
             <option value="">To…</option>
             <option
-              v-for="l in allLocations.filter((l) => l.active && l.id !== move.fromLocationId)"
+              v-for="l in allLocations.filter((l) => l.active && isStockableKind(l.kind) && l.id !== move.fromLocationId)"
               :key="l.id"
               :value="l.id"
             >
-              {{ l.name }}
+              {{ l.code }} — {{ l.name }}
             </option>
           </select>
           <input v-model="move.quantity" inputmode="decimal" placeholder="Qty" style="max-width: 100px" />
