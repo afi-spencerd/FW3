@@ -12,7 +12,10 @@
       "Bash(ps -o pid,ppid,etimes,args -p 302650)",
       "Bash(ps -eo pid,ppid,etimes,args)",
       "Bash(jj commit -m 'feat\\(stock\\): weighted-average inventory ledger \\(life-cycle stage 1\\) *)",
-      "Bash(jj log *)"
+      "Bash(jj log *)",
+      "Bash(jj st *)",
+      "Bash(jj status *)",
+      "Bash(jj commit *)"
     ]
   }
 }
