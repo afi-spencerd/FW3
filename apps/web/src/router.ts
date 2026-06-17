@@ -72,6 +72,31 @@ export const router = createRouter({
       meta: { requiresAuth: true },
       props: true,
     },
+    {
+      path: "/customers",
+      name: "customers",
+      component: () => import("./views/CustomersView.vue"),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: "/sales-orders",
+      name: "sales-orders",
+      component: () => import("./views/SalesOrderListView.vue"),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: "/sales-orders/new",
+      name: "sales-order-new",
+      component: () => import("./views/SalesOrderFormView.vue"),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: "/sales-orders/:id",
+      name: "sales-order-detail",
+      component: () => import("./views/SalesOrderDetailView.vue"),
+      meta: { requiresAuth: true },
+      props: true,
+    },
   ],
 });
 

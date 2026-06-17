@@ -32,6 +32,8 @@ model Tenant {
   inventoryTxns  InventoryTxn[]
   vendors        Vendor[]
   purchaseOrders PurchaseOrder[]
+  customers      Customer[]
+  salesOrders    SalesOrder[]
 }
 
 model User {
@@ -126,6 +128,7 @@ model InventoryItem {
   rawMaterialFormulaLines FormulaLine[]       @relation("RawMaterialFormulaLines")
   txns                    InventoryTxn[]
   purchaseOrderLines      PurchaseOrderLine[] @relation("ItemPurchaseOrderLines")
+  salesOrderLines         SalesOrderLine[]    @relation("ItemSalesOrderLines")
 
   @@unique([tenantId, sku])
   @@index([tenantId])
@@ -207,6 +210,59 @@ model PurchaseOrderLine {
   item          InventoryItem @relation("ItemPurchaseOrderLines", fields: [itemId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([purchaseOrderId])
+  @@index([itemId])
+}
+
+model Customer {
+  id        String   @id @default(uuid()) @db.Char(36)
+  tenantId  String   @db.Char(36)
+  name      String   @db.NVarChar(200)
+  code      String?  @db.NVarChar(50)
+  email     String?  @db.NVarChar(320)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant      Tenant       @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  salesOrders SalesOrder[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+}
+
+model SalesOrder {
+  id         String   @id @default(uuid()) @db.Char(36)
+  tenantId   String   @db.Char(36)
+  customerId String   @db.Char(36)
+  soNumber   String   @db.NVarChar(50)
+  status     String   @default("OPEN") @db.NVarChar(20) // OPEN | PARTIAL | SHIPPED | CANCELLED
+  orderDate  DateTime @default(now())
+  notes      String?  @db.NVarChar(2000)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  tenant   Tenant           @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  customer Customer         @relation(fields: [customerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  lines    SalesOrderLine[]
+
+  @@unique([tenantId, soNumber])
+  @@index([tenantId])
+  @@index([tenantId, customerId])
+}
+
+model SalesOrderLine {
+  id              String  @id @default(uuid()) @db.Char(36)
+  salesOrderId    String  @db.Char(36)
+  itemId          String  @db.Char(36)
+  quantityOrdered Decimal @db.Decimal(18, 4)
+  unitPrice       Decimal @db.Decimal(19, 4)
+  quantityShipped Decimal @default(0) @db.Decimal(18, 4)
+  sortOrder       Int     @default(0)
+
+  salesOrder SalesOrder    @relation(fields: [salesOrderId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  item       InventoryItem @relation("ItemSalesOrderLines", fields: [itemId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([salesOrderId])
   @@index([itemId])
 }
 

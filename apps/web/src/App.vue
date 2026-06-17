@@ -19,6 +19,8 @@ async function logout(): Promise<void> {
       <RouterLink :to="{ name: 'formulas' }">Formulas</RouterLink>
       <RouterLink :to="{ name: 'vendors' }">Vendors</RouterLink>
       <RouterLink :to="{ name: 'purchase-orders' }">Purchase Orders</RouterLink>
+      <RouterLink :to="{ name: 'customers' }">Customers</RouterLink>
+      <RouterLink :to="{ name: 'sales-orders' }">Sales Orders</RouterLink>
     </nav>
     <span class="spacer" />
     <template v-if="auth.isAuthenticated">

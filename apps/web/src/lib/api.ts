@@ -6,7 +6,10 @@ import type {
   CreateFormula,
   CreateInventoryItem,
   CreatePurchaseOrder,
+  CreateSalesOrder,
   CreateVendor,
+  CreateCustomer,
+  Customer,
   Formula,
   FormulaSummary,
   InventoryItem,
@@ -17,6 +20,10 @@ import type {
   PurchaseOrder,
   PurchaseOrderSummary,
   ReceivePurchaseOrder,
+  SalesOrder,
+  SalesOrderSummary,
+  ShipSalesOrder,
+  UpdateCustomer,
   UpdateFormula,
   UpdateInventoryItem,
   UpdateVendor,
@@ -158,6 +165,30 @@ export const api = {
     request<PurchaseOrder>(`/purchase-orders/${id}/cancel`, { method: "POST" }),
   receivePurchaseOrder: (id: string, data: ReceivePurchaseOrder) =>
     request<PurchaseOrder>(`/purchase-orders/${id}/receive`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  listCustomers: () => request<Customer[]>("/customers"),
+  createCustomer: (data: CreateCustomer) =>
+    request<Customer>("/customers", { method: "POST", body: JSON.stringify(data) }),
+  updateCustomer: (id: string, data: UpdateCustomer) =>
+    request<Customer>(`/customers/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    }),
+
+  listSalesOrders: () => request<SalesOrderSummary[]>("/sales-orders"),
+  getSalesOrder: (id: string) => request<SalesOrder>(`/sales-orders/${id}`),
+  createSalesOrder: (data: CreateSalesOrder) =>
+    request<SalesOrder>("/sales-orders", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  cancelSalesOrder: (id: string) =>
+    request<SalesOrder>(`/sales-orders/${id}/cancel`, { method: "POST" }),
+  shipSalesOrder: (id: string, data: ShipSalesOrder) =>
+    request<SalesOrder>(`/sales-orders/${id}/ship`, {
       method: "POST",
       body: JSON.stringify(data),
     }),

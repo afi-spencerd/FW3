@@ -194,6 +194,39 @@ async function main(): Promise<void> {
       });
     }
 
+    // 8. A customer + an open sales order for the finished good (demo).
+    const customer = await prisma.customer.upsert({
+      where: { tenantId_name: { tenantId: tenant.id, name: "Maison Aurelia" } },
+      create: {
+        tenantId: tenant.id,
+        name: "Maison Aurelia",
+        code: "MA",
+        email: "buyer@maisonaurelia.example",
+      },
+      update: {},
+    });
+    const existingSo = await prisma.salesOrder.findUnique({
+      where: { tenantId_soNumber: { tenantId: tenant.id, soNumber: "SO-2001" } },
+    });
+    if (!existingSo) {
+      const noir = await prisma.inventoryItem.findUniqueOrThrow({
+        where: { tenantId_sku: { tenantId: tenant.id, sku: "FG-NOIR-01" } },
+      });
+      await prisma.salesOrder.create({
+        data: {
+          tenantId: tenant.id,
+          customerId: customer.id,
+          soNumber: "SO-2001",
+          status: "OPEN",
+          lines: {
+            create: [
+              { itemId: noir.id, quantityOrdered: "3.0000", unitPrice: "180.0000", sortOrder: 0 },
+            ],
+          },
+        },
+      });
+    }
+
     console.log(`Seed complete. Tenant=${tenant.id} (slug=demo), admin user=${admin.id}`);
   } finally {
     await prisma.$disconnect();
