@@ -6,6 +6,8 @@
 - [ ] Unique views for specific User Roles
 - [ ] fix: correct broken references to "Stock" page
 - [ ] create API for Compounder Tool to report consumptions and batch progress
+  - [ ] expose formulation details to compounder tool via api
+  - [ ] expose WO list to compounder tool
 - [ ] complete QBWC sync
 - [ ] fix: broken inventory delete button
   - [ ] should only allow adjusting out all inventory, not deleting. all adjustments should be recorded.
@@ -22,4 +24,10 @@
 - [ ] always use lbs for UOM
 - [ ] allow receiving from vendor as KG, auto convert. disclaimer for conversion formula used.
 - [x] location visibility (what's currently on a location)
-- [ ] sub-locations
+  - [ ] improve location visibility UX
+- [x] sub-locations
+- [ ] create inventory labels
+- [ ] batch labels
+- [ ] scheduling tool
+- [ ] customer service crm
+- [ ] sales crm
