@@ -41,6 +41,25 @@ export const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
+      path: "/production",
+      name: "production",
+      component: () => import("./views/ProductionListView.vue"),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: "/production/new",
+      name: "production-new",
+      component: () => import("./views/ProductionFormView.vue"),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: "/production/:id",
+      name: "production-detail",
+      component: () => import("./views/ProductionDetailView.vue"),
+      meta: { requiresAuth: true },
+      props: true,
+    },
+    {
       path: "/formulas/new",
       name: "formula-new",
       component: () => import("./views/FormulaFormView.vue"),

@@ -35,6 +35,7 @@ model Tenant {
   purchaseOrders PurchaseOrder[]
   customers      Customer[]
   salesOrders    SalesOrder[]
+  productionRuns ProductionRun[]
 }
 
 model User {
@@ -129,8 +130,10 @@ model InventoryItem {
   rawMaterialFormulaLines FormulaLine[]       @relation("RawMaterialFormulaLines")
   txns                    InventoryTxn[]
   stocks                  ItemStock[]
-  purchaseOrderLines      PurchaseOrderLine[] @relation("ItemPurchaseOrderLines")
-  salesOrderLines         SalesOrderLine[]    @relation("ItemSalesOrderLines")
+  purchaseOrderLines      PurchaseOrderLine[]   @relation("ItemPurchaseOrderLines")
+  salesOrderLines         SalesOrderLine[]      @relation("ItemSalesOrderLines")
+  targetProductionRuns    ProductionRun[]       @relation("TargetProductionRuns")
+  componentProductionRunLines ProductionRunLine[] @relation("ComponentProductionRunLines")
 
   @@unique([tenantId, sku])
   @@index([tenantId])
@@ -289,6 +292,48 @@ model SalesOrderLine {
   @@index([itemId])
 }
 
+// A production run makes a target (finished good or base) from a formula.
+// Flow: PLANNED -> (stage components INV->WIP) STAGED -> (consume WIP, output to
+// FG_WIP) COMPLETED. Pack-off (FG_WIP->FG_INV) is a separate stock operation.
+model ProductionRun {
+  id           String   @id @default(uuid()) @db.Char(36)
+  tenantId     String   @db.Char(36)
+  runNumber    String   @db.NVarChar(50)
+  targetItemId String   @db.Char(36)
+  formulaId    String   @db.Char(36)
+  batchSize    Decimal  @db.Decimal(18, 4) // total batch weight in batchUnit
+  batchUnit    String   @db.NVarChar(16) // LB | KG (formula scaling unit)
+  outputQty    Decimal  @db.Decimal(18, 4) // produced qty of target (target's UoM)
+  status       String   @default("PLANNED") @db.NVarChar(20) // PLANNED | STAGED | COMPLETED | CANCELLED
+  notes        String?  @db.NVarChar(2000)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  tenant  Tenant              @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  target  InventoryItem       @relation("TargetProductionRuns", fields: [targetItemId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  formula Formula             @relation(fields: [formulaId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  lines   ProductionRunLine[]
+
+  @@unique([tenantId, runNumber])
+  @@index([tenantId])
+}
+
+model ProductionRunLine {
+  id              String  @id @default(uuid()) @db.Char(36)
+  productionRunId String  @db.Char(36)
+  componentId     String  @db.Char(36)
+  requiredQty     Decimal @db.Decimal(18, 4) // in the component's stocking unit
+  stagedQty       Decimal @default(0) @db.Decimal(18, 4)
+  consumedQty     Decimal @default(0) @db.Decimal(18, 4)
+  sortOrder       Int     @default(0)
+
+  productionRun ProductionRun @relation(fields: [productionRunId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  component     InventoryItem @relation("ComponentProductionRunLines", fields: [componentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([productionRunId])
+  @@index([componentId])
+}
+
 // A fragrance formula: finished good = raw materials by percentage of weight.
 model Formula {
   id             String   @id @default(uuid()) @db.Char(36)
@@ -301,9 +346,10 @@ model Formula {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  tenant       Tenant        @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  finishedGood InventoryItem @relation("FinishedGoodFormulas", fields: [finishedGoodId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  lines        FormulaLine[]
+  tenant         Tenant          @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  finishedGood   InventoryItem   @relation("FinishedGoodFormulas", fields: [finishedGoodId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  lines          FormulaLine[]
+  productionRuns ProductionRun[]
 
   @@unique([tenantId, finishedGoodId, version])
   @@index([tenantId])

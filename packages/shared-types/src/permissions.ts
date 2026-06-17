@@ -28,6 +28,9 @@ export const PERMISSIONS = {
   SO_CREATE: "so:create",
   SO_UPDATE: "so:update",
   SO_SHIP: "so:ship",
+  PRODUCTION_READ: "production:read",
+  PRODUCTION_CREATE: "production:create",
+  PRODUCTION_EXECUTE: "production:execute",
   QB_SYNC_RUN: "qb:sync:run",
   QB_SYNC_VIEW: "qb:sync:view",
 } as const;
@@ -63,6 +66,9 @@ export const BUILTIN_ROLES = {
     PERMISSIONS.SO_CREATE,
     PERMISSIONS.SO_UPDATE,
     PERMISSIONS.SO_SHIP,
+    PERMISSIONS.PRODUCTION_READ,
+    PERMISSIONS.PRODUCTION_CREATE,
+    PERMISSIONS.PRODUCTION_EXECUTE,
     PERMISSIONS.QB_SYNC_VIEW,
   ],
   viewer: [
@@ -72,6 +78,7 @@ export const BUILTIN_ROLES = {
     PERMISSIONS.PO_READ,
     PERMISSIONS.CUSTOMER_READ,
     PERMISSIONS.SO_READ,
+    PERMISSIONS.PRODUCTION_READ,
     PERMISSIONS.QB_SYNC_VIEW,
   ],
 } as const satisfies Record<string, readonly Permission[]>;

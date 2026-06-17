@@ -13,10 +13,13 @@ import type {
   Formula,
   FormulaSummary,
   InventoryItem,
+  CreateProductionRun,
   InventoryPosition,
   InventoryTxn,
   ItemType,
   PaginatedInventory,
+  ProductionRun,
+  ProductionRunSummary,
   StockPosition,
   PurchaseOrder,
   PurchaseOrderSummary,
@@ -129,6 +132,25 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+  packOff: (id: string, quantity: string) =>
+    request<InventoryPosition>(`/inventory/${id}/pack-off`, {
+      method: "POST",
+      body: JSON.stringify({ quantity }),
+    }),
+
+  listProductionRuns: () => request<ProductionRunSummary[]>("/production-runs"),
+  getProductionRun: (id: string) => request<ProductionRun>(`/production-runs/${id}`),
+  createProductionRun: (data: CreateProductionRun) =>
+    request<ProductionRun>("/production-runs", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  stageProductionRun: (id: string) =>
+    request<ProductionRun>(`/production-runs/${id}/stage`, { method: "POST" }),
+  completeProductionRun: (id: string) =>
+    request<ProductionRun>(`/production-runs/${id}/complete`, { method: "POST" }),
+  cancelProductionRun: (id: string) =>
+    request<ProductionRun>(`/production-runs/${id}/cancel`, { method: "POST" }),
 
   listFormulas: () => request<FormulaSummary[]>("/formulas"),
   getFormula: (id: string) => request<Formula>(`/formulas/${id}`),

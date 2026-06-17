@@ -216,6 +216,33 @@ export class StockService {
     return this.getPosition(user.tenantId, itemId);
   }
 
+  /** Pack-off: move a quantity of an item from FG_WIP to FG_INV (LOT-traceable). */
+  async packOff(
+    user: AuthenticatedUser,
+    itemId: string,
+    quantity: string,
+  ): Promise<InventoryPosition> {
+    await this.prisma.$transaction(async (tx) => {
+      const item = await tx.inventoryItem.findFirst({
+        where: { id: itemId, tenantId: user.tenantId },
+      });
+      if (!item) throw new NotFoundException("Inventory item not found");
+      await this.transfer(tx, user.tenantId, itemId, "WIP", "INV", quantity, {
+        docType: "PRODUCTION_RUN",
+        note: `Pack-off ${item.sku}`,
+      });
+      await this.audit.record(tx, {
+        tenantId: user.tenantId,
+        actorId: user.id,
+        entityType: "InventoryItem",
+        entityId: itemId,
+        action: "UPDATE",
+        after: { packOff: quantity },
+      });
+    });
+    return this.getPosition(user.tenantId, itemId);
+  }
+
   /** Current LOT-traceable (INV) position of an item. */
   async getPosition(tenantId: string, itemId: string): Promise<InventoryPosition> {
     const item = await this.prisma.inventoryItem.findFirst({

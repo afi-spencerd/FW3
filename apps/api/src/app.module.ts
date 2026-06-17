@@ -10,6 +10,7 @@ import { StockModule } from "./stock/stock.module";
 import { FormulaModule } from "./formula/formula.module";
 import { PurchasingModule } from "./purchasing/purchasing.module";
 import { SalesModule } from "./sales/sales.module";
+import { ProductionModule } from "./production/production.module";
 import { QbwcModule } from "./qbwc/qbwc.module";
 import { JobsModule } from "./jobs/jobs.module";
 
@@ -30,6 +31,7 @@ import { JobsModule } from "./jobs/jobs.module";
     FormulaModule,
     PurchasingModule,
     SalesModule,
+    ProductionModule,
     QbwcModule,
     JobsModule,
   ],

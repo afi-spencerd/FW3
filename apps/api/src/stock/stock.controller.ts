@@ -3,6 +3,8 @@ import {
   type AdjustStock,
   adjustStockSchema,
   type AuthenticatedUser,
+  type PackOff,
+  packOffSchema,
   PERMISSIONS,
 } from "@fw3/shared-types";
 import { CurrentUser } from "../common/current-user.decorator";
@@ -44,5 +46,15 @@ export class StockController {
     @Body(new ZodValidationPipe(adjustStockSchema)) body: AdjustStock,
   ) {
     return this.stock.adjust(user, id, body);
+  }
+
+  @Post(":id/pack-off")
+  @RequirePermissions(PERMISSIONS.PRODUCTION_EXECUTE)
+  packOff(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param("id") id: string,
+    @Body(new ZodValidationPipe(packOffSchema)) body: PackOff,
+  ) {
+    return this.stock.packOff(user, id, body.quantity);
   }
 }

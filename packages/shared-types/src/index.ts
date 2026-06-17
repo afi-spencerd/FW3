@@ -6,3 +6,4 @@ export * from "./formula.js";
 export * from "./stock.js";
 export * from "./purchasing.js";
 export * from "./sales.js";
+export * from "./production.js";

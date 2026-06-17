@@ -1,12 +1,38 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
-import type { StockPosition } from "@fw3/shared-types";
+import { computed, onMounted, reactive, ref } from "vue";
+import { PERMISSIONS, type StockPosition } from "@fw3/shared-types";
 import { api, ApiError } from "../lib/api";
+import { useAuthStore } from "../stores/auth";
 
+const auth = useAuthStore();
 const positions = ref<StockPosition[]>([]);
 const error = ref<string | null>(null);
+const notice = ref<string | null>(null);
+const packQty = reactive<Record<string, string>>({});
 
 const STATE_LABELS: Record<string, string> = { INV: "Traceable", WIP: "WIP" };
+
+const canPackOff = computed(() =>
+  auth.hasPermission(PERMISSIONS.PRODUCTION_EXECUTE),
+);
+
+async function packOff(itemId: string): Promise<void> {
+  const qty = packQty[itemId];
+  if (!qty || Number(qty) <= 0) {
+    error.value = "Enter a quantity to pack off.";
+    return;
+  }
+  error.value = null;
+  notice.value = null;
+  try {
+    await api.packOff(itemId, qty);
+    packQty[itemId] = "";
+    notice.value = "Packed off — moved from WIP to LOT-traceable stock.";
+    await load();
+  } catch (err) {
+    error.value = err instanceof ApiError ? err.message : "Pack-off failed";
+  }
+}
 
 function sumValue(rows: StockPosition[]): string {
   return rows
@@ -36,6 +62,7 @@ onMounted(load);
 <template>
   <div class="container">
     <div v-if="error" class="banner error">{{ error }}</div>
+    <div v-if="notice" class="banner ok">{{ notice }}</div>
 
     <div class="panel summary" style="margin-bottom: 1rem">
       <div class="metric">
@@ -64,6 +91,7 @@ onMounted(load);
             <th class="num">Qty</th>
             <th class="num">Avg cost</th>
             <th class="num">Value</th>
+            <th v-if="canPackOff" class="num">Pack off</th>
           </tr>
         </thead>
         <tbody>
@@ -75,9 +103,19 @@ onMounted(load);
             <td class="num">{{ p.quantity }}</td>
             <td class="num">{{ p.avgCost }}</td>
             <td class="num">${{ p.totalValue }}</td>
+            <td v-if="canPackOff" class="num">
+              <template v-if="p.state === 'WIP' && Number(p.quantity) > 0">
+                <input
+                  v-model="packQty[p.itemId]"
+                  inputmode="decimal"
+                  style="text-align: right; max-width: 80px"
+                />
+                <button style="margin-left: 0.4rem" @click="packOff(p.itemId)">Pack</button>
+              </template>
+            </td>
           </tr>
           <tr v-if="positions.length === 0">
-            <td colspan="7" class="inactive">No stock positions.</td>
+            <td :colspan="canPackOff ? 8 : 7" class="inactive">No stock positions.</td>
           </tr>
         </tbody>
       </table>
