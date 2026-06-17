@@ -6,12 +6,16 @@ import {
 import type {
   AuthenticatedUser,
   CreateLocation,
+  ItemType,
+  LocatedStockStatus,
   Location as LocationDto,
+  LocationStockRow,
   UpdateLocation,
 } from "@fw3/shared-types";
 import { AuditService } from "../audit/audit.service";
 import { PrismaService } from "../database/prisma.service";
 import { Prisma } from "../generated/prisma/client";
+import { extendedValue } from "../inventory/valuation";
 
 type LocationRow = Prisma.LocationGetPayload<object>;
 
@@ -109,6 +113,50 @@ export class LocationService {
     } catch (err) {
       throw this.mapError(err, input.name);
     }
+  }
+
+  /**
+   * What's currently sitting in one or more locations (all of them if no ids
+   * are given). Located stock only (INV/QUARANTINE); value is at item-level
+   * cost. Newest-meaningful ordering: by location, then SKU.
+   */
+  async getContents(
+    tenantId: string,
+    locationIds?: string[],
+  ): Promise<LocationStockRow[]> {
+    const rows = await this.prisma.itemStockLocation.findMany({
+      where: {
+        tenantId,
+        ...(locationIds && locationIds.length
+          ? { locationId: { in: locationIds } }
+          : {}),
+      },
+      include: { item: true, location: true },
+    });
+    return rows
+      .filter((r) => !r.quantity.isZero())
+      .map((r) => ({
+        locationId: r.locationId,
+        locationName: r.location.name,
+        locationCode: r.location.code,
+        itemId: r.itemId,
+        sku: r.item.sku,
+        name: r.item.name,
+        itemType: r.item.itemType as ItemType,
+        status: r.status as LocatedStockStatus,
+        quantity: r.quantity.toString(),
+        unitCost: r.item.unitCost.toString(),
+        totalValue: extendedValue(
+          r.quantity.toString(),
+          r.item.unitCost.toString(),
+        ),
+      }))
+      .sort(
+        (a, b) =>
+          a.locationName.localeCompare(b.locationName) ||
+          a.sku.localeCompare(b.sku) ||
+          a.status.localeCompare(b.status),
+      );
   }
 
   private async getById(tenantId: string, id: string): Promise<LocationDto> {

@@ -1,6 +1,11 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from "vue";
-import { type Location, PERMISSIONS } from "@fw3/shared-types";
+import { computed, onMounted, reactive, ref, watch } from "vue";
+import { RouterLink } from "vue-router";
+import {
+  type Location,
+  type LocationStockRow,
+  PERMISSIONS,
+} from "@fw3/shared-types";
 import { api, ApiError } from "../lib/api";
 import { useAuthStore } from "../stores/auth";
 
@@ -9,6 +14,61 @@ const locations = ref<Location[]>([]);
 const error = ref<string | null>(null);
 const busy = ref(false);
 const canManage = auth.hasPermission(PERMISSIONS.LOCATION_MANAGE);
+
+// --- Location contents browser ---
+const contents = ref<LocationStockRow[]>([]);
+const selectedIds = ref<string[]>([]); // empty = all locations
+const contentsBusy = ref(false);
+
+function toggleLocation(id: string): void {
+  selectedIds.value = selectedIds.value.includes(id)
+    ? selectedIds.value.filter((x) => x !== id)
+    : [...selectedIds.value, id];
+}
+
+async function loadContents(): Promise<void> {
+  contentsBusy.value = true;
+  try {
+    contents.value = await api.locationContents(
+      selectedIds.value.length ? selectedIds.value : undefined,
+    );
+  } catch (err) {
+    error.value = err instanceof ApiError ? err.message : "Failed to load contents";
+  } finally {
+    contentsBusy.value = false;
+  }
+}
+
+watch(selectedIds, loadContents);
+
+interface ContentsGroup {
+  locationId: string;
+  name: string;
+  code: string | null;
+  rows: LocationStockRow[];
+  totalValue: number;
+}
+
+// Group the flat rows by location for display, summing value per location.
+const grouped = computed<ContentsGroup[]>(() => {
+  const map = new Map<string, ContentsGroup>();
+  for (const r of contents.value) {
+    let g = map.get(r.locationId);
+    if (!g) {
+      g = {
+        locationId: r.locationId,
+        name: r.locationName,
+        code: r.locationCode,
+        rows: [],
+        totalValue: 0,
+      };
+      map.set(r.locationId, g);
+    }
+    g.rows.push(r);
+    g.totalValue += Number(r.totalValue);
+  }
+  return [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
+});
 
 const form = reactive({
   id: null as string | null,
@@ -41,6 +101,7 @@ async function load(): Promise<void> {
   error.value = null;
   try {
     locations.value = await api.listLocations();
+    await loadContents();
   } catch (err) {
     error.value = err instanceof ApiError ? err.message : "Failed to load";
   }
@@ -74,6 +135,66 @@ onMounted(load);
 <template>
   <div class="container">
     <div v-if="error" class="banner error">{{ error }}</div>
+
+    <div class="panel" style="margin-bottom: 1rem">
+      <h3 style="margin-top: 0">What's in a location</h3>
+      <p class="inactive" style="font-size: 0.85rem">
+        Pick one or more locations to see their contents. With none selected,
+        every location is shown. Located stock only (INV &amp; quarantine).
+      </p>
+      <div class="toolbar" style="flex-wrap: wrap; gap: 0.5rem">
+        <label
+          v-for="l in locations"
+          :key="l.id"
+          :class="{ inactive: !l.active }"
+          style="display: inline-flex; align-items: center; gap: 0.3rem; margin-right: 0.5rem"
+        >
+          <input
+            type="checkbox"
+            style="width: auto"
+            :checked="selectedIds.includes(l.id)"
+            @change="toggleLocation(l.id)"
+          />
+          {{ l.name }}
+        </label>
+        <button v-if="selectedIds.length" @click="selectedIds = []">Show all</button>
+      </div>
+
+      <p v-if="!contentsBusy && grouped.length === 0" class="inactive">
+        No located stock in the selected location(s).
+      </p>
+
+      <div v-for="g in grouped" :key="g.locationId" style="margin-top: 1rem">
+        <h4 style="margin-bottom: 0.25rem">
+          {{ g.name }}<span v-if="g.code" class="inactive"> ({{ g.code }})</span>
+          <span class="inactive" style="font-weight: normal; font-size: 0.85rem">
+            — {{ g.rows.length }} item(s), ${{ g.totalValue.toFixed(2) }}
+          </span>
+        </h4>
+        <table>
+          <thead>
+            <tr>
+              <th>SKU</th><th>Item</th><th>Type</th><th>Status</th>
+              <th class="num">Quantity</th><th class="num">Value</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="r in g.rows" :key="r.itemId + r.status">
+              <td>{{ r.sku }}</td>
+              <td>
+                <RouterLink :to="{ name: 'inventory-edit', params: { id: r.itemId } }">
+                  {{ r.name }}
+                </RouterLink>
+              </td>
+              <td>{{ r.itemType }}</td>
+              <td>{{ r.status }}</td>
+              <td class="num">{{ r.quantity }}</td>
+              <td class="num">${{ r.totalValue }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
 
     <div v-if="canManage" class="panel" style="margin-bottom: 1rem">
       <h3>{{ form.id ? "Edit location" : "New location" }}</h3>

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { itemTypeSchema } from "./inventory.js";
 import { quantityString } from "./money.js";
 import { locatedStockStatusSchema } from "./stock.js";
 
@@ -77,7 +78,23 @@ export const locationMoveSchema = z.object({
   occurredAt: z.string().datetime(),
 });
 
+/** One item's quantity sitting in a location (for the location-contents view). */
+export const locationStockRowSchema = z.object({
+  locationId: z.string().uuid(),
+  locationName: z.string(),
+  locationCode: z.string().nullable(),
+  itemId: z.string().uuid(),
+  sku: z.string(),
+  name: z.string(),
+  itemType: itemTypeSchema,
+  status: locatedStockStatusSchema,
+  quantity: z.string(),
+  unitCost: z.string(),
+  totalValue: z.string(),
+});
+
 export type Location = z.infer<typeof locationSchema>;
+export type LocationStockRow = z.infer<typeof locationStockRowSchema>;
 export type CreateLocation = z.infer<typeof createLocationSchema>;
 export type UpdateLocation = z.infer<typeof updateLocationSchema>;
 export type MoveStock = z.infer<typeof moveStockSchema>;

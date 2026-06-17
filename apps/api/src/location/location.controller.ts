@@ -5,6 +5,7 @@ import {
   Param,
   Post,
   Put,
+  Query,
   UseGuards,
 } from "@nestjs/common";
 import {
@@ -31,6 +32,25 @@ export class LocationController {
   @RequirePermissions(PERMISSIONS.LOCATION_READ)
   list(@CurrentUser() user: AuthenticatedUser) {
     return this.locations.list(user.tenantId);
+  }
+
+  /**
+   * What's currently in the given location(s). Pass `locationId` one or more
+   * times to filter; omit for every location. Located stock only.
+   */
+  @Get("contents")
+  @RequirePermissions(PERMISSIONS.LOCATION_READ)
+  contents(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query("locationId") locationId?: string | string[],
+  ) {
+    const ids =
+      locationId === undefined
+        ? undefined
+        : Array.isArray(locationId)
+          ? locationId
+          : [locationId];
+    return this.locations.getContents(user.tenantId, ids);
   }
 
   @Post()

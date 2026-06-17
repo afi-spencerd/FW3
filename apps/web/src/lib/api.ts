@@ -22,6 +22,7 @@ import type {
   ItemType,
   Location,
   LocationMove,
+  LocationStockRow,
   Lot,
   MoveStock,
   LotSummary,
@@ -160,6 +161,16 @@ export const api = {
     }),
 
   listLocations: () => request<Location[]>("/locations"),
+  locationContents: (locationIds?: string[]) => {
+    const qs =
+      locationIds && locationIds.length
+        ? "?" +
+          locationIds
+            .map((id) => `locationId=${encodeURIComponent(id)}`)
+            .join("&")
+        : "";
+    return request<LocationStockRow[]>(`/locations/contents${qs}`);
+  },
   createLocation: (data: CreateLocation) =>
     request<Location>("/locations", {
       method: "POST",
