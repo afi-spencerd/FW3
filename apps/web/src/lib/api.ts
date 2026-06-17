@@ -5,6 +5,8 @@ import type {
   BatchRequirementsRequest,
   CreateFormula,
   CreateInventoryItem,
+  CreatePurchaseOrder,
+  CreateVendor,
   Formula,
   FormulaSummary,
   InventoryItem,
@@ -12,8 +14,13 @@ import type {
   InventoryTxn,
   ItemType,
   PaginatedInventory,
+  PurchaseOrder,
+  PurchaseOrderSummary,
+  ReceivePurchaseOrder,
   UpdateFormula,
   UpdateInventoryItem,
+  UpdateVendor,
+  Vendor,
 } from "@fw3/shared-types";
 
 const BASE = "/api";
@@ -128,6 +135,31 @@ export const api = {
     request<BatchRequirements>(`/formulas/${id}/requirements`, {
       method: "POST",
       body: JSON.stringify(body),
+    }),
+
+  listVendors: () => request<Vendor[]>("/vendors"),
+  createVendor: (data: CreateVendor) =>
+    request<Vendor>("/vendors", { method: "POST", body: JSON.stringify(data) }),
+  updateVendor: (id: string, data: UpdateVendor) =>
+    request<Vendor>(`/vendors/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    }),
+
+  listPurchaseOrders: () => request<PurchaseOrderSummary[]>("/purchase-orders"),
+  getPurchaseOrder: (id: string) =>
+    request<PurchaseOrder>(`/purchase-orders/${id}`),
+  createPurchaseOrder: (data: CreatePurchaseOrder) =>
+    request<PurchaseOrder>("/purchase-orders", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  cancelPurchaseOrder: (id: string) =>
+    request<PurchaseOrder>(`/purchase-orders/${id}/cancel`, { method: "POST" }),
+  receivePurchaseOrder: (id: string, data: ReceivePurchaseOrder) =>
+    request<PurchaseOrder>(`/purchase-orders/${id}/receive`, {
+      method: "POST",
+      body: JSON.stringify(data),
     }),
 
   qbSync: () =>

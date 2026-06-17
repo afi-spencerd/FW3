@@ -157,6 +157,43 @@ async function main(): Promise<void> {
       { sku: "RM-VANILLIN", percentage: "15" },
     ]);
 
+    // 7. A vendor + an open purchase order (demo).
+    const vendor = await prisma.vendor.upsert({
+      where: { tenantId_name: { tenantId: tenant.id, name: "Aroma Supply Co" } },
+      create: {
+        tenantId: tenant.id,
+        name: "Aroma Supply Co",
+        code: "ASC",
+        email: "orders@aromasupply.example",
+      },
+      update: {},
+    });
+    const existingPo = await prisma.purchaseOrder.findUnique({
+      where: { tenantId_poNumber: { tenantId: tenant.id, poNumber: "PO-1001" } },
+    });
+    if (!existingPo) {
+      const ambroxan = await prisma.inventoryItem.findUniqueOrThrow({
+        where: { tenantId_sku: { tenantId: tenant.id, sku: "RM-AMBROXAN" } },
+      });
+      const ipm = await prisma.inventoryItem.findUniqueOrThrow({
+        where: { tenantId_sku: { tenantId: tenant.id, sku: "RM-IPM" } },
+      });
+      await prisma.purchaseOrder.create({
+        data: {
+          tenantId: tenant.id,
+          vendorId: vendor.id,
+          poNumber: "PO-1001",
+          status: "OPEN",
+          lines: {
+            create: [
+              { itemId: ambroxan.id, quantityOrdered: "5.0000", unitCost: "215.0000", sortOrder: 0 },
+              { itemId: ipm.id, quantityOrdered: "50.0000", unitCost: "3.1000", sortOrder: 1 },
+            ],
+          },
+        },
+      });
+    }
+
     console.log(`Seed complete. Tenant=${tenant.id} (slug=demo), admin user=${admin.id}`);
   } finally {
     await prisma.$disconnect();

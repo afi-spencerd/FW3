@@ -30,6 +30,8 @@ model Tenant {
   qbConnections  QbConnection[]
   formulas       Formula[]
   inventoryTxns  InventoryTxn[]
+  vendors        Vendor[]
+  purchaseOrders PurchaseOrder[]
 }
 
 model User {
@@ -120,9 +122,10 @@ model InventoryItem {
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   // Formulas where this item is the finished good, and formula lines that use it
   // as a raw material.
-  finishedGoodFormulas    Formula[]      @relation("FinishedGoodFormulas")
-  rawMaterialFormulaLines FormulaLine[]  @relation("RawMaterialFormulaLines")
+  finishedGoodFormulas    Formula[]           @relation("FinishedGoodFormulas")
+  rawMaterialFormulaLines FormulaLine[]       @relation("RawMaterialFormulaLines")
   txns                    InventoryTxn[]
+  purchaseOrderLines      PurchaseOrderLine[] @relation("ItemPurchaseOrderLines")
 
   @@unique([tenantId, sku])
   @@index([tenantId])
@@ -152,6 +155,59 @@ model InventoryTxn {
 
   @@index([tenantId, itemId, occurredAt])
   @@index([tenantId, docType, docId])
+}
+
+model Vendor {
+  id        String   @id @default(uuid()) @db.Char(36)
+  tenantId  String   @db.Char(36)
+  name      String   @db.NVarChar(200)
+  code      String?  @db.NVarChar(50)
+  email     String?  @db.NVarChar(320)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant         Tenant          @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  purchaseOrders PurchaseOrder[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+}
+
+model PurchaseOrder {
+  id        String   @id @default(uuid()) @db.Char(36)
+  tenantId  String   @db.Char(36)
+  vendorId  String   @db.Char(36)
+  poNumber  String   @db.NVarChar(50)
+  status    String   @default("OPEN") @db.NVarChar(20) // OPEN | PARTIAL | RECEIVED | CANCELLED
+  orderDate DateTime @default(now())
+  notes     String?  @db.NVarChar(2000)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant Tenant              @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  vendor Vendor              @relation(fields: [vendorId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  lines  PurchaseOrderLine[]
+
+  @@unique([tenantId, poNumber])
+  @@index([tenantId])
+  @@index([tenantId, vendorId])
+}
+
+model PurchaseOrderLine {
+  id               String  @id @default(uuid()) @db.Char(36)
+  purchaseOrderId  String  @db.Char(36)
+  itemId           String  @db.Char(36)
+  quantityOrdered  Decimal @db.Decimal(18, 4)
+  unitCost         Decimal @db.Decimal(19, 4)
+  quantityReceived Decimal @default(0) @db.Decimal(18, 4)
+  sortOrder        Int     @default(0)
+
+  purchaseOrder PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  item          InventoryItem @relation("ItemPurchaseOrderLines", fields: [itemId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([purchaseOrderId])
+  @@index([itemId])
 }
 
 // A fragrance formula: finished good = raw materials by percentage of weight.

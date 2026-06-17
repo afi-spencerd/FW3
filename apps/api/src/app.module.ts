@@ -8,6 +8,7 @@ import { AuditModule } from "./audit/audit.module";
 import { InventoryModule } from "./inventory/inventory.module";
 import { StockModule } from "./stock/stock.module";
 import { FormulaModule } from "./formula/formula.module";
+import { PurchasingModule } from "./purchasing/purchasing.module";
 import { QbwcModule } from "./qbwc/qbwc.module";
 import { JobsModule } from "./jobs/jobs.module";
 
@@ -26,6 +27,7 @@ import { JobsModule } from "./jobs/jobs.module";
     InventoryModule,
     StockModule,
     FormulaModule,
+    PurchasingModule,
     QbwcModule,
     JobsModule,
   ],

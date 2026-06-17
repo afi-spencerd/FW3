@@ -47,6 +47,31 @@ export const router = createRouter({
       meta: { requiresAuth: true },
       props: true,
     },
+    {
+      path: "/vendors",
+      name: "vendors",
+      component: () => import("./views/VendorsView.vue"),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: "/purchase-orders",
+      name: "purchase-orders",
+      component: () => import("./views/PurchaseOrderListView.vue"),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: "/purchase-orders/new",
+      name: "purchase-order-new",
+      component: () => import("./views/PurchaseOrderFormView.vue"),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: "/purchase-orders/:id",
+      name: "purchase-order-detail",
+      component: () => import("./views/PurchaseOrderDetailView.vue"),
+      meta: { requiresAuth: true },
+      props: true,
+    },
   ],
 });
 
