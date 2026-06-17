@@ -15,6 +15,7 @@ export const PERMISSIONS = {
   FORMULA_CREATE: "formula:create",
   FORMULA_UPDATE: "formula:update",
   FORMULA_DELETE: "formula:delete",
+  STOCK_ADJUST: "stock:adjust",
   QB_SYNC_RUN: "qb:sync:run",
   QB_SYNC_VIEW: "qb:sync:view",
 } as const;
@@ -37,6 +38,7 @@ export const BUILTIN_ROLES = {
     PERMISSIONS.FORMULA_READ,
     PERMISSIONS.FORMULA_CREATE,
     PERMISSIONS.FORMULA_UPDATE,
+    PERMISSIONS.STOCK_ADJUST,
     PERMISSIONS.QB_SYNC_VIEW,
   ],
   viewer: [

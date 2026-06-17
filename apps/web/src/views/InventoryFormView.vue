@@ -3,12 +3,18 @@ import { onMounted, reactive, ref } from "vue";
 import { useRouter } from "vue-router";
 import {
   createInventoryItemSchema,
+  type InventoryPosition,
+  type InventoryTxn,
   ITEM_TYPES,
   type ItemType,
+  PERMISSIONS,
   UNITS_OF_MEASURE,
   updateInventoryItemSchema,
 } from "@fw3/shared-types";
 import { api, ApiError } from "../lib/api";
+import { useAuthStore } from "../stores/auth";
+
+const auth = useAuthStore();
 
 const ITEM_TYPE_LABELS: Record<ItemType, string> = {
   RAW_MATERIAL: "Raw material",
@@ -36,6 +42,48 @@ const errors = reactive<Record<string, string>>({});
 const formError = ref<string | null>(null);
 const busy = ref(false);
 
+// --- Stock position + ledger (edit mode only) ---
+const position = ref<InventoryPosition | null>(null);
+const ledger = ref<InventoryTxn[]>([]);
+const adjust = reactive({
+  direction: "IN" as "IN" | "OUT",
+  quantity: "0",
+  unitCost: "0",
+  note: "",
+});
+const adjustError = ref<string | null>(null);
+const adjustBusy = ref(false);
+
+async function loadStock(): Promise<void> {
+  if (!props.id) return;
+  [position.value, ledger.value] = await Promise.all([
+    api.itemPosition(props.id),
+    api.itemLedger(props.id),
+  ]);
+}
+
+async function doAdjust(): Promise<void> {
+  if (!props.id) return;
+  adjustError.value = null;
+  adjustBusy.value = true;
+  try {
+    await api.adjustStock(props.id, {
+      direction: adjust.direction,
+      quantity: adjust.quantity,
+      unitCost: adjust.direction === "IN" ? adjust.unitCost : undefined,
+      note: adjust.note || undefined,
+    });
+    adjust.quantity = "0";
+    adjust.note = "";
+    await loadStock();
+  } catch (err) {
+    adjustError.value =
+      err instanceof ApiError ? err.message : "Adjustment failed";
+  } finally {
+    adjustBusy.value = false;
+  }
+}
+
 function setIssues(issues: { path: string; message: string }[]): void {
   for (const issue of issues) errors[issue.path] = issue.message;
 }
@@ -60,6 +108,7 @@ onMounted(async () => {
       salesPrice: item.salesPrice,
       active: item.active,
     });
+    await loadStock();
   } catch (err) {
     formError.value = err instanceof ApiError ? err.message : "Failed to load";
   }
@@ -192,6 +241,78 @@ async function submit(): Promise<void> {
         </button>
         <button @click="router.push({ name: 'inventory' })">Cancel</button>
       </div>
+    </div>
+
+    <div v-if="isEdit" class="panel" style="margin-top: 1rem">
+      <h3>Stock position</h3>
+      <div v-if="position" class="summary" style="margin-bottom: 1rem">
+        <div class="metric">
+          <div class="label">On hand</div>
+          <div class="value">{{ position.quantityOnHand }} {{ position.unitOfMeasure }}</div>
+        </div>
+        <div class="metric">
+          <div class="label">Avg cost</div>
+          <div class="value">${{ position.avgCost }}</div>
+        </div>
+        <div class="metric">
+          <div class="label">Total value</div>
+          <div class="value">${{ position.totalValue }}</div>
+        </div>
+      </div>
+
+      <div v-if="auth.hasPermission(PERMISSIONS.STOCK_ADJUST)">
+        <h4>Adjust stock</h4>
+        <div v-if="adjustError" class="banner error">{{ adjustError }}</div>
+        <div class="toolbar">
+          <select v-model="adjust.direction" style="max-width: 110px">
+            <option value="IN">In</option>
+            <option value="OUT">Out</option>
+          </select>
+          <input v-model="adjust.quantity" inputmode="decimal" placeholder="Qty" style="max-width: 120px" />
+          <input
+            v-if="adjust.direction === 'IN'"
+            v-model="adjust.unitCost"
+            inputmode="decimal"
+            placeholder="Unit cost"
+            style="max-width: 120px"
+          />
+          <input v-model="adjust.note" placeholder="Note (optional)" />
+          <button :disabled="adjustBusy" @click="doAdjust">
+            {{ adjustBusy ? "Posting…" : "Post" }}
+          </button>
+        </div>
+      </div>
+
+      <h4>Ledger</h4>
+      <table>
+        <thead>
+          <tr>
+            <th>When</th>
+            <th>Type</th>
+            <th class="num">Qty</th>
+            <th class="num">Unit cost</th>
+            <th class="num">Value</th>
+            <th class="num">Balance</th>
+            <th>Note</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="t in ledger" :key="t.id">
+            <td>{{ new Date(t.occurredAt).toLocaleString() }}</td>
+            <td>{{ t.type }}</td>
+            <td class="num">{{ t.quantity }}</td>
+            <td class="num">{{ t.unitCost }}</td>
+            <td class="num">{{ t.value }}</td>
+            <td class="num">{{ t.balanceQty }}</td>
+            <td>{{ t.note }}</td>
+          </tr>
+          <tr v-if="ledger.length === 0">
+            <td colspan="7" class="inactive">
+              No ledger entries yet (the on-hand above is the opening balance).
+            </td>
+          </tr>
+        </tbody>
+      </table>
     </div>
   </div>
 </template>

@@ -6,6 +6,7 @@ import { RedisModule } from "./redis/redis.module";
 import { AuthModule } from "./auth/auth.module";
 import { AuditModule } from "./audit/audit.module";
 import { InventoryModule } from "./inventory/inventory.module";
+import { StockModule } from "./stock/stock.module";
 import { FormulaModule } from "./formula/formula.module";
 import { QbwcModule } from "./qbwc/qbwc.module";
 import { JobsModule } from "./jobs/jobs.module";
@@ -23,6 +24,7 @@ import { JobsModule } from "./jobs/jobs.module";
     AuthModule,
     AuditModule,
     InventoryModule,
+    StockModule,
     FormulaModule,
     QbwcModule,
     JobsModule,

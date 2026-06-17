@@ -1,4 +1,5 @@
 import type {
+  AdjustStock,
   AuthenticatedUser,
   BatchRequirements,
   BatchRequirementsRequest,
@@ -7,6 +8,8 @@ import type {
   Formula,
   FormulaSummary,
   InventoryItem,
+  InventoryPosition,
+  InventoryTxn,
   ItemType,
   PaginatedInventory,
   UpdateFormula,
@@ -100,6 +103,15 @@ export const api = {
   deleteInventory: (id: string) =>
     request<void>(`/inventory/${id}`, { method: "DELETE" }),
   valuation: () => request<ValuationSummary>("/inventory/valuation"),
+  itemPosition: (id: string) =>
+    request<InventoryPosition>(`/inventory/${id}/position`),
+  itemLedger: (id: string) =>
+    request<InventoryTxn[]>(`/inventory/${id}/ledger`),
+  adjustStock: (id: string, body: AdjustStock) =>
+    request<InventoryPosition>(`/inventory/${id}/adjust`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
 
   listFormulas: () => request<FormulaSummary[]>("/formulas"),
   getFormula: (id: string) => request<Formula>(`/formulas/${id}`),

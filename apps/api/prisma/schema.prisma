@@ -29,6 +29,7 @@ model Tenant {
   auditLogs      AuditLog[]
   qbConnections  QbConnection[]
   formulas       Formula[]
+  inventoryTxns  InventoryTxn[]
 }
 
 model User {
@@ -119,11 +120,38 @@ model InventoryItem {
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   // Formulas where this item is the finished good, and formula lines that use it
   // as a raw material.
-  finishedGoodFormulas    Formula[]     @relation("FinishedGoodFormulas")
-  rawMaterialFormulaLines FormulaLine[] @relation("RawMaterialFormulaLines")
+  finishedGoodFormulas    Formula[]      @relation("FinishedGoodFormulas")
+  rawMaterialFormulaLines FormulaLine[]  @relation("RawMaterialFormulaLines")
+  txns                    InventoryTxn[]
 
   @@unique([tenantId, sku])
   @@index([tenantId])
+}
+
+// Append-only stock ledger. Every quantity change is one signed line; an item's
+// position is the running balance carried on the latest line (and mirrored on
+// the InventoryItem row). Weighted-average cost: balanceAvgCost is re-averaged
+// on inbound and unchanged on outbound.
+model InventoryTxn {
+  id             String   @id @default(uuid()) @db.Char(36)
+  tenantId       String   @db.Char(36)
+  itemId         String   @db.Char(36)
+  type           String   @db.NVarChar(30) // RECEIPT | CONSUME | PRODUCTION_OUTPUT | SHIPMENT | ADJUSTMENT
+  quantity       Decimal  @db.Decimal(18, 4) // signed: + inbound, - outbound
+  unitCost       Decimal  @db.Decimal(19, 4) // cost per unit applied by this line
+  value          Decimal  @db.Decimal(38, 4) // signed = quantity * unitCost
+  balanceQty     Decimal  @db.Decimal(38, 4) // on-hand quantity after this line
+  balanceAvgCost Decimal  @db.Decimal(19, 4) // moving average cost after this line
+  docType        String?  @db.NVarChar(30) // PURCHASE_ORDER | PRODUCTION_RUN | SALES_ORDER | ADJUSTMENT
+  docId          String?  @db.Char(36)
+  note           String?  @db.NVarChar(500)
+  occurredAt     DateTime @default(now())
+
+  tenant Tenant        @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  item   InventoryItem @relation(fields: [itemId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([tenantId, itemId, occurredAt])
+  @@index([tenantId, docType, docId])
 }
 
 // A fragrance formula: finished good = raw materials by percentage of weight.
