@@ -30,6 +30,7 @@ model Tenant {
   qbConnections  QbConnection[]
   formulas       Formula[]
   inventoryTxns  InventoryTxn[]
+  itemStocks     ItemStock[]
   vendors        Vendor[]
   purchaseOrders PurchaseOrder[]
   customers      Customer[]
@@ -127,11 +128,32 @@ model InventoryItem {
   finishedGoodFormulas    Formula[]           @relation("FinishedGoodFormulas")
   rawMaterialFormulaLines FormulaLine[]       @relation("RawMaterialFormulaLines")
   txns                    InventoryTxn[]
+  stocks                  ItemStock[]
   purchaseOrderLines      PurchaseOrderLine[] @relation("ItemPurchaseOrderLines")
   salesOrderLines         SalesOrderLine[]    @relation("ItemSalesOrderLines")
 
   @@unique([tenantId, sku])
   @@index([tenantId])
+}
+
+// Per-(item, state) position. State separates LOT-traceable inventory (INV) from
+// work-in-progress (WIP: RM in refill cans, FG in the vat before packing). INV is
+// mirrored onto InventoryItem.quantityOnHand/unitCost for existing reads; this
+// table is the authoritative position for every state.
+model ItemStock {
+  id        String   @id @default(uuid()) @db.Char(36)
+  tenantId  String   @db.Char(36)
+  itemId    String   @db.Char(36)
+  state     String   @db.NVarChar(10) // INV | WIP
+  quantity  Decimal  @default(0) @db.Decimal(18, 4)
+  avgCost   Decimal  @default(0) @db.Decimal(19, 4)
+  updatedAt DateTime @updatedAt
+
+  tenant Tenant        @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  item   InventoryItem @relation(fields: [itemId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([itemId, state])
+  @@index([tenantId, state])
 }
 
 // Append-only stock ledger. Every quantity change is one signed line; an item's
@@ -142,7 +164,8 @@ model InventoryTxn {
   id             String   @id @default(uuid()) @db.Char(36)
   tenantId       String   @db.Char(36)
   itemId         String   @db.Char(36)
-  type           String   @db.NVarChar(30) // RECEIPT | CONSUME | PRODUCTION_OUTPUT | SHIPMENT | ADJUSTMENT
+  type           String   @db.NVarChar(30) // RECEIPT | CONSUME | PRODUCTION_OUTPUT | SHIPMENT | ADJUSTMENT | TRANSFER
+  state          String   @default("INV") @db.NVarChar(10) // INV | WIP — which bucket this line moved
   quantity       Decimal  @db.Decimal(18, 4) // signed: + inbound, - outbound
   unitCost       Decimal  @db.Decimal(19, 4) // cost per unit applied by this line
   value          Decimal  @db.Decimal(38, 4) // signed = quantity * unitCost

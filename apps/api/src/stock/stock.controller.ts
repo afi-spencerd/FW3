@@ -17,6 +17,13 @@ import { StockService } from "./stock.service";
 export class StockController {
   constructor(private readonly stock: StockService) {}
 
+  /** Per-(item, state) positions for the WIP vs LOT-traceable report. */
+  @Get("stock/positions")
+  @RequirePermissions(PERMISSIONS.INVENTORY_READ)
+  positions(@CurrentUser() user: AuthenticatedUser) {
+    return this.stock.getStockPositions(user.tenantId);
+  }
+
   @Get(":id/position")
   @RequirePermissions(PERMISSIONS.INVENTORY_READ)
   position(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string) {

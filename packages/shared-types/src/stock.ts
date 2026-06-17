@@ -1,6 +1,11 @@
 import { z } from "zod";
 import { moneyString, quantityString } from "./money.js";
-import { unitOfMeasureSchema } from "./inventory.js";
+import { itemTypeSchema, unitOfMeasureSchema } from "./inventory.js";
+
+/** Inventory state: LOT-traceable (INV) vs work-in-progress (WIP). */
+export const STOCK_STATES = ["INV", "WIP"] as const;
+export const stockStateSchema = z.enum(STOCK_STATES);
+export type StockState = (typeof STOCK_STATES)[number];
 
 /**
  * Stock ledger contracts. Every quantity change is an InventoryTxn; an item's
@@ -14,6 +19,7 @@ export const TXN_TYPES = [
   "PRODUCTION_OUTPUT",
   "SHIPMENT",
   "ADJUSTMENT",
+  "TRANSFER",
 ] as const;
 export type TxnType = (typeof TXN_TYPES)[number];
 
@@ -29,6 +35,7 @@ export const inventoryTxnSchema = z.object({
   id: z.string().uuid(),
   itemId: z.string().uuid(),
   type: z.enum(TXN_TYPES),
+  state: stockStateSchema,
   /** Signed: positive = into stock, negative = out of stock. */
   quantity: z.string(),
   unitCost: z.string(),
@@ -66,6 +73,19 @@ export const adjustStockSchema = z
     path: ["unitCost"],
   });
 
+/** Position of an item in a single state — for the WIP-vs-traceable report. */
+export const stockPositionSchema = z.object({
+  itemId: z.string().uuid(),
+  sku: z.string(),
+  name: z.string(),
+  itemType: itemTypeSchema,
+  state: stockStateSchema,
+  quantity: z.string(),
+  avgCost: z.string(),
+  totalValue: z.string(),
+});
+
 export type InventoryTxn = z.infer<typeof inventoryTxnSchema>;
 export type InventoryPosition = z.infer<typeof inventoryPositionSchema>;
 export type AdjustStock = z.infer<typeof adjustStockSchema>;
+export type StockPosition = z.infer<typeof stockPositionSchema>;

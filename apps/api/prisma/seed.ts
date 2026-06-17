@@ -84,9 +84,9 @@ async function main(): Promise<void> {
       update: {},
     });
 
-    // 5. Demo inventory items.
+    // 5. Demo inventory items (with an opening INV stock position).
     for (const item of DEMO_ITEMS) {
-      await prisma.inventoryItem.upsert({
+      const created = await prisma.inventoryItem.upsert({
         where: { tenantId_sku: { tenantId: tenant.id, sku: item.sku } },
         create: {
           tenantId: tenant.id,
@@ -97,6 +97,17 @@ async function main(): Promise<void> {
           quantityOnHand: item.qty,
           unitCost: item.cost,
           salesPrice: item.price,
+        },
+        update: {},
+      });
+      await prisma.itemStock.upsert({
+        where: { itemId_state: { itemId: created.id, state: "INV" } },
+        create: {
+          tenantId: tenant.id,
+          itemId: created.id,
+          state: "INV",
+          quantity: item.qty,
+          avgCost: item.cost,
         },
         update: {},
       });

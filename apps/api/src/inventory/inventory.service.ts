@@ -100,6 +100,16 @@ export class InventoryService {
             active: input.active,
           },
         });
+        // Opening INV (LOT-traceable) position mirrors the item's on-hand.
+        await tx.itemStock.create({
+          data: {
+            tenantId: user.tenantId,
+            itemId: row.id,
+            state: "INV",
+            quantity: input.quantityOnHand,
+            avgCost: input.unitCost,
+          },
+        });
         await this.audit.record(tx, {
           tenantId: user.tenantId,
           actorId: user.id,

@@ -17,6 +17,7 @@ import type {
   InventoryTxn,
   ItemType,
   PaginatedInventory,
+  StockPosition,
   PurchaseOrder,
   PurchaseOrderSummary,
   ReceivePurchaseOrder,
@@ -117,6 +118,8 @@ export const api = {
   deleteInventory: (id: string) =>
     request<void>(`/inventory/${id}`, { method: "DELETE" }),
   valuation: () => request<ValuationSummary>("/inventory/valuation"),
+  stockPositions: () =>
+    request<StockPosition[]>("/inventory/stock/positions"),
   itemPosition: (id: string) =>
     request<InventoryPosition>(`/inventory/${id}/position`),
   itemLedger: (id: string) =>
