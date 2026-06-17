@@ -2,7 +2,10 @@ import { z } from "zod";
 import { quantityString } from "./money.js";
 import { unitOfMeasureSchema } from "./inventory.js";
 
-/** Production runs: make a target (finished good or base) from a formula. */
+/**
+ * Production work orders: an instruction to make a target (finished good or
+ * base) from a formula. "Work order" is the shop-floor vernacular.
+ */
 
 export const PRODUCTION_STATUSES = [
   "PLANNED",
@@ -17,8 +20,8 @@ const positiveQty = quantityString.refine(
   "must be greater than 0",
 );
 
-export const createProductionRunSchema = z.object({
-  runNumber: z.string().trim().min(1).max(50),
+export const createProductionWorkOrderSchema = z.object({
+  workOrderNumber: z.string().trim().min(1).max(50),
   targetItemId: z.string().uuid(),
   formulaId: z.string().uuid(),
   batchSize: positiveQty,
@@ -27,7 +30,7 @@ export const createProductionRunSchema = z.object({
   notes: z.string().trim().max(2000).optional(),
 });
 
-export const productionRunLineSchema = z.object({
+export const productionWorkOrderLineSchema = z.object({
   id: z.string().uuid(),
   componentId: z.string().uuid(),
   componentSku: z.string(),
@@ -39,10 +42,10 @@ export const productionRunLineSchema = z.object({
   sortOrder: z.number().int(),
 });
 
-export const productionRunSchema = z.object({
+export const productionWorkOrderSchema = z.object({
   id: z.string().uuid(),
   tenantId: z.string().uuid(),
-  runNumber: z.string(),
+  workOrderNumber: z.string(),
   targetItemId: z.string().uuid(),
   targetSku: z.string(),
   targetName: z.string(),
@@ -53,20 +56,26 @@ export const productionRunSchema = z.object({
   outputQty: z.string(),
   status: z.enum(PRODUCTION_STATUSES),
   notes: z.string().nullable(),
-  lines: z.array(productionRunLineSchema),
+  lines: z.array(productionWorkOrderLineSchema),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 });
 
-export const productionRunSummarySchema = productionRunSchema
+export const productionWorkOrderSummarySchema = productionWorkOrderSchema
   .omit({ lines: true })
   .extend({ lineCount: z.number().int() });
 
 /** Pack-off: move a quantity of a finished good/base from FG_WIP to FG_INV. */
 export const packOffSchema = z.object({ quantity: positiveQty });
 
-export type CreateProductionRun = z.infer<typeof createProductionRunSchema>;
-export type ProductionRunLine = z.infer<typeof productionRunLineSchema>;
-export type ProductionRun = z.infer<typeof productionRunSchema>;
-export type ProductionRunSummary = z.infer<typeof productionRunSummarySchema>;
+export type CreateProductionWorkOrder = z.infer<
+  typeof createProductionWorkOrderSchema
+>;
+export type ProductionWorkOrderLine = z.infer<
+  typeof productionWorkOrderLineSchema
+>;
+export type ProductionWorkOrder = z.infer<typeof productionWorkOrderSchema>;
+export type ProductionWorkOrderSummary = z.infer<
+  typeof productionWorkOrderSummarySchema
+>;
 export type PackOff = z.infer<typeof packOffSchema>;

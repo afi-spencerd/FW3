@@ -13,13 +13,13 @@ import type {
   Formula,
   FormulaSummary,
   InventoryItem,
-  CreateProductionRun,
+  CreateProductionWorkOrder,
   InventoryPosition,
   InventoryTxn,
   ItemType,
   PaginatedInventory,
-  ProductionRun,
-  ProductionRunSummary,
+  ProductionWorkOrder,
+  ProductionWorkOrderSummary,
   StockPosition,
   PurchaseOrder,
   PurchaseOrderSummary,
@@ -138,19 +138,27 @@ export const api = {
       body: JSON.stringify({ quantity }),
     }),
 
-  listProductionRuns: () => request<ProductionRunSummary[]>("/production-runs"),
-  getProductionRun: (id: string) => request<ProductionRun>(`/production-runs/${id}`),
-  createProductionRun: (data: CreateProductionRun) =>
-    request<ProductionRun>("/production-runs", {
+  listProductionWorkOrders: () =>
+    request<ProductionWorkOrderSummary[]>("/production-work-orders"),
+  getProductionWorkOrder: (id: string) =>
+    request<ProductionWorkOrder>(`/production-work-orders/${id}`),
+  createProductionWorkOrder: (data: CreateProductionWorkOrder) =>
+    request<ProductionWorkOrder>("/production-work-orders", {
       method: "POST",
       body: JSON.stringify(data),
     }),
-  stageProductionRun: (id: string) =>
-    request<ProductionRun>(`/production-runs/${id}/stage`, { method: "POST" }),
-  completeProductionRun: (id: string) =>
-    request<ProductionRun>(`/production-runs/${id}/complete`, { method: "POST" }),
-  cancelProductionRun: (id: string) =>
-    request<ProductionRun>(`/production-runs/${id}/cancel`, { method: "POST" }),
+  stageProductionWorkOrder: (id: string) =>
+    request<ProductionWorkOrder>(`/production-work-orders/${id}/stage`, {
+      method: "POST",
+    }),
+  completeProductionWorkOrder: (id: string) =>
+    request<ProductionWorkOrder>(`/production-work-orders/${id}/complete`, {
+      method: "POST",
+    }),
+  cancelProductionWorkOrder: (id: string) =>
+    request<ProductionWorkOrder>(`/production-work-orders/${id}/cancel`, {
+      method: "POST",
+    }),
 
   listFormulas: () => request<FormulaSummary[]>("/formulas"),
   getFormula: (id: string) => request<Formula>(`/formulas/${id}`),

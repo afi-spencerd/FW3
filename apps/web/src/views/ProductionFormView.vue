@@ -2,7 +2,7 @@
 import { computed, onMounted, reactive, ref } from "vue";
 import { useRouter } from "vue-router";
 import {
-  createProductionRunSchema,
+  createProductionWorkOrderSchema,
   type FormulaSummary,
   type InventoryItem,
   UNITS_OF_MEASURE,
@@ -16,7 +16,7 @@ const issues = ref<string[]>([]);
 const busy = ref(false);
 
 const form = reactive({
-  runNumber: "",
+  workOrderNumber: "",
   targetItemId: "",
   formulaId: "",
   batchSize: "0",
@@ -49,7 +49,7 @@ async function submit(): Promise<void> {
   busy.value = true;
   try {
     const payload = {
-      runNumber: form.runNumber,
+      workOrderNumber: form.workOrderNumber,
       targetItemId: form.targetItemId,
       formulaId: form.formulaId,
       batchSize: form.batchSize,
@@ -57,14 +57,14 @@ async function submit(): Promise<void> {
       outputQty: form.outputQty,
       notes: form.notes || undefined,
     };
-    const parsed = createProductionRunSchema.safeParse(payload);
+    const parsed = createProductionWorkOrderSchema.safeParse(payload);
     if (!parsed.success) {
       issues.value = parsed.error.issues.map(
         (i) => `${i.path.join(".") || "form"}: ${i.message}`,
       );
       return;
     }
-    const created = await api.createProductionRun(parsed.data);
+    const created = await api.createProductionWorkOrder(parsed.data);
     await router.push({ name: "production-detail", params: { id: created.id } });
   } catch (err) {
     if (err instanceof ApiError) {
@@ -83,14 +83,14 @@ async function submit(): Promise<void> {
 <template>
   <div class="container" style="max-width: 640px">
     <div class="panel">
-      <h2>New production run</h2>
+      <h2>New production work order</h2>
       <ul v-if="issues.length" class="banner error" style="margin: 0 0 1rem; padding-left: 1.5rem">
         <li v-for="(m, i) in issues" :key="i">{{ m }}</li>
       </ul>
 
       <div class="field">
-        <label>Run number</label>
-        <input v-model="form.runNumber" />
+        <label>Work order number</label>
+        <input v-model="form.workOrderNumber" />
       </div>
       <div class="field">
         <label>Target (finished good or base)</label>
@@ -133,7 +133,7 @@ async function submit(): Promise<void> {
 
       <div class="toolbar">
         <button class="primary" :disabled="busy" @click="submit">
-          {{ busy ? "Saving…" : "Create run" }}
+          {{ busy ? "Saving…" : "Create work order" }}
         </button>
         <button @click="router.push({ name: 'production' })">Cancel</button>
       </div>

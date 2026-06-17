@@ -8,8 +8,8 @@ import {
 } from "@nestjs/common";
 import {
   type AuthenticatedUser,
-  type CreateProductionRun,
-  createProductionRunSchema,
+  type CreateProductionWorkOrder,
+  createProductionWorkOrderSchema,
   PERMISSIONS,
 } from "@fw3/shared-types";
 import { CurrentUser } from "../common/current-user.decorator";
@@ -19,7 +19,7 @@ import { AuthGuard } from "../auth/guards/auth.guard";
 import { PermissionsGuard } from "../auth/guards/permissions.guard";
 import { ProductionService } from "./production.service";
 
-@Controller("production-runs")
+@Controller("production-work-orders")
 @UseGuards(AuthGuard, PermissionsGuard)
 export class ProductionController {
   constructor(private readonly production: ProductionService) {}
@@ -40,7 +40,8 @@ export class ProductionController {
   @RequirePermissions(PERMISSIONS.PRODUCTION_CREATE)
   create(
     @CurrentUser() user: AuthenticatedUser,
-    @Body(new ZodValidationPipe(createProductionRunSchema)) body: CreateProductionRun,
+    @Body(new ZodValidationPipe(createProductionWorkOrderSchema))
+    body: CreateProductionWorkOrder,
   ) {
     return this.production.create(user, body);
   }

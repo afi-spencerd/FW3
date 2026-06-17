@@ -7,10 +7,10 @@ import {
 import Decimal from "decimal.js";
 import type {
   AuthenticatedUser,
-  CreateProductionRun,
-  ProductionRun,
+  CreateProductionWorkOrder,
   ProductionStatus,
-  ProductionRunSummary,
+  ProductionWorkOrder,
+  ProductionWorkOrderSummary,
   UnitOfMeasure,
 } from "@fw3/shared-types";
 import { AuditService } from "../audit/audit.service";
@@ -20,7 +20,7 @@ import { Prisma } from "../generated/prisma/client";
 import { type Movement, StockService } from "../stock/stock.service";
 import { rollUpUnitCost } from "./production-math";
 
-type RunWithRelations = Prisma.ProductionRunGetPayload<{
+type WorkOrderWithRelations = Prisma.ProductionWorkOrderGetPayload<{
   include: {
     target: true;
     formula: true;
@@ -37,28 +37,28 @@ export class ProductionService {
     private readonly formulas: FormulaService,
   ) {}
 
-  async list(tenantId: string): Promise<ProductionRunSummary[]> {
-    const runs = await this.prisma.productionRun.findMany({
+  async list(tenantId: string): Promise<ProductionWorkOrderSummary[]> {
+    const orders = await this.prisma.productionWorkOrder.findMany({
       where: { tenantId },
       include: { target: true, formula: true, lines: { include: { component: true } } },
       orderBy: { createdAt: "desc" },
     });
-    return runs.map((r) => {
-      const dto = this.toDto(r);
+    return orders.map((o) => {
+      const dto = this.toDto(o);
       const { lines, ...summary } = dto;
       return { ...summary, lineCount: lines.length };
     });
   }
 
-  async getById(tenantId: string, id: string): Promise<ProductionRun> {
-    return this.toDto(await this.loadRun(this.prisma, tenantId, id));
+  async getById(tenantId: string, id: string): Promise<ProductionWorkOrder> {
+    return this.toDto(await this.loadWorkOrder(this.prisma, tenantId, id));
   }
 
-  /** Create a planned run; expand the formula into required component quantities. */
+  /** Create a planned work order; expand the formula into component requirements. */
   async create(
     user: AuthenticatedUser,
-    input: CreateProductionRun,
-  ): Promise<ProductionRun> {
+    input: CreateProductionWorkOrder,
+  ): Promise<ProductionWorkOrder> {
     try {
       const id = await this.prisma.$transaction(async (tx) => {
         const target = await tx.inventoryItem.findFirst({
@@ -78,7 +78,6 @@ export class ProductionService {
           throw new BadRequestException("Formula does not belong to the target item");
         }
 
-        // Expand the formula to absolute component requirements for the batch.
         const requirements = await this.formulas.batchRequirements(
           user.tenantId,
           input.formulaId,
@@ -86,10 +85,10 @@ export class ProductionService {
           input.batchUnit,
         );
 
-        const run = await tx.productionRun.create({
+        const workOrder = await tx.productionWorkOrder.create({
           data: {
             tenantId: user.tenantId,
-            runNumber: input.runNumber,
+            workOrderNumber: input.workOrderNumber,
             targetItemId: input.targetItemId,
             formulaId: input.formulaId,
             batchSize: input.batchSize,
@@ -109,27 +108,27 @@ export class ProductionService {
         await this.audit.record(tx, {
           tenantId: user.tenantId,
           actorId: user.id,
-          entityType: "ProductionRun",
-          entityId: run.id,
+          entityType: "ProductionWorkOrder",
+          entityId: workOrder.id,
           action: "CREATE",
           after: input,
         });
-        return run.id;
+        return workOrder.id;
       });
       return this.getById(user.tenantId, id);
     } catch (err) {
-      throw this.mapError(err, input.runNumber);
+      throw this.mapError(err, input.workOrderNumber);
     }
   }
 
   /** Stage components: move each required quantity INV -> WIP (into refill cans). */
-  async stage(user: AuthenticatedUser, id: string): Promise<ProductionRun> {
+  async stage(user: AuthenticatedUser, id: string): Promise<ProductionWorkOrder> {
     await this.prisma.$transaction(async (tx) => {
-      const run = await this.loadRun(tx, user.tenantId, id);
-      if (run.status !== "PLANNED") {
-        throw new BadRequestException(`Cannot stage a ${run.status} run`);
+      const workOrder = await this.loadWorkOrder(tx, user.tenantId, id);
+      if (workOrder.status !== "PLANNED") {
+        throw new BadRequestException(`Cannot stage a ${workOrder.status} work order`);
       }
-      for (const line of run.lines) {
+      for (const line of workOrder.lines) {
         await this.stock.transfer(
           tx,
           user.tenantId,
@@ -137,18 +136,22 @@ export class ProductionService {
           "INV",
           "WIP",
           line.requiredQty.toString(),
-          { docType: "PRODUCTION_RUN", docId: id, note: `Run ${run.runNumber} staging` },
+          {
+            docType: "PRODUCTION_RUN",
+            docId: id,
+            note: `Work order ${workOrder.workOrderNumber} staging`,
+          },
         );
-        await tx.productionRunLine.update({
+        await tx.productionWorkOrderLine.update({
           where: { id: line.id },
           data: { stagedQty: line.requiredQty },
         });
       }
-      await tx.productionRun.update({ where: { id }, data: { status: "STAGED" } });
+      await tx.productionWorkOrder.update({ where: { id }, data: { status: "STAGED" } });
       await this.audit.record(tx, {
         tenantId: user.tenantId,
         actorId: user.id,
-        entityType: "ProductionRun",
+        entityType: "ProductionWorkOrder",
         entityId: id,
         action: "UPDATE",
         after: { status: "STAGED" },
@@ -161,19 +164,19 @@ export class ProductionService {
    * Complete: consume staged components from WIP and output the target into
    * FG_WIP at rolled-up cost (consumed value = output value, so it balances).
    */
-  async complete(user: AuthenticatedUser, id: string): Promise<ProductionRun> {
+  async complete(user: AuthenticatedUser, id: string): Promise<ProductionWorkOrder> {
     await this.prisma.$transaction(async (tx) => {
-      const run = await this.loadRun(tx, user.tenantId, id);
-      if (run.status !== "STAGED") {
-        throw new BadRequestException(`Cannot complete a ${run.status} run`);
+      const workOrder = await this.loadWorkOrder(tx, user.tenantId, id);
+      if (workOrder.status !== "STAGED") {
+        throw new BadRequestException(`Cannot complete a ${workOrder.status} work order`);
       }
 
       const doc = {
         docType: "PRODUCTION_RUN" as const,
         docId: id,
-        note: `Run ${run.runNumber}`,
+        note: `Work order ${workOrder.workOrderNumber}`,
       };
-      const consumeMovements: Movement[] = run.lines.map((line) => ({
+      const consumeMovements: Movement[] = workOrder.lines.map((line) => ({
         itemId: line.componentId,
         type: "CONSUME",
         direction: "OUT",
@@ -186,16 +189,19 @@ export class ProductionService {
         new Decimal(0),
       );
 
-      const unitCost = rollUpUnitCost(consumedValue.toString(), run.outputQty.toString());
+      const unitCost = rollUpUnitCost(
+        consumedValue.toString(),
+        workOrder.outputQty.toString(),
+      );
       await this.stock.post(
         tx,
         user.tenantId,
         [
           {
-            itemId: run.targetItemId,
+            itemId: workOrder.targetItemId,
             type: "PRODUCTION_OUTPUT",
             direction: "IN",
-            quantity: run.outputQty.toString(),
+            quantity: workOrder.outputQty.toString(),
             unitCost,
             state: "WIP",
           },
@@ -203,17 +209,17 @@ export class ProductionService {
         doc,
       );
 
-      for (const line of run.lines) {
-        await tx.productionRunLine.update({
+      for (const line of workOrder.lines) {
+        await tx.productionWorkOrderLine.update({
           where: { id: line.id },
           data: { consumedQty: line.stagedQty },
         });
       }
-      await tx.productionRun.update({ where: { id }, data: { status: "COMPLETED" } });
+      await tx.productionWorkOrder.update({ where: { id }, data: { status: "COMPLETED" } });
       await this.audit.record(tx, {
         tenantId: user.tenantId,
         actorId: user.id,
-        entityType: "ProductionRun",
+        entityType: "ProductionWorkOrder",
         entityId: id,
         action: "UPDATE",
         after: { status: "COMPLETED", outputUnitCost: unitCost },
@@ -222,17 +228,17 @@ export class ProductionService {
     return this.getById(user.tenantId, id);
   }
 
-  async cancel(user: AuthenticatedUser, id: string): Promise<ProductionRun> {
+  async cancel(user: AuthenticatedUser, id: string): Promise<ProductionWorkOrder> {
     await this.prisma.$transaction(async (tx) => {
-      const run = await this.loadRun(tx, user.tenantId, id);
-      if (run.status !== "PLANNED") {
-        throw new BadRequestException("Only a planned run can be cancelled");
+      const workOrder = await this.loadWorkOrder(tx, user.tenantId, id);
+      if (workOrder.status !== "PLANNED") {
+        throw new BadRequestException("Only a planned work order can be cancelled");
       }
-      await tx.productionRun.update({ where: { id }, data: { status: "CANCELLED" } });
+      await tx.productionWorkOrder.update({ where: { id }, data: { status: "CANCELLED" } });
       await this.audit.record(tx, {
         tenantId: user.tenantId,
         actorId: user.id,
-        entityType: "ProductionRun",
+        entityType: "ProductionWorkOrder",
         entityId: id,
         action: "UPDATE",
         after: { status: "CANCELLED" },
@@ -241,12 +247,12 @@ export class ProductionService {
     return this.getById(user.tenantId, id);
   }
 
-  private async loadRun(
+  private async loadWorkOrder(
     db: PrismaService | Prisma.TransactionClient,
     tenantId: string,
     id: string,
-  ): Promise<RunWithRelations> {
-    const run = await db.productionRun.findFirst({
+  ): Promise<WorkOrderWithRelations> {
+    const workOrder = await db.productionWorkOrder.findFirst({
       where: { id, tenantId },
       include: {
         target: true,
@@ -254,26 +260,26 @@ export class ProductionService {
         lines: { include: { component: true }, orderBy: { sortOrder: "asc" } },
       },
     });
-    if (!run) throw new NotFoundException("Production run not found");
-    return run;
+    if (!workOrder) throw new NotFoundException("Production work order not found");
+    return workOrder;
   }
 
-  private toDto(run: RunWithRelations): ProductionRun {
+  private toDto(workOrder: WorkOrderWithRelations): ProductionWorkOrder {
     return {
-      id: run.id,
-      tenantId: run.tenantId,
-      runNumber: run.runNumber,
-      targetItemId: run.targetItemId,
-      targetSku: run.target.sku,
-      targetName: run.target.name,
-      formulaId: run.formulaId,
-      formulaName: run.formula.name,
-      batchSize: run.batchSize.toString(),
-      batchUnit: run.batchUnit as UnitOfMeasure,
-      outputQty: run.outputQty.toString(),
-      status: run.status as ProductionStatus,
-      notes: run.notes,
-      lines: run.lines.map((line) => ({
+      id: workOrder.id,
+      tenantId: workOrder.tenantId,
+      workOrderNumber: workOrder.workOrderNumber,
+      targetItemId: workOrder.targetItemId,
+      targetSku: workOrder.target.sku,
+      targetName: workOrder.target.name,
+      formulaId: workOrder.formulaId,
+      formulaName: workOrder.formula.name,
+      batchSize: workOrder.batchSize.toString(),
+      batchUnit: workOrder.batchUnit as UnitOfMeasure,
+      outputQty: workOrder.outputQty.toString(),
+      status: workOrder.status as ProductionStatus,
+      notes: workOrder.notes,
+      lines: workOrder.lines.map((line) => ({
         id: line.id,
         componentId: line.componentId,
         componentSku: line.component.sku,
@@ -284,17 +290,19 @@ export class ProductionService {
         consumedQty: line.consumedQty.toString(),
         sortOrder: line.sortOrder,
       })),
-      createdAt: run.createdAt.toISOString(),
-      updatedAt: run.updatedAt.toISOString(),
+      createdAt: workOrder.createdAt.toISOString(),
+      updatedAt: workOrder.updatedAt.toISOString(),
     };
   }
 
-  private mapError(err: unknown, runNumber?: string): Error {
+  private mapError(err: unknown, workOrderNumber?: string): Error {
     if (err instanceof NotFoundException || err instanceof BadRequestException) {
       return err;
     }
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
-      return new ConflictException(`Production run "${runNumber}" already exists`);
+      return new ConflictException(
+        `Production work order "${workOrderNumber}" already exists`,
+      );
     }
     return err instanceof Error ? err : new Error(String(err));
   }

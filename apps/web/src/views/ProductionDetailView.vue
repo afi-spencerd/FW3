@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
-import { PERMISSIONS, type ProductionRun } from "@fw3/shared-types";
+import { PERMISSIONS, type ProductionWorkOrder } from "@fw3/shared-types";
 import { api, ApiError } from "../lib/api";
 import { useAuthStore } from "../stores/auth";
 
@@ -9,7 +9,7 @@ const props = defineProps<{ id: string }>();
 const router = useRouter();
 const auth = useAuthStore();
 
-const run = ref<ProductionRun | null>(null);
+const run = ref<ProductionWorkOrder | null>(null);
 const error = ref<string | null>(null);
 const notice = ref<string | null>(null);
 const busy = ref(false);
@@ -19,13 +19,13 @@ const canExecute = computed(() => auth.hasPermission(PERMISSIONS.PRODUCTION_EXEC
 async function load(): Promise<void> {
   error.value = null;
   try {
-    run.value = await api.getProductionRun(props.id);
+    run.value = await api.getProductionWorkOrder(props.id);
   } catch (err) {
     error.value = err instanceof ApiError ? err.message : "Failed to load";
   }
 }
 
-async function act(fn: () => Promise<ProductionRun>, msg: string): Promise<void> {
+async function act(fn: () => Promise<ProductionWorkOrder>, msg: string): Promise<void> {
   busy.value = true;
   error.value = null;
   notice.value = null;
@@ -40,13 +40,14 @@ async function act(fn: () => Promise<ProductionRun>, msg: string): Promise<void>
 }
 
 const stage = () =>
-  act(() => api.stageProductionRun(props.id), "Components staged into WIP.");
+  act(() => api.stageProductionWorkOrder(props.id), "Components staged into WIP.");
 const complete = () =>
   act(
-    () => api.completeProductionRun(props.id),
-    "Run completed — finished goods are in FG_WIP. Pack off from the Stock page.",
+    () => api.completeProductionWorkOrder(props.id),
+    "Work order completed — finished goods are in FG_WIP. Pack off from the Stock page.",
   );
-const cancel = () => act(() => api.cancelProductionRun(props.id), "Run cancelled.");
+const cancel = () =>
+  act(() => api.cancelProductionWorkOrder(props.id), "Work order cancelled.");
 
 onMounted(load);
 </script>
@@ -58,7 +59,7 @@ onMounted(load);
 
     <div v-if="run" class="panel">
       <div class="toolbar">
-        <h2 style="margin: 0">{{ run.runNumber }}</h2>
+        <h2 style="margin: 0">{{ run.workOrderNumber }}</h2>
         <span class="spacer" />
         <button @click="router.push({ name: 'production' })">Back</button>
       </div>

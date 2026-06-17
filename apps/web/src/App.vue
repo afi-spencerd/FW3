@@ -18,7 +18,7 @@ async function logout(): Promise<void> {
       <RouterLink :to="{ name: 'inventory' }">Inventory</RouterLink>
       <RouterLink :to="{ name: 'stock' }">Stock</RouterLink>
       <RouterLink :to="{ name: 'formulas' }">Formulas</RouterLink>
-      <RouterLink :to="{ name: 'production' }">Production</RouterLink>
+      <RouterLink :to="{ name: 'production' }">Work Orders</RouterLink>
       <RouterLink :to="{ name: 'vendors' }">Vendors</RouterLink>
       <RouterLink :to="{ name: 'purchase-orders' }">Purchase Orders</RouterLink>
       <RouterLink :to="{ name: 'customers' }">Customers</RouterLink>
