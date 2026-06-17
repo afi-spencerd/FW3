@@ -3,6 +3,7 @@ import {
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
+import Decimal from "decimal.js";
 import type {
   AdjustStock,
   AuthenticatedUser,
@@ -216,7 +217,11 @@ export class StockService {
     return this.getPosition(user.tenantId, itemId);
   }
 
-  /** Pack-off: move a quantity of an item from FG_WIP to FG_INV (LOT-traceable). */
+  /**
+   * Pack-off: move a quantity of an item from FG_WIP to FG_INV (usable). Only
+   * QC-APPROVED production-lot quantity may be packed off — FG can't leave WIP
+   * until its lot passes QC. Allocates against approved lots FIFO.
+   */
   async packOff(
     user: AuthenticatedUser,
     itemId: string,
@@ -227,6 +232,41 @@ export class StockService {
         where: { id: itemId, tenantId: user.tenantId },
       });
       if (!item) throw new NotFoundException("Inventory item not found");
+
+      const requested = new Decimal(quantity);
+      const lots = await tx.receivedLot.findMany({
+        where: {
+          tenantId: user.tenantId,
+          itemId,
+          origin: "PRODUCTION",
+          qcStatus: "APPROVED",
+        },
+        orderBy: { receivedAt: "asc" },
+      });
+      const available = lots.reduce(
+        (sum, lot) => sum.plus(lot.quantity.minus(lot.packedQty)),
+        new Decimal(0),
+      );
+      if (requested.greaterThan(available)) {
+        throw new BadRequestException(
+          `Cannot pack off ${requested} of ${item.sku}: only ${available} is QC-approved in WIP`,
+        );
+      }
+
+      // Consume approved lots FIFO.
+      let remaining = requested;
+      for (const lot of lots) {
+        if (remaining.lessThanOrEqualTo(0)) break;
+        const lotRemaining = lot.quantity.minus(lot.packedQty);
+        if (lotRemaining.lessThanOrEqualTo(0)) continue;
+        const take = Decimal.min(remaining, lotRemaining);
+        await tx.receivedLot.update({
+          where: { id: lot.id },
+          data: { packedQty: lot.packedQty.plus(take) },
+        });
+        remaining = remaining.minus(take);
+      }
+
       await this.transfer(tx, user.tenantId, itemId, "WIP", "INV", quantity, {
         docType: "PRODUCTION_RUN",
         note: `Pack-off ${item.sku}`,

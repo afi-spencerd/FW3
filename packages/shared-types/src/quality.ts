@@ -25,6 +25,10 @@ export const QC_TEST_KIND = {
 export const QC_LOT_STATUSES = ["PENDING", "APPROVED", "REJECTED"] as const;
 export type QcLotStatus = (typeof QC_LOT_STATUSES)[number];
 
+/** Where a lot came from: a vendor receipt, or an in-house production work order. */
+export const LOT_ORIGINS = ["RECEIPT", "PRODUCTION"] as const;
+export type LotOrigin = (typeof LOT_ORIGINS)[number];
+
 // ---- Per-item acceptance spec ----
 export const qualitySpecInputSchema = z.object({
   testType: z.enum(QC_TEST_TYPES),
@@ -64,16 +68,20 @@ export const qualityResultSchema = z.object({
   notes: z.string().nullable(),
 });
 
-// ---- Received lot ----
-export const receivedLotSchema = z.object({
+// ---- Lot (received or produced) ----
+export const lotSchema = z.object({
   id: z.string().uuid(),
+  origin: z.enum(LOT_ORIGINS),
   itemId: z.string().uuid(),
   itemSku: z.string(),
   itemName: z.string(),
   vendorName: z.string().nullable(),
   purchaseOrderNumber: z.string().nullable(),
-  supplierLotNumber: z.string(),
+  workOrderNumber: z.string().nullable(),
+  lotNumber: z.string(),
   quantity: z.string(),
+  /** Quantity already packed off (production lots) — quantity - packedQty remains in WIP. */
+  packedQty: z.string(),
   unitCost: z.string(),
   qcStatus: z.enum(QC_LOT_STATUSES),
   receivedAt: z.string().datetime(),
@@ -82,7 +90,7 @@ export const receivedLotSchema = z.object({
   results: z.array(qualityResultSchema),
 });
 
-export const receivedLotSummarySchema = receivedLotSchema
+export const lotSummarySchema = lotSchema
   .omit({ results: true })
   .extend({ testCount: z.number().int(), passCount: z.number().int() });
 
@@ -96,6 +104,6 @@ export type ItemQualitySpec = z.infer<typeof itemQualitySpecSchema>;
 export type QualityResultInput = z.infer<typeof qualityResultInputSchema>;
 export type RecordQualityResults = z.infer<typeof recordQualityResultsSchema>;
 export type QualityResult = z.infer<typeof qualityResultSchema>;
-export type ReceivedLot = z.infer<typeof receivedLotSchema>;
-export type ReceivedLotSummary = z.infer<typeof receivedLotSummarySchema>;
+export type Lot = z.infer<typeof lotSchema>;
+export type LotSummary = z.infer<typeof lotSummarySchema>;
 export type RejectLot = z.infer<typeof rejectLotSchema>;

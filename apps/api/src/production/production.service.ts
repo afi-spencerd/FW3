@@ -5,13 +5,14 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import Decimal from "decimal.js";
-import type {
-  AuthenticatedUser,
-  CreateProductionWorkOrder,
-  ProductionStatus,
-  ProductionWorkOrder,
-  ProductionWorkOrderSummary,
-  UnitOfMeasure,
+import {
+  type AuthenticatedUser,
+  type CreateProductionWorkOrder,
+  type ProductionStatus,
+  type ProductionWorkOrder,
+  type ProductionWorkOrderSummary,
+  QC_TEST_TYPES,
+  type UnitOfMeasure,
 } from "@fw3/shared-types";
 import { AuditService } from "../audit/audit.service";
 import { PrismaService } from "../database/prisma.service";
@@ -208,6 +209,23 @@ export class ProductionService {
         ],
         doc,
       );
+
+      // Open a PENDING production lot for the output (in FG_WIP). It must pass QC
+      // before it can be packed off (FG_WIP -> FG_INV).
+      await tx.receivedLot.create({
+        data: {
+          tenantId: user.tenantId,
+          origin: "PRODUCTION",
+          itemId: workOrder.targetItemId,
+          sourceWorkOrderId: id,
+          workOrderNumber: workOrder.workOrderNumber,
+          supplierLotNumber: workOrder.workOrderNumber,
+          quantity: workOrder.outputQty,
+          unitCost,
+          qcStatus: "PENDING",
+          results: { create: QC_TEST_TYPES.map((testType) => ({ testType })) },
+        },
+      });
 
       for (const line of workOrder.lines) {
         await tx.productionWorkOrderLine.update({

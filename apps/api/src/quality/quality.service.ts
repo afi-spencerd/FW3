@@ -6,12 +6,13 @@ import {
 import {
   type AuthenticatedUser,
   type ItemQualitySpec,
+  type Lot,
+  type LotOrigin,
+  type LotSummary,
   QC_TEST_KIND,
   QC_TEST_TYPES,
   type QcLotStatus,
   type QcTestType,
-  type ReceivedLot,
-  type ReceivedLotSummary,
   type RecordQualityResults,
   type SetItemQualitySpecs,
 } from "@fw3/shared-types";
@@ -36,7 +37,7 @@ export class QualityService {
   async listLots(
     tenantId: string,
     status?: QcLotStatus,
-  ): Promise<ReceivedLotSummary[]> {
+  ): Promise<LotSummary[]> {
     const lots = await this.prisma.receivedLot.findMany({
       where: { tenantId, ...(status ? { qcStatus: status } : {}) },
       include: { item: true, results: true },
@@ -53,7 +54,7 @@ export class QualityService {
     });
   }
 
-  async getLot(tenantId: string, id: string): Promise<ReceivedLot> {
+  async getLot(tenantId: string, id: string): Promise<Lot> {
     return this.toDto(await this.loadLot(this.prisma, tenantId, id));
   }
 
@@ -62,7 +63,7 @@ export class QualityService {
     user: AuthenticatedUser,
     lotId: string,
     input: RecordQualityResults,
-  ): Promise<ReceivedLot> {
+  ): Promise<Lot> {
     await this.prisma.$transaction(async (tx) => {
       const lot = await this.loadLot(tx, user.tenantId, lotId);
       if (lot.qcStatus !== "PENDING") {
@@ -108,7 +109,7 @@ export class QualityService {
   }
 
   /** Approve: every test recorded, none failed -> move QUARANTINE -> INV (usable). */
-  async approve(user: AuthenticatedUser, lotId: string): Promise<ReceivedLot> {
+  async approve(user: AuthenticatedUser, lotId: string): Promise<Lot> {
     await this.prisma.$transaction(async (tx) => {
       const lot = await this.loadLot(tx, user.tenantId, lotId);
       if (lot.qcStatus !== "PENDING") {
@@ -120,19 +121,23 @@ export class QualityService {
       if (lot.results.some((r) => r.passed === false)) {
         throw new BadRequestException("Cannot approve — one or more tests failed");
       }
-      await this.stock.transfer(
-        tx,
-        user.tenantId,
-        lot.itemId,
-        "QUARANTINE",
-        "INV",
-        lot.quantity.toString(),
-        {
-          docType: "PURCHASE_ORDER",
-          docId: lot.purchaseOrderId ?? undefined,
-          note: `QC approved lot ${lot.supplierLotNumber}`,
-        },
-      );
+      // Received lots move QUARANTINE -> INV on approval. Production lots stay in
+      // FG_WIP (the FG is in the vat); approval just makes them eligible to pack off.
+      if (lot.origin === "RECEIPT") {
+        await this.stock.transfer(
+          tx,
+          user.tenantId,
+          lot.itemId,
+          "QUARANTINE",
+          "INV",
+          lot.quantity.toString(),
+          {
+            docType: "PURCHASE_ORDER",
+            docId: lot.purchaseOrderId ?? undefined,
+            note: `QC approved lot ${lot.supplierLotNumber}`,
+          },
+        );
+      }
       await tx.receivedLot.update({
         where: { id: lotId },
         data: { qcStatus: "APPROVED", reviewedAt: new Date(), reviewedById: user.id },
@@ -154,7 +159,7 @@ export class QualityService {
     user: AuthenticatedUser,
     lotId: string,
     reason?: string,
-  ): Promise<ReceivedLot> {
+  ): Promise<Lot> {
     await this.prisma.$transaction(async (tx) => {
       const lot = await this.loadLot(tx, user.tenantId, lotId);
       if (lot.qcStatus !== "PENDING") {
@@ -272,17 +277,20 @@ export class QualityService {
     return lot;
   }
 
-  private toDto(lot: LotWithRelations): ReceivedLot {
+  private toDto(lot: LotWithRelations): Lot {
     const byType = new Map(lot.results.map((r) => [r.testType, r]));
     return {
       id: lot.id,
+      origin: lot.origin as LotOrigin,
       itemId: lot.itemId,
       itemSku: lot.item.sku,
       itemName: lot.item.name,
       vendorName: lot.vendorName,
       purchaseOrderNumber: lot.purchaseOrderNumber,
-      supplierLotNumber: lot.supplierLotNumber,
+      workOrderNumber: lot.workOrderNumber,
+      lotNumber: lot.supplierLotNumber,
       quantity: lot.quantity.toString(),
+      packedQty: lot.packedQty.toString(),
       unitCost: lot.unitCost.toString(),
       qcStatus: lot.qcStatus as QcLotStatus,
       receivedAt: lot.receivedAt.toISOString(),

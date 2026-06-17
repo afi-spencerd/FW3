@@ -18,12 +18,12 @@ import type {
   InventoryTxn,
   ItemQualitySpec,
   ItemType,
+  Lot,
+  LotSummary,
   PaginatedInventory,
   ProductionWorkOrder,
   ProductionWorkOrderSummary,
   QcLotStatus,
-  ReceivedLot,
-  ReceivedLotSummary,
   RecordQualityResults,
   SetItemQualitySpecs,
   StockPosition,
@@ -233,19 +233,17 @@ export const api = {
     }),
 
   listQualityLots: (status?: QcLotStatus) =>
-    request<ReceivedLotSummary[]>(
-      `/quality/lots${status ? `?status=${status}` : ""}`,
-    ),
-  getQualityLot: (id: string) => request<ReceivedLot>(`/quality/lots/${id}`),
+    request<LotSummary[]>(`/quality/lots${status ? `?status=${status}` : ""}`),
+  getQualityLot: (id: string) => request<Lot>(`/quality/lots/${id}`),
   recordQualityResults: (id: string, body: RecordQualityResults) =>
-    request<ReceivedLot>(`/quality/lots/${id}/results`, {
+    request<Lot>(`/quality/lots/${id}/results`, {
       method: "POST",
       body: JSON.stringify(body),
     }),
   approveQualityLot: (id: string) =>
-    request<ReceivedLot>(`/quality/lots/${id}/approve`, { method: "POST" }),
+    request<Lot>(`/quality/lots/${id}/approve`, { method: "POST" }),
   rejectQualityLot: (id: string, reason?: string) =>
-    request<ReceivedLot>(`/quality/lots/${id}/reject`, {
+    request<Lot>(`/quality/lots/${id}/reject`, {
       method: "POST",
       body: JSON.stringify({ reason }),
     }),

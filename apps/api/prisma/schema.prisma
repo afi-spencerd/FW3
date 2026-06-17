@@ -163,18 +163,23 @@ model ItemQualitySpec {
   @@index([tenantId])
 }
 
-// A received supplier lot, quarantined pending QC. Vendor/PO are snapshotted by
-// name to avoid extra joins on this quality record.
+// A lot of material, quarantined/produced pending QC. Origin RECEIPT (vendor) or
+// PRODUCTION (work order); vendor/PO/WO are snapshotted by name. (Table kept as
+// ReceivedLot for history; the app concept is a generic "Lot".)
 model ReceivedLot {
   id                  String    @id @default(uuid()) @db.Char(36)
   tenantId            String    @db.Char(36)
+  origin              String    @default("RECEIPT") @db.NVarChar(20) // RECEIPT | PRODUCTION
   itemId              String    @db.Char(36)
   purchaseOrderId     String?   @db.Char(36)
   purchaseOrderLineId String?   @db.Char(36)
   purchaseOrderNumber String?   @db.NVarChar(50)
   vendorName          String?   @db.NVarChar(200)
-  supplierLotNumber   String    @db.NVarChar(80)
+  sourceWorkOrderId   String?   @db.Char(36)
+  workOrderNumber     String?   @db.NVarChar(50)
+  supplierLotNumber   String    @db.NVarChar(80) // lot number (supplier's, or WO-derived)
   quantity            Decimal   @db.Decimal(18, 4)
+  packedQty           Decimal   @default(0) @db.Decimal(18, 4) // packed off so far (production lots)
   unitCost            Decimal   @db.Decimal(19, 4)
   qcStatus            String    @default("PENDING") @db.NVarChar(20) // PENDING | APPROVED | REJECTED
   rejectionReason     String?   @db.NVarChar(500)
