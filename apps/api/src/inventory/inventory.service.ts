@@ -105,7 +105,7 @@ export class InventoryService {
           data: {
             tenantId: user.tenantId,
             itemId: row.id,
-            state: "INV",
+            status: "INV",
             quantity: input.quantityOnHand,
             avgCost: input.unitCost,
           },

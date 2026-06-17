@@ -147,7 +147,7 @@ model ItemStock {
   id        String   @id @default(uuid()) @db.Char(36)
   tenantId  String   @db.Char(36)
   itemId    String   @db.Char(36)
-  state     String   @db.NVarChar(10) // INV | WIP
+  status    String   @map("state") @db.NVarChar(10) // INV | WIP
   quantity  Decimal  @default(0) @db.Decimal(18, 4)
   avgCost   Decimal  @default(0) @db.Decimal(19, 4)
   updatedAt DateTime @updatedAt
@@ -155,8 +155,8 @@ model ItemStock {
   tenant Tenant        @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   item   InventoryItem @relation(fields: [itemId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
-  @@unique([itemId, state])
-  @@index([tenantId, state])
+  @@unique([itemId, status])
+  @@index([tenantId, status])
 }
 
 // Append-only stock ledger. Every quantity change is one signed line; an item's
@@ -168,7 +168,7 @@ model InventoryTxn {
   tenantId       String   @db.Char(36)
   itemId         String   @db.Char(36)
   type           String   @db.NVarChar(30) // RECEIPT | CONSUME | PRODUCTION_OUTPUT | SHIPMENT | ADJUSTMENT | TRANSFER
-  state          String   @default("INV") @db.NVarChar(10) // INV | WIP — which bucket this line moved
+  status         String   @default("INV") @map("state") @db.NVarChar(10) // INV | WIP — which bucket this line moved
   quantity       Decimal  @db.Decimal(18, 4) // signed: + inbound, - outbound
   unitCost       Decimal  @db.Decimal(19, 4) // cost per unit applied by this line
   value          Decimal  @db.Decimal(38, 4) // signed = quantity * unitCost

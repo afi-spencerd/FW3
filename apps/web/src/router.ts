@@ -35,12 +35,6 @@ export const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
-      path: "/stock",
-      name: "stock",
-      component: () => import("./views/StockPositionsView.vue"),
-      meta: { requiresAuth: true },
-    },
-    {
       path: "/production",
       name: "production",
       component: () => import("./views/ProductionListView.vue"),

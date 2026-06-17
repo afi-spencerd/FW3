@@ -1,47 +1,87 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { computed, onMounted, reactive, ref } from "vue";
 import { RouterLink } from "vue-router";
 import {
   ITEM_TYPES,
   type ItemType,
   PERMISSIONS,
   type InventoryItem,
+  STOCK_STATUSES,
+  type StockStatus,
 } from "@fw3/shared-types";
 import { api, ApiError, type ValuationSummary } from "../lib/api";
 import { useAuthStore } from "../stores/auth";
+
+const auth = useAuthStore();
 
 const ITEM_TYPE_LABELS: Record<ItemType, string> = {
   RAW_MATERIAL: "Raw material",
   SEMI_FINISHED: "Base",
   FINISHED_GOOD: "Finished good",
 };
-
-const auth = useAuthStore();
+const STATUS_LABELS: Record<StockStatus, string> = {
+  INV: "Traceable",
+  WIP: "WIP",
+};
 
 const items = ref<InventoryItem[]>([]);
-const total = ref(0);
 const valuation = ref<ValuationSummary | null>(null);
+// itemId -> WIP position
+const wip = reactive<Record<string, { quantity: string; value: string }>>({});
+const wipTotal = ref("0");
+
 const search = ref("");
 const itemType = ref<ItemType | "">("");
+const statusFilter = ref<StockStatus | "">("");
 const loading = ref(false);
 const error = ref<string | null>(null);
 const notice = ref<string | null>(null);
+const packQty = reactive<Record<string, string>>({});
+
+const canPackOff = computed(() =>
+  auth.hasPermission(PERMISSIONS.PRODUCTION_EXECUTE),
+);
+
+function wipQty(item: InventoryItem): string {
+  return wip[item.id]?.quantity ?? "0";
+}
+function totalValue(item: InventoryItem): string {
+  return (
+    Number(item.extendedValue) + Number(wip[item.id]?.value ?? "0")
+  ).toFixed(2);
+}
+
+const filteredItems = computed(() =>
+  items.value.filter((i) => {
+    if (statusFilter.value === "WIP") return Number(wipQty(i)) > 0;
+    if (statusFilter.value === "INV") return Number(i.quantityOnHand) > 0;
+    return true;
+  }),
+);
 
 async function load(): Promise<void> {
   loading.value = true;
   error.value = null;
   try {
-    const [page, val] = await Promise.all([
+    const [page, positions, val] = await Promise.all([
       api.listInventory({
         search: search.value || undefined,
         itemType: itemType.value || undefined,
-        pageSize: 100,
+        pageSize: 200,
       }),
+      api.stockPositions(),
       api.valuation(),
     ]);
     items.value = page.items;
-    total.value = page.total;
     valuation.value = val;
+    for (const key of Object.keys(wip)) delete wip[key];
+    let wipSum = 0;
+    for (const p of positions) {
+      if (p.status !== "WIP") continue;
+      wip[p.itemId] = { quantity: p.quantity, value: p.totalValue };
+      wipSum += Number(p.totalValue);
+    }
+    wipTotal.value = wipSum.toFixed(2);
   } catch (err) {
     error.value = err instanceof ApiError ? err.message : "Failed to load";
   } finally {
@@ -56,6 +96,24 @@ async function remove(item: InventoryItem): Promise<void> {
     await load();
   } catch (err) {
     error.value = err instanceof ApiError ? err.message : "Delete failed";
+  }
+}
+
+async function packOff(item: InventoryItem): Promise<void> {
+  const qty = packQty[item.id];
+  if (!qty || Number(qty) <= 0) {
+    error.value = "Enter a quantity to pack off.";
+    return;
+  }
+  error.value = null;
+  notice.value = null;
+  try {
+    await api.packOff(item.id, qty);
+    packQty[item.id] = "";
+    notice.value = `Packed off ${qty} ${item.sku} — moved from WIP to traceable stock.`;
+    await load();
+  } catch (err) {
+    error.value = err instanceof ApiError ? err.message : "Pack-off failed";
   }
 }
 
@@ -83,12 +141,12 @@ onMounted(load);
         <div class="value">{{ valuation.itemCount }}</div>
       </div>
       <div class="metric">
-        <div class="label">Total quantity</div>
-        <div class="value">{{ valuation.totalQuantity }}</div>
+        <div class="label">Traceable value</div>
+        <div class="value">${{ valuation.totalValue }}</div>
       </div>
       <div class="metric">
-        <div class="label">Total value</div>
-        <div class="value">${{ valuation.totalValue }}</div>
+        <div class="label">WIP value</div>
+        <div class="value">${{ wipTotal }}</div>
       </div>
     </div>
 
@@ -96,16 +154,18 @@ onMounted(load);
       <input
         v-model="search"
         placeholder="Search SKU or name…"
-        style="max-width: 280px"
+        style="max-width: 240px"
         @keyup.enter="load"
       />
-      <button @click="load">Search</button>
-      <select v-model="itemType" style="max-width: 180px" @change="load">
+      <select v-model="itemType" style="max-width: 170px" @change="load">
         <option value="">All types</option>
-        <option v-for="t in ITEM_TYPES" :key="t" :value="t">
-          {{ ITEM_TYPE_LABELS[t] }}
-        </option>
+        <option v-for="t in ITEM_TYPES" :key="t" :value="t">{{ ITEM_TYPE_LABELS[t] }}</option>
       </select>
+      <select v-model="statusFilter" style="max-width: 150px">
+        <option value="">All status</option>
+        <option v-for="s in STOCK_STATUSES" :key="s" :value="s">{{ STATUS_LABELS[s] }}</option>
+      </select>
+      <button @click="load">Search</button>
       <span class="spacer" />
       <button
         v-if="auth.hasPermission(PERMISSIONS.QB_SYNC_RUN)"
@@ -130,23 +190,23 @@ onMounted(load);
             <th>Name</th>
             <th>Type</th>
             <th>UoM</th>
-            <th class="num">Qty</th>
-            <th class="num">Unit cost</th>
-            <th class="num">Sales price</th>
-            <th class="num">Ext. value</th>
+            <th class="num">Traceable</th>
+            <th class="num">WIP</th>
+            <th class="num">Avg cost</th>
+            <th class="num">Value</th>
             <th></th>
           </tr>
         </thead>
         <tbody>
-          <tr v-for="item in items" :key="item.id" :class="{ inactive: !item.active }">
+          <tr v-for="item in filteredItems" :key="item.id" :class="{ inactive: !item.active }">
             <td>{{ item.sku }}</td>
             <td>{{ item.name }}</td>
             <td>{{ ITEM_TYPE_LABELS[item.itemType] }}</td>
             <td>{{ item.unitOfMeasure }}</td>
             <td class="num">{{ item.quantityOnHand }}</td>
+            <td class="num" :class="{ inactive: Number(wipQty(item)) === 0 }">{{ wipQty(item) }}</td>
             <td class="num">{{ item.unitCost }}</td>
-            <td class="num">{{ item.salesPrice }}</td>
-            <td class="num">{{ item.extendedValue }}</td>
+            <td class="num">${{ totalValue(item) }}</td>
             <td>
               <RouterLink
                 v-if="auth.hasPermission(PERMISSIONS.INVENTORY_UPDATE)"
@@ -154,6 +214,15 @@ onMounted(load);
               >
                 Edit
               </RouterLink>
+              <template v-if="canPackOff && Number(wipQty(item)) > 0">
+                <input
+                  v-model="packQty[item.id]"
+                  inputmode="decimal"
+                  placeholder="qty"
+                  style="text-align: right; max-width: 64px; margin-left: 0.5rem"
+                />
+                <button style="margin-left: 0.3rem" @click="packOff(item)">Pack off</button>
+              </template>
               <button
                 v-if="auth.hasPermission(PERMISSIONS.INVENTORY_DELETE)"
                 class="danger"
@@ -164,7 +233,7 @@ onMounted(load);
               </button>
             </td>
           </tr>
-          <tr v-if="!loading && items.length === 0">
+          <tr v-if="!loading && filteredItems.length === 0">
             <td colspan="9" class="inactive">No items.</td>
           </tr>
         </tbody>

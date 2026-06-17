@@ -11,7 +11,7 @@ import type {
   InventoryTxn as InventoryTxnDto,
   ItemType,
   StockPosition,
-  StockState,
+  StockStatus,
   TxnType,
   UnitOfMeasure,
 } from "@fw3/shared-types";
@@ -26,16 +26,16 @@ import {
   type PostingResult,
 } from "./stock-costing";
 
-/** One movement to post. Magnitudes positive; direction signs it. state defaults INV. */
+/** One movement to post. Magnitudes positive; direction signs it. status defaults INV. */
 export interface Movement {
   itemId: string;
   type: TxnType;
   direction: "IN" | "OUT";
   quantity: string;
-  /** Required for inbound; outbound costs out at the current average for that state. */
+  /** Required for inbound; outbound costs out at the current average for that status. */
   unitCost?: string;
   /** Which bucket the movement lands in. Defaults to INV (LOT-traceable). */
-  state?: StockState;
+  status?: StockStatus;
 }
 
 export interface PostingDoc {
@@ -47,7 +47,7 @@ export interface PostingDoc {
 export interface PostedLine extends PostingResult {
   itemId: string;
   type: TxnType;
-  state: StockState;
+  status: StockStatus;
 }
 
 @Injectable()
@@ -60,7 +60,7 @@ export class StockService {
   /**
    * Post movements to the ledger within an existing transaction. Each one
    * re-averages (inbound) or costs out at the average (outbound) for its
-   * (item, state) bucket, writes the InventoryTxn with a running-balance
+   * (item, status) bucket, writes the InventoryTxn with a running-balance
    * snapshot, and updates ItemStock. The INV bucket is mirrored onto
    * InventoryItem so existing reads (valuation, lists) keep working.
    */
@@ -72,7 +72,7 @@ export class StockService {
   ): Promise<PostedLine[]> {
     const posted: PostedLine[] = [];
     for (const movement of movements) {
-      const state: StockState = movement.state ?? "INV";
+      const status: StockStatus = movement.status ?? "INV";
       const item = await tx.inventoryItem.findFirst({
         where: { id: movement.itemId, tenantId },
       });
@@ -80,13 +80,13 @@ export class StockService {
         throw new BadRequestException(`Item ${movement.itemId} not found`);
       }
       const stock = await tx.itemStock.findUnique({
-        where: { itemId_state: { itemId: movement.itemId, state } },
+        where: { itemId_status: { itemId: movement.itemId, status } },
       });
       // Fall back to the item's mirrored opening balance for INV when no
       // ItemStock row exists yet (e.g. an item created with an opening qty).
       const position = stock
         ? { quantity: stock.quantity.toString(), avgCost: stock.avgCost.toString() }
-        : state === "INV"
+        : status === "INV"
           ? {
               quantity: item.quantityOnHand.toString(),
               avgCost: item.unitCost.toString(),
@@ -107,7 +107,7 @@ export class StockService {
         } catch (err) {
           if (err instanceof InsufficientStockError) {
             throw new BadRequestException(
-              `Insufficient ${state} stock for ${item.sku}: have ${err.available}, need ${err.requested}`,
+              `Insufficient ${status} stock for ${item.sku}: have ${err.available}, need ${err.requested}`,
             );
           }
           throw err;
@@ -119,7 +119,7 @@ export class StockService {
           tenantId,
           itemId: movement.itemId,
           type: movement.type,
-          state,
+          status,
           quantity: result.quantity,
           unitCost: result.unitCost,
           value: result.value,
@@ -131,17 +131,17 @@ export class StockService {
         },
       });
       await tx.itemStock.upsert({
-        where: { itemId_state: { itemId: movement.itemId, state } },
+        where: { itemId_status: { itemId: movement.itemId, status } },
         create: {
           tenantId,
           itemId: movement.itemId,
-          state,
+          status,
           quantity: result.balanceQty,
           avgCost: result.balanceAvgCost,
         },
         update: { quantity: result.balanceQty, avgCost: result.balanceAvgCost },
       });
-      if (state === "INV") {
+      if (status === "INV") {
         await tx.inventoryItem.update({
           where: { id: movement.itemId },
           data: {
@@ -151,13 +151,13 @@ export class StockService {
         });
       }
 
-      posted.push({ itemId: movement.itemId, type: movement.type, state, ...result });
+      posted.push({ itemId: movement.itemId, type: movement.type, status, ...result });
     }
     return posted;
   }
 
   /**
-   * Move stock between states (e.g. INV -> WIP, or pack-off WIP -> INV). Cost
+   * Move stock between statuses (e.g. INV -> WIP, or pack-off WIP -> INV). Cost
    * flows with the goods: out at the source average, in at that same cost, so
    * the two ledger lines are value-balanced.
    */
@@ -165,8 +165,8 @@ export class StockService {
     tx: Prisma.TransactionClient,
     tenantId: string,
     itemId: string,
-    fromState: StockState,
-    toState: StockState,
+    fromStatus: StockStatus,
+    toStatus: StockStatus,
     quantity: string,
     doc: PostingDoc,
     type: TxnType = "TRANSFER",
@@ -174,14 +174,14 @@ export class StockService {
     const [out] = await this.post(
       tx,
       tenantId,
-      [{ itemId, type, direction: "OUT", quantity, state: fromState }],
+      [{ itemId, type, direction: "OUT", quantity, status: fromStatus }],
       doc,
     );
     if (!out) return;
     await this.post(
       tx,
       tenantId,
-      [{ itemId, type, direction: "IN", quantity, unitCost: out.unitCost, state: toState }],
+      [{ itemId, type, direction: "IN", quantity, unitCost: out.unitCost, status: toStatus }],
       doc,
     );
   }
@@ -278,7 +278,7 @@ export class StockService {
       id: t.id,
       itemId: t.itemId,
       type: t.type as TxnType,
-      state: t.state as StockState,
+      status: t.status as StockStatus,
       quantity: t.quantity.toString(),
       unitCost: t.unitCost.toString(),
       value: t.value.toString(),
@@ -291,12 +291,12 @@ export class StockService {
     }));
   }
 
-  /** All per-(item, state) positions — drives the WIP vs LOT-traceable report. */
+  /** All per-(item, status) positions — drives the WIP vs LOT-traceable report. */
   async getStockPositions(tenantId: string): Promise<StockPosition[]> {
     const rows = await this.prisma.itemStock.findMany({
       where: { tenantId },
       include: { item: true },
-      orderBy: [{ state: "asc" }],
+      orderBy: [{ status: "asc" }],
     });
     return rows
       .map((r) => ({
@@ -304,11 +304,11 @@ export class StockService {
         sku: r.item.sku,
         name: r.item.name,
         itemType: r.item.itemType as ItemType,
-        state: r.state as StockState,
+        status: r.status as StockStatus,
         quantity: r.quantity.toString(),
         avgCost: r.avgCost.toString(),
         totalValue: extendedValue(r.quantity.toString(), r.avgCost.toString()),
       }))
-      .sort((a, b) => a.sku.localeCompare(b.sku) || a.state.localeCompare(b.state));
+      .sort((a, b) => a.sku.localeCompare(b.sku) || a.status.localeCompare(b.status));
   }
 }

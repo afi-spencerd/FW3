@@ -181,7 +181,7 @@ export class ProductionService {
         type: "CONSUME",
         direction: "OUT",
         quantity: line.stagedQty.toString(),
-        state: "WIP",
+        status: "WIP",
       }));
       const consumed = await this.stock.post(tx, user.tenantId, consumeMovements, doc);
       const consumedValue = consumed.reduce(
@@ -203,7 +203,7 @@ export class ProductionService {
             direction: "IN",
             quantity: workOrder.outputQty.toString(),
             unitCost,
-            state: "WIP",
+            status: "WIP",
           },
         ],
         doc,

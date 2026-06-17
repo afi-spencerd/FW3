@@ -101,11 +101,11 @@ async function main(): Promise<void> {
         update: {},
       });
       await prisma.itemStock.upsert({
-        where: { itemId_state: { itemId: created.id, state: "INV" } },
+        where: { itemId_status: { itemId: created.id, status: "INV" } },
         create: {
           tenantId: tenant.id,
           itemId: created.id,
-          state: "INV",
+          status: "INV",
           quantity: item.qty,
           avgCost: item.cost,
         },

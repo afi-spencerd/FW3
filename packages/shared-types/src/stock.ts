@@ -2,10 +2,10 @@ import { z } from "zod";
 import { moneyString, quantityString } from "./money.js";
 import { itemTypeSchema, unitOfMeasureSchema } from "./inventory.js";
 
-/** Inventory state: LOT-traceable (INV) vs work-in-progress (WIP). */
-export const STOCK_STATES = ["INV", "WIP"] as const;
-export const stockStateSchema = z.enum(STOCK_STATES);
-export type StockState = (typeof STOCK_STATES)[number];
+/** Inventory status: LOT-traceable (INV) vs work-in-progress (WIP). */
+export const STOCK_STATUSES = ["INV", "WIP"] as const;
+export const stockStatusSchema = z.enum(STOCK_STATUSES);
+export type StockStatus = (typeof STOCK_STATUSES)[number];
 
 /**
  * Stock ledger contracts. Every quantity change is an InventoryTxn; an item's
@@ -35,7 +35,7 @@ export const inventoryTxnSchema = z.object({
   id: z.string().uuid(),
   itemId: z.string().uuid(),
   type: z.enum(TXN_TYPES),
-  state: stockStateSchema,
+  status: stockStatusSchema,
   /** Signed: positive = into stock, negative = out of stock. */
   quantity: z.string(),
   unitCost: z.string(),
@@ -73,13 +73,13 @@ export const adjustStockSchema = z
     path: ["unitCost"],
   });
 
-/** Position of an item in a single state — for the WIP-vs-traceable report. */
+/** Position of an item in a single status — for the WIP-vs-traceable report. */
 export const stockPositionSchema = z.object({
   itemId: z.string().uuid(),
   sku: z.string(),
   name: z.string(),
   itemType: itemTypeSchema,
-  state: stockStateSchema,
+  status: stockStatusSchema,
   quantity: z.string(),
   avgCost: z.string(),
   totalValue: z.string(),
