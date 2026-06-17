@@ -22,13 +22,16 @@ const ITEM_TYPE_LABELS: Record<ItemType, string> = {
 const STATUS_LABELS: Record<StockStatus, string> = {
   INV: "Traceable",
   WIP: "WIP",
+  QUARANTINE: "Quarantine",
 };
 
 const items = ref<InventoryItem[]>([]);
 const valuation = ref<ValuationSummary | null>(null);
-// itemId -> WIP position
+// itemId -> position, per non-traceable status
 const wip = reactive<Record<string, { quantity: string; value: string }>>({});
+const quarantine = reactive<Record<string, { quantity: string; value: string }>>({});
 const wipTotal = ref("0");
+const quarantineTotal = ref("0");
 
 const search = ref("");
 const itemType = ref<ItemType | "">("");
@@ -45,15 +48,21 @@ const canPackOff = computed(() =>
 function wipQty(item: InventoryItem): string {
   return wip[item.id]?.quantity ?? "0";
 }
+function quarantineQty(item: InventoryItem): string {
+  return quarantine[item.id]?.quantity ?? "0";
+}
 function totalValue(item: InventoryItem): string {
   return (
-    Number(item.extendedValue) + Number(wip[item.id]?.value ?? "0")
+    Number(item.extendedValue) +
+    Number(wip[item.id]?.value ?? "0") +
+    Number(quarantine[item.id]?.value ?? "0")
   ).toFixed(2);
 }
 
 const filteredItems = computed(() =>
   items.value.filter((i) => {
     if (statusFilter.value === "WIP") return Number(wipQty(i)) > 0;
+    if (statusFilter.value === "QUARANTINE") return Number(quarantineQty(i)) > 0;
     if (statusFilter.value === "INV") return Number(i.quantityOnHand) > 0;
     return true;
   }),
@@ -75,13 +84,20 @@ async function load(): Promise<void> {
     items.value = page.items;
     valuation.value = val;
     for (const key of Object.keys(wip)) delete wip[key];
+    for (const key of Object.keys(quarantine)) delete quarantine[key];
     let wipSum = 0;
+    let quarantineSum = 0;
     for (const p of positions) {
-      if (p.status !== "WIP") continue;
-      wip[p.itemId] = { quantity: p.quantity, value: p.totalValue };
-      wipSum += Number(p.totalValue);
+      if (p.status === "WIP") {
+        wip[p.itemId] = { quantity: p.quantity, value: p.totalValue };
+        wipSum += Number(p.totalValue);
+      } else if (p.status === "QUARANTINE") {
+        quarantine[p.itemId] = { quantity: p.quantity, value: p.totalValue };
+        quarantineSum += Number(p.totalValue);
+      }
     }
     wipTotal.value = wipSum.toFixed(2);
+    quarantineTotal.value = quarantineSum.toFixed(2);
   } catch (err) {
     error.value = err instanceof ApiError ? err.message : "Failed to load";
   } finally {
@@ -148,6 +164,10 @@ onMounted(load);
         <div class="label">WIP value</div>
         <div class="value">${{ wipTotal }}</div>
       </div>
+      <div class="metric">
+        <div class="label">Quarantine value</div>
+        <div class="value">${{ quarantineTotal }}</div>
+      </div>
     </div>
 
     <div class="toolbar">
@@ -192,6 +212,7 @@ onMounted(load);
             <th>UoM</th>
             <th class="num">Traceable</th>
             <th class="num">WIP</th>
+            <th class="num">Quarantine</th>
             <th class="num">Avg cost</th>
             <th class="num">Value</th>
             <th></th>
@@ -205,6 +226,7 @@ onMounted(load);
             <td>{{ item.unitOfMeasure }}</td>
             <td class="num">{{ item.quantityOnHand }}</td>
             <td class="num" :class="{ inactive: Number(wipQty(item)) === 0 }">{{ wipQty(item) }}</td>
+            <td class="num" :class="{ inactive: Number(quarantineQty(item)) === 0 }">{{ quarantineQty(item) }}</td>
             <td class="num">{{ item.unitCost }}</td>
             <td class="num">${{ totalValue(item) }}</td>
             <td>
@@ -234,7 +256,7 @@ onMounted(load);
             </td>
           </tr>
           <tr v-if="!loading && filteredItems.length === 0">
-            <td colspan="9" class="inactive">No items.</td>
+            <td colspan="10" class="inactive">No items.</td>
           </tr>
         </tbody>
       </table>

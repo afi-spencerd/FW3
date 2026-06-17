@@ -35,6 +35,19 @@ export const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
+      path: "/quality",
+      name: "quality",
+      component: () => import("./views/QualityQueueView.vue"),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: "/quality/:id",
+      name: "quality-lot",
+      component: () => import("./views/QualityLotView.vue"),
+      meta: { requiresAuth: true },
+      props: true,
+    },
+    {
       path: "/production",
       name: "production",
       component: () => import("./views/ProductionListView.vue"),

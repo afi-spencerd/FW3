@@ -13,8 +13,9 @@ const po = ref<PurchaseOrder | null>(null);
 const error = ref<string | null>(null);
 const notice = ref<string | null>(null);
 const busy = ref(false);
-// lineId -> quantity to receive now
+// lineId -> quantity / supplier lot to receive now
 const receiveQty = reactive<Record<string, string>>({});
+const lotNumber = reactive<Record<string, string>>({});
 
 const canReceive = computed(
   () =>
@@ -51,7 +52,11 @@ async function receive(): Promise<void> {
   error.value = null;
   const lines = Object.entries(receiveQty)
     .filter(([, q]) => Number(q) > 0)
-    .map(([purchaseOrderLineId, quantity]) => ({ purchaseOrderLineId, quantity }));
+    .map(([purchaseOrderLineId, quantity]) => ({
+      purchaseOrderLineId,
+      quantity,
+      supplierLotNumber: lotNumber[purchaseOrderLineId]?.trim() || undefined,
+    }));
   if (lines.length === 0) {
     error.value = "Enter a quantity to receive on at least one line.";
     return;
@@ -107,6 +112,7 @@ onMounted(load);
             <th class="num">Remaining</th>
             <th class="num">Unit cost</th>
             <th v-if="canReceive" class="num">Receive now</th>
+            <th v-if="canReceive">Supplier lot #</th>
           </tr>
         </thead>
         <tbody>
@@ -124,6 +130,14 @@ onMounted(load);
                 :disabled="remaining(line.quantityOrdered, line.quantityReceived) <= 0"
               />
             </td>
+            <td v-if="canReceive">
+              <input
+                v-model="lotNumber[line.id]"
+                placeholder="auto"
+                style="max-width: 140px"
+                :disabled="remaining(line.quantityOrdered, line.quantityReceived) <= 0"
+              />
+            </td>
           </tr>
         </tbody>
       </table>
@@ -132,6 +146,9 @@ onMounted(load);
         <button class="primary" :disabled="busy" @click="receive">
           {{ busy ? "Posting…" : "Post receipt" }}
         </button>
+        <span class="inactive" style="font-size: 0.85rem; align-self: center">
+          Received goods go to quarantine pending QC.
+        </span>
       </div>
     </div>
   </div>

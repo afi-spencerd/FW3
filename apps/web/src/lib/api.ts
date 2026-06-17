@@ -16,10 +16,16 @@ import type {
   CreateProductionWorkOrder,
   InventoryPosition,
   InventoryTxn,
+  ItemQualitySpec,
   ItemType,
   PaginatedInventory,
   ProductionWorkOrder,
   ProductionWorkOrderSummary,
+  QcLotStatus,
+  ReceivedLot,
+  ReceivedLotSummary,
+  RecordQualityResults,
+  SetItemQualitySpecs,
   StockPosition,
   PurchaseOrder,
   PurchaseOrderSummary,
@@ -224,6 +230,31 @@ export const api = {
     request<SalesOrder>(`/sales-orders/${id}/ship`, {
       method: "POST",
       body: JSON.stringify(data),
+    }),
+
+  listQualityLots: (status?: QcLotStatus) =>
+    request<ReceivedLotSummary[]>(
+      `/quality/lots${status ? `?status=${status}` : ""}`,
+    ),
+  getQualityLot: (id: string) => request<ReceivedLot>(`/quality/lots/${id}`),
+  recordQualityResults: (id: string, body: RecordQualityResults) =>
+    request<ReceivedLot>(`/quality/lots/${id}/results`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  approveQualityLot: (id: string) =>
+    request<ReceivedLot>(`/quality/lots/${id}/approve`, { method: "POST" }),
+  rejectQualityLot: (id: string, reason?: string) =>
+    request<ReceivedLot>(`/quality/lots/${id}/reject`, {
+      method: "POST",
+      body: JSON.stringify({ reason }),
+    }),
+  getItemQualitySpec: (itemId: string) =>
+    request<ItemQualitySpec[]>(`/quality/items/${itemId}/spec`),
+  setItemQualitySpec: (itemId: string, body: SetItemQualitySpecs) =>
+    request<ItemQualitySpec[]>(`/quality/items/${itemId}/spec`, {
+      method: "PUT",
+      body: JSON.stringify(body),
     }),
 
   qbSync: () =>

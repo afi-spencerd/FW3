@@ -5,9 +5,13 @@ import {
   createInventoryItemSchema,
   type InventoryPosition,
   type InventoryTxn,
+  type ItemQualitySpec,
   ITEM_TYPES,
   type ItemType,
   PERMISSIONS,
+  QC_TEST_KIND,
+  QC_TEST_TYPES,
+  type QcTestType,
   UNITS_OF_MEASURE,
   updateInventoryItemSchema,
 } from "@fw3/shared-types";
@@ -93,6 +97,56 @@ function clearErrors(): void {
   formError.value = null;
 }
 
+// --- QC acceptance spec (edit mode only) ---
+const QC_TEST_LABELS: Record<QcTestType, string> = {
+  SPECIFIC_GRAVITY: "Specific gravity",
+  REFRACTIVE_INDEX: "Refractive index",
+  COLOR: "Color",
+  ODOR: "Odor",
+};
+const specForm = reactive(
+  Object.fromEntries(
+    QC_TEST_TYPES.map((t) => [t, { minValue: "", maxValue: "", expectedValue: "" }]),
+  ) as Record<QcTestType, { minValue: string; maxValue: string; expectedValue: string }>,
+);
+const specNotice = ref<string | null>(null);
+const specBusy = ref(false);
+const canManageSpec = auth.hasPermission(PERMISSIONS.QC_SPEC_MANAGE);
+const QC_KIND = QC_TEST_KIND;
+
+function applySpecs(specs: ItemQualitySpec[]): void {
+  for (const s of specs) {
+    specForm[s.testType] = {
+      minValue: s.minValue ?? "",
+      maxValue: s.maxValue ?? "",
+      expectedValue: s.expectedValue ?? "",
+    };
+  }
+}
+async function loadSpecs(): Promise<void> {
+  if (!props.id) return;
+  applySpecs(await api.getItemQualitySpec(props.id));
+}
+async function saveSpecs(): Promise<void> {
+  if (!props.id) return;
+  specBusy.value = true;
+  specNotice.value = null;
+  try {
+    const specs = QC_TEST_TYPES.map((testType) => ({
+      testType,
+      minValue: specForm[testType].minValue || undefined,
+      maxValue: specForm[testType].maxValue || undefined,
+      expectedValue: specForm[testType].expectedValue || undefined,
+    }));
+    applySpecs(await api.setItemQualitySpec(props.id, { specs }));
+    specNotice.value = "QC spec saved.";
+  } catch (err) {
+    specNotice.value = err instanceof ApiError ? err.message : "Save failed";
+  } finally {
+    specBusy.value = false;
+  }
+}
+
 onMounted(async () => {
   if (!props.id) return;
   try {
@@ -109,6 +163,7 @@ onMounted(async () => {
       active: item.active,
     });
     await loadStock();
+    await loadSpecs();
   } catch (err) {
     formError.value = err instanceof ApiError ? err.message : "Failed to load";
   }
@@ -313,6 +368,59 @@ async function submit(): Promise<void> {
           </tr>
         </tbody>
       </table>
+    </div>
+
+    <div v-if="isEdit" class="panel" style="margin-top: 1rem">
+      <h3>QC acceptance spec</h3>
+      <p class="inactive" style="font-size: 0.85rem">
+        Used to auto-evaluate received lots. Numeric tests use a min/max range;
+        descriptive tests match an expected value.
+      </p>
+      <div v-if="specNotice" class="banner ok">{{ specNotice }}</div>
+      <table>
+        <thead>
+          <tr><th>Test</th><th>Min</th><th>Max</th><th>Expected</th></tr>
+        </thead>
+        <tbody>
+          <tr v-for="t in QC_TEST_TYPES" :key="t">
+            <td>{{ QC_TEST_LABELS[t] }}</td>
+            <td>
+              <input
+                v-if="QC_KIND[t] === 'NUMERIC'"
+                v-model="specForm[t].minValue"
+                inputmode="decimal"
+                :disabled="!canManageSpec"
+                style="max-width: 110px"
+              />
+              <span v-else class="inactive">—</span>
+            </td>
+            <td>
+              <input
+                v-if="QC_KIND[t] === 'NUMERIC'"
+                v-model="specForm[t].maxValue"
+                inputmode="decimal"
+                :disabled="!canManageSpec"
+                style="max-width: 110px"
+              />
+              <span v-else class="inactive">—</span>
+            </td>
+            <td>
+              <input
+                v-if="QC_KIND[t] === 'DESCRIPTIVE'"
+                v-model="specForm[t].expectedValue"
+                :disabled="!canManageSpec"
+                style="max-width: 160px"
+              />
+              <span v-else class="inactive">—</span>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      <div v-if="canManageSpec" class="toolbar">
+        <button class="primary" :disabled="specBusy" @click="saveSpecs">
+          {{ specBusy ? "Saving…" : "Save QC spec" }}
+        </button>
+      </div>
     </div>
   </div>
 </template>
