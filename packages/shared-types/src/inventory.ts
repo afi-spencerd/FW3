@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { moneyString, quantityString } from "./money.js";
+import { moneyString } from "./money.js";
 
 /**
  * Inventory item contracts — shared by the API (DTO validation) and the web
@@ -47,7 +47,13 @@ export const PHYSICAL_FORMS = ["LIQUID", "SOLID"] as const;
 export const physicalFormSchema = z.enum(PHYSICAL_FORMS);
 export type PhysicalForm = (typeof PHYSICAL_FORMS)[number];
 
-/** Fields a user can submit when creating an item. */
+/**
+ * Fields a user can submit when creating an item. Note: quantity on hand and
+ * unit (average) cost are NOT settable here — they are derived from the stock
+ * ledger. A new item starts at zero; establish opening stock with an inventory
+ * adjustment (which posts a transaction). salesPrice is a list price, not
+ * ledger-derived, so it stays editable.
+ */
 export const createInventoryItemSchema = z.object({
   sku: z.string().trim().min(1).max(64),
   name: z.string().trim().min(1).max(200),
@@ -55,8 +61,6 @@ export const createInventoryItemSchema = z.object({
   itemType: itemTypeSchema,
   physicalForm: physicalFormSchema.default("LIQUID"),
   unitOfMeasure: unitOfMeasureSchema.default("LB"),
-  quantityOnHand: quantityString.default("0"),
-  unitCost: moneyString.default("0"),
   salesPrice: moneyString.default("0"),
   active: z.boolean().default(true),
 });

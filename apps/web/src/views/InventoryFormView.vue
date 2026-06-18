@@ -10,7 +10,6 @@ import {
   ITEM_TYPES,
   type ItemType,
   isStockableKind,
-  kgEquivalent,
   KG_TO_LB_FORMULA,
   type LocatedStockStatus,
   LOCATED_STOCK_STATUSES,
@@ -54,8 +53,6 @@ const form = reactive({
   itemType: "RAW_MATERIAL" as ItemType,
   physicalForm: "LIQUID" as PhysicalForm,
   unitOfMeasure: "LB",
-  quantityOnHand: "0",
-  unitCost: "0",
   salesPrice: "0",
   active: true,
 });
@@ -232,8 +229,6 @@ onMounted(async () => {
       itemType: item.itemType,
       physicalForm: item.physicalForm,
       unitOfMeasure: item.unitOfMeasure,
-      quantityOnHand: item.quantityOnHand,
-      unitCost: item.unitCost,
       salesPrice: item.salesPrice,
       active: item.active,
     });
@@ -255,8 +250,6 @@ async function submit(): Promise<void> {
       itemType: form.itemType,
       physicalForm: form.physicalForm,
       unitOfMeasure: form.unitOfMeasure,
-      quantityOnHand: form.quantityOnHand,
-      unitCost: form.unitCost,
       salesPrice: form.salesPrice,
       active: form.active,
     };
@@ -364,24 +357,17 @@ async function submit(): Promise<void> {
           <div v-if="errors.unitOfMeasure" class="error">{{ errors.unitOfMeasure }}</div>
         </div>
         <div class="field">
-          <label for="qty">Quantity on hand (lb)</label>
-          <input id="qty" v-model="form.quantityOnHand" inputmode="decimal" />
-          <div v-if="form.unitOfMeasure === 'KG' && form.quantityOnHand" class="inactive" style="font-size: 0.8rem">
-            = {{ kgEquivalent(form.quantityOnHand) }} kg
-          </div>
-          <div v-if="errors.quantityOnHand" class="error">{{ errors.quantityOnHand }}</div>
-        </div>
-        <div class="field">
-          <label for="cost">Unit cost</label>
-          <input id="cost" v-model="form.unitCost" inputmode="decimal" />
-          <div v-if="errors.unitCost" class="error">{{ errors.unitCost }}</div>
-        </div>
-        <div class="field">
           <label for="price">Sales price</label>
           <input id="price" v-model="form.salesPrice" inputmode="decimal" />
           <div v-if="errors.salesPrice" class="error">{{ errors.salesPrice }}</div>
         </div>
       </div>
+
+      <p class="inactive" style="font-size: 0.8rem">
+        Quantity on hand and unit cost are derived from transactions, not set here.
+        <template v-if="isEdit">Use “Adjust inventory” below to post an opening balance or correction.</template>
+        <template v-else>After saving, open the item to post an opening balance via an inventory adjustment.</template>
+      </p>
 
       <div class="field">
         <label><input type="checkbox" v-model="form.active" style="width: auto" /> Active</label>

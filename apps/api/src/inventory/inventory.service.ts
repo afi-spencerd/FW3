@@ -96,20 +96,21 @@ export class InventoryService {
             itemType: input.itemType,
             physicalForm: input.physicalForm,
             unitOfMeasure: input.unitOfMeasure,
-            quantityOnHand: input.quantityOnHand,
-            unitCost: input.unitCost,
             salesPrice: input.salesPrice,
             active: input.active,
+            // quantityOnHand / unitCost default to 0 — they are ledger-derived.
           },
         });
-        // Opening INV (LOT-traceable) position mirrors the item's on-hand.
+        // The INV bucket starts empty; opening stock comes from a transaction
+        // (an inventory adjustment), which posts to the ledger and re-mirrors
+        // quantity/cost back onto the item.
         await tx.itemStock.create({
           data: {
             tenantId: user.tenantId,
             itemId: row.id,
             status: "INV",
-            quantity: input.quantityOnHand,
-            avgCost: input.unitCost,
+            quantity: "0",
+            avgCost: "0",
           },
         });
         await this.audit.record(tx, {
@@ -154,10 +155,7 @@ export class InventoryService {
             ...(input.unitOfMeasure === undefined
               ? {}
               : { unitOfMeasure: input.unitOfMeasure }),
-            ...(input.quantityOnHand === undefined
-              ? {}
-              : { quantityOnHand: input.quantityOnHand }),
-            ...(input.unitCost === undefined ? {} : { unitCost: input.unitCost }),
+            // quantityOnHand and unitCost are ledger-derived — not editable here.
             ...(input.salesPrice === undefined
               ? {}
               : { salesPrice: input.salesPrice }),
