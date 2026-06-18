@@ -4,14 +4,14 @@
 - [ ] Facilitate sending QC Failed RMs back to Vendor
 - [ ] Facilitate Scrap in all Inventory stages
 - [ ] Unique views for specific User Roles
-- [ ] fix: correct broken references to "Stock" page
-- [ ] create API for Compounder Tool to report consumptions and batch progress
-  - [ ] expose formulation details to compounder tool via api
-  - [ ] expose WO list to compounder tool
-- [ ] complete QBWC sync
-- [ ] fix: broken inventory delete button
-  - [ ] should only allow adjusting out all inventory, not deleting. all adjustments should be recorded.
-  - [ ] should not be able to delete an item if inventory transactions exist for it
+- [x] fix: correct broken references to "Stock" page
+- [x] create API for Compounder Tool to report consumptions and batch progress
+  - [x] expose formulation details to compounder tool via api
+  - [x] expose WO list to compounder tool
+- [ ] complete QB sync
+- [x] fix: broken inventory delete button
+  - [x] should only allow adjusting out all inventory, not deleting. all adjustments should be recorded.
+  - [x] should not be able to delete an item if inventory transactions exist for it
 - [ ] cycle count tool
 - [ ] allow packing before QC
 - [ ] show cost when generating SO
@@ -21,8 +21,8 @@
   - [ ] customer purchase & cost history
 - [ ] location rules. (i.e. no move back to receiving dock after moved to warehouse)
 - [ ] headers on stock adjustment
-- [ ] always use lbs for UOM
-- [ ] allow receiving from vendor as KG, auto convert. disclaimer for conversion formula used.
+- [x] always use lbs for UOM
+- [x] allow receiving from vendor as KG, auto convert. disclaimer for conversion formula used.
 - [x] location visibility (what's currently on a location)
   - [ ] improve location visibility UX
 - [x] sub-locations
@@ -31,3 +31,4 @@
 - [ ] scheduling tool
 - [ ] customer service crm
 - [ ] sales crm
+- [ ] container inventory
