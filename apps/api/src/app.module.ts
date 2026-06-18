@@ -8,6 +8,7 @@ import { AuditModule } from "./audit/audit.module";
 import { InventoryModule } from "./inventory/inventory.module";
 import { StockModule } from "./stock/stock.module";
 import { LocationModule } from "./location/location.module";
+import { CycleCountModule } from "./cycle-count/cycle-count.module";
 import { FormulaModule } from "./formula/formula.module";
 import { PurchasingModule } from "./purchasing/purchasing.module";
 import { SalesModule } from "./sales/sales.module";
@@ -32,6 +33,7 @@ import { JobsModule } from "./jobs/jobs.module";
     InventoryModule,
     StockModule,
     LocationModule,
+    CycleCountModule,
     FormulaModule,
     PurchasingModule,
     SalesModule,

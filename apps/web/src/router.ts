@@ -35,6 +35,25 @@ export const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
+      path: "/cycle-counts",
+      name: "cycle-counts",
+      component: () => import("./views/CycleCountListView.vue"),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: "/cycle-counts/new",
+      name: "cycle-count-new",
+      component: () => import("./views/CycleCountFormView.vue"),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: "/cycle-counts/:id",
+      name: "cycle-count-detail",
+      component: () => import("./views/CycleCountDetailView.vue"),
+      meta: { requiresAuth: true },
+      props: true,
+    },
+    {
       path: "/formulas",
       name: "formulas",
       component: () => import("./views/FormulaListView.vue"),

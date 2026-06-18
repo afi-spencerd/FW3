@@ -20,11 +20,16 @@ import type {
   ItemLocationPosition,
   ItemQualitySpec,
   ItemType,
+  CreateCycleCount,
+  CycleCount,
+  CycleCountStatus,
+  CycleCountSummary,
   Location,
   LocationMove,
   LocationStockRow,
   Lot,
   MoveStock,
+  RecordCycleCounts,
   LotSummary,
   PaginatedInventory,
   ProductionWorkOrder,
@@ -267,6 +272,26 @@ export const api = {
       method: "POST",
       body: JSON.stringify(data),
     }),
+
+  listCycleCounts: (status?: CycleCountStatus) =>
+    request<CycleCountSummary[]>(
+      `/cycle-counts${status ? `?status=${status}` : ""}`,
+    ),
+  getCycleCount: (id: string) => request<CycleCount>(`/cycle-counts/${id}`),
+  createCycleCount: (data: CreateCycleCount) =>
+    request<CycleCount>("/cycle-counts", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  recordCycleCounts: (id: string, data: RecordCycleCounts) =>
+    request<CycleCount>(`/cycle-counts/${id}/counts`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  postCycleCount: (id: string) =>
+    request<CycleCount>(`/cycle-counts/${id}/post`, { method: "POST" }),
+  cancelCycleCount: (id: string) =>
+    request<CycleCount>(`/cycle-counts/${id}/cancel`, { method: "POST" }),
 
   listQualityLots: (status?: QcLotStatus) =>
     request<LotSummary[]>(`/quality/lots${status ? `?status=${status}` : ""}`),

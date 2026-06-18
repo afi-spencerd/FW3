@@ -42,6 +42,8 @@ model Tenant {
   itemStockLocations  ItemStockLocation[]
   locationMoves       LocationMove[]
   compounderPours     CompounderPour[]
+  cycleCounts         CycleCount[]
+  cycleCountLines     CycleCountLine[]
 }
 
 model User {
@@ -58,6 +60,8 @@ model User {
   userRoles      UserRole[]
   auditLogs      AuditLog[]
   compounderPours CompounderPour[]
+  createdCycleCounts   CycleCount[] @relation("CycleCountCreatedBy")
+  completedCycleCounts CycleCount[] @relation("CycleCountCompletedBy")
 
   @@unique([tenantId, idpSub])
   @@unique([tenantId, email])
@@ -148,6 +152,7 @@ model InventoryItem {
   stockLocations          ItemStockLocation[]
   locationMoves           LocationMove[]
   componentPours          CompounderPour[]          @relation("ComponentPours")
+  cycleCountLines         CycleCountLine[]
 
   @@unique([tenantId, sku])
   @@index([tenantId])
@@ -279,6 +284,8 @@ model Location {
   movesFrom    LocationMove[]      @relation("MoveFromLocation")
   movesTo      LocationMove[]      @relation("MoveToLocation")
   receivedLots ReceivedLot[]
+  cycleCountScopes CycleCount[]
+  cycleCountLines  CycleCountLine[]
 
   @@unique([tenantId, code])
   @@index([tenantId])
@@ -623,4 +630,55 @@ model QbwcSession {
   connection QbConnection @relation(fields: [connectionId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([connectionId])
+}
+
+// A cycle count: verify physical inventory at a location (or the whole tenant)
+// against the system, then post the variances as ADJUSTMENT transactions. Blind
+// counts hide the system quantity from the counter until posted.
+model CycleCount {
+  id              String    @id @default(uuid()) @db.Char(36)
+  tenantId        String    @db.Char(36)
+  reference       String    @db.NVarChar(50)
+  status          String    @default("OPEN") @db.NVarChar(20) // OPEN | COMPLETED | CANCELLED
+  blind           Boolean   @default(false)
+  scopeLocationId String?   @db.Char(36) // null = whole tenant
+  note            String?   @db.NVarChar(500)
+  createdById     String    @db.Char(36)
+  completedById   String?   @db.Char(36)
+  createdAt       DateTime  @default(now())
+  completedAt     DateTime?
+  updatedAt       DateTime  @updatedAt
+
+  tenant        Tenant           @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  scopeLocation Location?        @relation(fields: [scopeLocationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  createdBy     User             @relation("CycleCountCreatedBy", fields: [createdById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  completedBy   User?            @relation("CycleCountCompletedBy", fields: [completedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  lines         CycleCountLine[]
+
+  @@unique([tenantId, reference])
+  @@index([tenantId, status])
+}
+
+// One counted cell: an item, in one located status, at one location. expectedQty
+// is the system snapshot at creation; countedQty is what the counter found.
+model CycleCountLine {
+  id           String   @id @default(uuid()) @db.Char(36)
+  tenantId     String   @db.Char(36)
+  cycleCountId String   @db.Char(36)
+  itemId       String   @db.Char(36)
+  status       String   @map("state") @db.NVarChar(10) // INV | QUARANTINE
+  locationId   String   @db.Char(36)
+  expectedQty  Decimal  @db.Decimal(18, 4)
+  countedQty   Decimal? @db.Decimal(18, 4)
+  counted      Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  tenant     Tenant        @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  cycleCount CycleCount    @relation(fields: [cycleCountId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  item       InventoryItem @relation(fields: [itemId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  location   Location      @relation(fields: [locationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([cycleCountId, itemId, status, locationId])
+  @@index([cycleCountId])
 }
