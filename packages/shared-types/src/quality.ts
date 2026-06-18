@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { type PhysicalForm } from "./inventory.js";
+import { quantityString } from "./money.js";
 
 /**
  * Quality control. A lot (received or produced) gets an acceptance-test suite
@@ -35,7 +36,12 @@ export const QC_SUITE_BY_FORM = {
   SOLID: ["ODOR", "APPEARANCE", "MELTING_POINT"],
 } as const satisfies Record<PhysicalForm, readonly QcTestType[]>;
 
-export const QC_LOT_STATUSES = ["PENDING", "APPROVED", "REJECTED"] as const;
+export const QC_LOT_STATUSES = [
+  "PENDING",
+  "APPROVED",
+  "REJECTED",
+  "RETURNED",
+] as const;
 export type QcLotStatus = (typeof QC_LOT_STATUSES)[number];
 
 /** Where a lot came from: a vendor receipt, or an in-house production work order. */
@@ -95,6 +101,8 @@ export const lotSchema = z.object({
   quantity: z.string(),
   /** Quantity already packed off (production lots) — quantity - packedQty remains in WIP. */
   packedQty: z.string(),
+  /** Quantity returned to the vendor (received lots) — for QC-fail returns. */
+  returnedQty: z.string(),
   unitCost: z.string(),
   qcStatus: z.enum(QC_LOT_STATUSES),
   receivedAt: z.string().datetime(),
@@ -111,6 +119,40 @@ export const rejectLotSchema = z.object({
   reason: z.string().trim().max(500).optional(),
 });
 
+/**
+ * Return QC-failed raw material to the vendor. Removes quantity from quarantine
+ * (a recoverable vendor debit, not a loss). Defaults to the lot's full remaining
+ * quantity; rmaNumber is the vendor's return authorization.
+ */
+export const returnToVendorSchema = z.object({
+  quantity: quantityString
+    .refine((v) => Number(v) > 0, "must be greater than 0")
+    .optional(),
+  rmaNumber: z.string().trim().max(50).optional(),
+  note: z.string().trim().max(500).optional(),
+});
+
+export const vendorReturnSchema = z.object({
+  id: z.string().uuid(),
+  receivedLotId: z.string().uuid(),
+  lotNumber: z.string(),
+  itemId: z.string().uuid(),
+  itemSku: z.string(),
+  itemName: z.string(),
+  vendorName: z.string().nullable(),
+  purchaseOrderNumber: z.string().nullable(),
+  quantity: z.string(),
+  unitCost: z.string(),
+  /** Recoverable value owed by the vendor (quantity × unit cost). */
+  value: z.string(),
+  reason: z.string().nullable(),
+  rmaNumber: z.string().nullable(),
+  note: z.string().nullable(),
+  operatorId: z.string().uuid(),
+  operatorName: z.string(),
+  occurredAt: z.string().datetime(),
+});
+
 export type QualitySpecInput = z.infer<typeof qualitySpecInputSchema>;
 export type SetItemQualitySpecs = z.infer<typeof setItemQualitySpecsSchema>;
 export type ItemQualitySpec = z.infer<typeof itemQualitySpecSchema>;
@@ -120,3 +162,5 @@ export type QualityResult = z.infer<typeof qualityResultSchema>;
 export type Lot = z.infer<typeof lotSchema>;
 export type LotSummary = z.infer<typeof lotSummarySchema>;
 export type RejectLot = z.infer<typeof rejectLotSchema>;
+export type ReturnToVendor = z.infer<typeof returnToVendorSchema>;
+export type VendorReturn = z.infer<typeof vendorReturnSchema>;

@@ -45,6 +45,7 @@ model Tenant {
   cycleCounts         CycleCount[]
   cycleCountLines     CycleCountLine[]
   scrapRecords        ScrapRecord[]
+  vendorReturns       VendorReturn[]
 }
 
 model User {
@@ -64,6 +65,7 @@ model User {
   createdCycleCounts   CycleCount[] @relation("CycleCountCreatedBy")
   completedCycleCounts CycleCount[] @relation("CycleCountCompletedBy")
   scrapRecords         ScrapRecord[]
+  vendorReturns        VendorReturn[]
 
   @@unique([tenantId, idpSub])
   @@unique([tenantId, email])
@@ -156,6 +158,7 @@ model InventoryItem {
   componentPours          CompounderPour[]          @relation("ComponentPours")
   cycleCountLines         CycleCountLine[]
   scrapRecords            ScrapRecord[]
+  vendorReturns           VendorReturn[]
 
   @@unique([tenantId, sku])
   @@index([tenantId])
@@ -201,8 +204,9 @@ model ReceivedLot {
   locationId          String?   @db.Char(36) // where it was quarantined (drives QC-approve routing)
   quantity            Decimal   @db.Decimal(18, 4)
   packedQty           Decimal   @default(0) @db.Decimal(18, 4) // packed off so far (production lots)
+  returnedQty         Decimal   @default(0) @db.Decimal(18, 4) // returned to vendor (QC-fail returns)
   unitCost            Decimal   @db.Decimal(19, 4)
-  qcStatus            String    @default("PENDING") @db.NVarChar(20) // PENDING | APPROVED | REJECTED
+  qcStatus            String    @default("PENDING") @db.NVarChar(20) // PENDING | APPROVED | REJECTED | RETURNED
   rejectionReason     String?   @db.NVarChar(500)
   receivedAt          DateTime  @default(now())
   reviewedAt          DateTime?
@@ -214,6 +218,7 @@ model ReceivedLot {
   item     InventoryItem       @relation(fields: [itemId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   location Location?           @relation(fields: [locationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   results  QualityTestResult[]
+  vendorReturns VendorReturn[]
 
   @@index([tenantId, qcStatus])
   @@index([itemId])
@@ -710,4 +715,32 @@ model ScrapRecord {
 
   @@index([tenantId, itemId, occurredAt])
   @@index([tenantId, reason])
+}
+
+// A return-to-vendor of QC-failed raw material. Removes quantity from quarantine
+// (an InventoryTxn of type RETURN) — a recoverable vendor debit, not a loss.
+// vendorName / purchaseOrderNumber are snapshotted from the lot for reporting.
+model VendorReturn {
+  id                  String   @id @default(uuid()) @db.Char(36)
+  tenantId            String   @db.Char(36)
+  receivedLotId       String   @db.Char(36)
+  itemId              String   @db.Char(36)
+  vendorName          String?  @db.NVarChar(200)
+  purchaseOrderNumber String?  @db.NVarChar(50)
+  quantity            Decimal  @db.Decimal(18, 4)
+  unitCost            Decimal  @db.Decimal(19, 4)
+  value               Decimal  @db.Decimal(38, 4) // recoverable amount (qty * unitCost)
+  reason              String?  @db.NVarChar(500)
+  rmaNumber           String?  @db.NVarChar(50)
+  note                String?  @db.NVarChar(500)
+  operatorId          String   @db.Char(36)
+  occurredAt          DateTime @default(now())
+
+  tenant      Tenant        @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  receivedLot ReceivedLot   @relation(fields: [receivedLotId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  item        InventoryItem @relation(fields: [itemId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  operator    User          @relation(fields: [operatorId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([tenantId, occurredAt])
+  @@index([receivedLotId])
 }

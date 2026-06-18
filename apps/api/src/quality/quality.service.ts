@@ -15,8 +15,11 @@ import {
   type QcLotStatus,
   type QcTestType,
   type RecordQualityResults,
+  type ReturnToVendor,
   type SetItemQualitySpecs,
+  type VendorReturn,
 } from "@fw3/shared-types";
+import Decimal from "decimal.js";
 import { AuditService } from "../audit/audit.service";
 import { PrismaService } from "../database/prisma.service";
 import { Prisma } from "../generated/prisma/client";
@@ -25,6 +28,10 @@ import { evaluateResult, type SpecLike } from "./quality-eval";
 
 type LotWithRelations = Prisma.ReceivedLotGetPayload<{
   include: { item: true; results: true };
+}>;
+
+type VendorReturnWithRelations = Prisma.VendorReturnGetPayload<{
+  include: { receivedLot: true; item: true; operator: true };
 }>;
 
 @Injectable()
@@ -207,6 +214,141 @@ export class QualityService {
     return this.getLot(user.tenantId, lotId);
   }
 
+  /**
+   * Return QC-failed raw material to the vendor: remove the quantity from
+   * quarantine (a RETURN transaction — a recoverable vendor debit, not a loss)
+   * and record a VendorReturn. Defaults to the lot's full remaining quantity;
+   * the lot is marked RETURNED once nothing is left.
+   */
+  async returnToVendor(
+    user: AuthenticatedUser,
+    lotId: string,
+    input: ReturnToVendor,
+  ): Promise<VendorReturn> {
+    const id = await this.prisma.$transaction(async (tx) => {
+      const lot = await this.loadLot(tx, user.tenantId, lotId);
+      if (lot.origin !== "RECEIPT") {
+        throw new BadRequestException("Only received lots can be returned to a vendor");
+      }
+      if (lot.qcStatus !== "REJECTED") {
+        throw new BadRequestException(
+          "Only a QC-rejected lot can be returned to the vendor",
+        );
+      }
+      const remaining = lot.quantity.minus(lot.returnedQty);
+      const qty = input.quantity ? new Decimal(input.quantity) : remaining;
+      if (qty.lessThanOrEqualTo(0)) {
+        throw new BadRequestException("Nothing left to return on this lot");
+      }
+      if (qty.greaterThan(remaining)) {
+        throw new BadRequestException(
+          `Cannot return ${qty} of ${lot.item.sku}: only ${remaining} remaining on the lot`,
+        );
+      }
+
+      // Remove from quarantine at the lot's location (back to the vendor).
+      await this.stock.post(
+        tx,
+        user.tenantId,
+        [
+          {
+            itemId: lot.itemId,
+            type: "RETURN",
+            direction: "OUT",
+            quantity: qty.toString(),
+            status: "QUARANTINE",
+            ...(lot.locationId ? { locationId: lot.locationId } : {}),
+          },
+        ],
+        {
+          docType: "PURCHASE_ORDER",
+          docId: lot.purchaseOrderId ?? undefined,
+          note: `Return to vendor — lot ${lot.supplierLotNumber}${input.rmaNumber ? ` (RMA ${input.rmaNumber})` : ""}`,
+        },
+      );
+
+      const value = qty.times(lot.unitCost).toString();
+      const ret = await tx.vendorReturn.create({
+        data: {
+          tenantId: user.tenantId,
+          receivedLotId: lotId,
+          itemId: lot.itemId,
+          vendorName: lot.vendorName,
+          purchaseOrderNumber: lot.purchaseOrderNumber,
+          quantity: qty.toString(),
+          unitCost: lot.unitCost,
+          value,
+          reason: lot.rejectionReason,
+          rmaNumber: input.rmaNumber ?? null,
+          note: input.note ?? null,
+          operatorId: user.id,
+        },
+      });
+
+      const returnedQty = lot.returnedQty.plus(qty);
+      await tx.receivedLot.update({
+        where: { id: lotId },
+        data: {
+          returnedQty,
+          ...(returnedQty.greaterThanOrEqualTo(lot.quantity)
+            ? { qcStatus: "RETURNED" }
+            : {}),
+        },
+      });
+      await this.audit.record(tx, {
+        tenantId: user.tenantId,
+        actorId: user.id,
+        entityType: "ReceivedLot",
+        entityId: lotId,
+        action: "UPDATE",
+        after: { returnedToVendor: qty.toString(), rmaNumber: input.rmaNumber, value },
+      });
+      return ret.id;
+    });
+    return this.getReturn(user.tenantId, id);
+  }
+
+  /** Vendor-return (RTV) history, newest first. */
+  async listReturns(tenantId: string): Promise<VendorReturn[]> {
+    const rows = await this.prisma.vendorReturn.findMany({
+      where: { tenantId },
+      include: { receivedLot: true, item: true, operator: true },
+      orderBy: { occurredAt: "desc" },
+    });
+    return rows.map((r) => this.toReturnDto(r));
+  }
+
+  private async getReturn(tenantId: string, id: string): Promise<VendorReturn> {
+    const row = await this.prisma.vendorReturn.findFirst({
+      where: { id, tenantId },
+      include: { receivedLot: true, item: true, operator: true },
+    });
+    if (!row) throw new NotFoundException("Vendor return not found");
+    return this.toReturnDto(row);
+  }
+
+  private toReturnDto(row: VendorReturnWithRelations): VendorReturn {
+    return {
+      id: row.id,
+      receivedLotId: row.receivedLotId,
+      lotNumber: row.receivedLot.supplierLotNumber,
+      itemId: row.itemId,
+      itemSku: row.item.sku,
+      itemName: row.item.name,
+      vendorName: row.vendorName,
+      purchaseOrderNumber: row.purchaseOrderNumber,
+      quantity: row.quantity.toString(),
+      unitCost: row.unitCost.toString(),
+      value: row.value.toString(),
+      reason: row.reason,
+      rmaNumber: row.rmaNumber,
+      note: row.note,
+      operatorId: row.operatorId,
+      operatorName: row.operator.displayName,
+      occurredAt: row.occurredAt.toISOString(),
+    };
+  }
+
   async getItemSpecs(tenantId: string, itemId: string): Promise<ItemQualitySpec[]> {
     const item = await this.prisma.inventoryItem.findFirst({
       where: { id: itemId, tenantId },
@@ -312,6 +454,7 @@ export class QualityService {
       lotNumber: lot.supplierLotNumber,
       quantity: lot.quantity.toString(),
       packedQty: lot.packedQty.toString(),
+      returnedQty: lot.returnedQty.toString(),
       unitCost: lot.unitCost.toString(),
       qcStatus: lot.qcStatus as QcLotStatus,
       receivedAt: lot.receivedAt.toISOString(),

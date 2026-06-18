@@ -16,6 +16,8 @@ import {
   recordQualityResultsSchema,
   type RejectLot,
   rejectLotSchema,
+  type ReturnToVendor,
+  returnToVendorSchema,
   type SetItemQualitySpecs,
   setItemQualitySpecsSchema,
 } from "@fw3/shared-types";
@@ -70,6 +72,23 @@ export class QualityController {
     @Body(new ZodValidationPipe(rejectLotSchema)) body: RejectLot,
   ) {
     return this.quality.reject(user, id, body.reason);
+  }
+
+  /** Return QC-failed RM to the vendor (the lot must be REJECTED). */
+  @Post("lots/:id/return")
+  @RequirePermissions(PERMISSIONS.VENDOR_RETURN)
+  returnToVendor(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param("id") id: string,
+    @Body(new ZodValidationPipe(returnToVendorSchema)) body: ReturnToVendor,
+  ) {
+    return this.quality.returnToVendor(user, id, body);
+  }
+
+  @Get("returns")
+  @RequirePermissions(PERMISSIONS.QC_READ)
+  listReturns(@CurrentUser() user: AuthenticatedUser) {
+    return this.quality.listReturns(user.tenantId);
   }
 
   @Get("items/:itemId/spec")

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from "vue";
+import { computed, onMounted, reactive, ref } from "vue";
 import { useRouter } from "vue-router";
 import {
   type ItemQualitySpec,
@@ -33,6 +33,35 @@ const TEST_LABELS: Record<QcTestType, string> = {
 };
 
 const canReview = ref(auth.hasPermission(PERMISSIONS.QC_REVIEW));
+const canReturn = auth.hasPermission(PERMISSIONS.VENDOR_RETURN);
+
+// Return-to-vendor (QC-failed RM).
+const ret = reactive({ quantity: "", rmaNumber: "", note: "" });
+const remaining = computed(() =>
+  lot.value ? Number(lot.value.quantity) - Number(lot.value.returnedQty) : 0,
+);
+
+async function returnToVendor(): Promise<void> {
+  busy.value = true;
+  error.value = null;
+  notice.value = null;
+  try {
+    await api.returnLotToVendor(props.id, {
+      quantity: ret.quantity || undefined,
+      rmaNumber: ret.rmaNumber || undefined,
+      note: ret.note || undefined,
+    });
+    ret.quantity = "";
+    ret.rmaNumber = "";
+    ret.note = "";
+    lot.value = await api.getQualityLot(props.id);
+    notice.value = "Returned to vendor — removed from quarantine.";
+  } catch (err) {
+    error.value = err instanceof ApiError ? err.message : "Return failed";
+  } finally {
+    busy.value = false;
+  }
+}
 
 function specFor(t: QcTestType): ItemQualitySpec | undefined {
   return specs.value.find((s) => s.testType === t);
@@ -204,6 +233,32 @@ onMounted(load);
         <span class="spacer" />
         <button class="primary" :disabled="busy" @click="approve">Approve lot</button>
         <button class="danger" :disabled="busy" @click="reject">Reject lot</button>
+      </div>
+
+      <div
+        v-if="lot.origin === 'RECEIPT' && (lot.qcStatus === 'REJECTED' || lot.qcStatus === 'RETURNED')"
+        style="margin-top: 1.5rem"
+      >
+        <h3>Return to vendor</h3>
+        <p class="inactive" style="font-size: 0.85rem">
+          Send QC-failed material back to {{ lot.vendorName ?? "the vendor" }} —
+          removes it from quarantine as a recoverable debit (not a loss).
+          Returned {{ lot.returnedQty }} of {{ lot.quantity }}.
+        </p>
+        <div v-if="canReturn && remaining > 0" class="toolbar" style="flex-wrap: wrap">
+          <input
+            v-model="ret.quantity"
+            inputmode="decimal"
+            :placeholder="`Qty (default ${remaining})`"
+            style="max-width: 170px"
+          />
+          <input v-model="ret.rmaNumber" placeholder="RMA # (optional)" style="max-width: 160px" />
+          <input v-model="ret.note" placeholder="Note (optional)" />
+          <button class="danger" :disabled="busy" @click="returnToVendor">
+            Return to vendor
+          </button>
+        </div>
+        <p v-else-if="remaining <= 0" class="banner ok">Fully returned to vendor.</p>
       </div>
     </div>
   </div>

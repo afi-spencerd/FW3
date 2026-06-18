@@ -34,6 +34,7 @@ export const TXN_TYPES = [
   "ADJUSTMENT",
   "TRANSFER",
   "SCRAP",
+  "RETURN",
 ] as const;
 export type TxnType = (typeof TXN_TYPES)[number];
 

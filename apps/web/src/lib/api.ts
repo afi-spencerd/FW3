@@ -30,8 +30,10 @@ import type {
   Lot,
   MoveStock,
   RecordCycleCounts,
+  ReturnToVendor,
   ScrapRecord,
   ScrapStock,
+  VendorReturn,
   LotSummary,
   PaginatedInventory,
   ProductionWorkOrder,
@@ -316,6 +318,12 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ reason }),
     }),
+  returnLotToVendor: (id: string, body: ReturnToVendor) =>
+    request<VendorReturn>(`/quality/lots/${id}/return`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  listVendorReturns: () => request<VendorReturn[]>("/quality/returns"),
   getItemQualitySpec: (itemId: string) =>
     request<ItemQualitySpec[]>(`/quality/items/${itemId}/spec`),
   setItemQualitySpec: (itemId: string, body: SetItemQualitySpecs) =>
