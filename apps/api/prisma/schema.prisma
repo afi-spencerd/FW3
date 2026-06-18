@@ -380,15 +380,57 @@ model Vendor {
   name      String   @db.NVarChar(200)
   code      String?  @db.NVarChar(50)
   email     String?  @db.NVarChar(320)
+  phone     String?  @db.NVarChar(50)
+  website   String?  @db.NVarChar(200)
+  notes     String?  @db.NVarChar(2000)
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   tenant         Tenant          @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   purchaseOrders PurchaseOrder[]
+  addresses      VendorAddress[]
+  contacts       VendorContact[]
 
   @@unique([tenantId, name])
   @@index([tenantId])
+}
+
+// Addresses for a vendor (billing / shipping / remit-to / other). Scoped via the
+// parent vendor (like PO lines), so no tenantId of its own.
+model VendorAddress {
+  id         String  @id @default(uuid()) @db.Char(36)
+  vendorId   String  @db.Char(36)
+  kind       String  @default("OTHER") @db.NVarChar(20) // BILLING | SHIPPING | REMIT_TO | OTHER
+  label      String? @db.NVarChar(100)
+  line1      String  @db.NVarChar(200)
+  line2      String? @db.NVarChar(200)
+  city       String? @db.NVarChar(100)
+  region     String? @db.NVarChar(100)
+  postalCode String? @db.NVarChar(20)
+  country    String? @db.NVarChar(100)
+  isPrimary  Boolean @default(false)
+  sortOrder  Int     @default(0)
+
+  vendor Vendor @relation(fields: [vendorId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([vendorId])
+}
+
+model VendorContact {
+  id        String  @id @default(uuid()) @db.Char(36)
+  vendorId  String  @db.Char(36)
+  name      String  @db.NVarChar(200)
+  title     String? @db.NVarChar(100)
+  email     String? @db.NVarChar(320)
+  phone     String? @db.NVarChar(50)
+  isPrimary Boolean @default(false)
+  notes     String? @db.NVarChar(500)
+  sortOrder Int     @default(0)
+
+  vendor Vendor @relation(fields: [vendorId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([vendorId])
 }
 
 model PurchaseOrder {
@@ -433,15 +475,56 @@ model Customer {
   name      String   @db.NVarChar(200)
   code      String?  @db.NVarChar(50)
   email     String?  @db.NVarChar(320)
+  phone     String?  @db.NVarChar(50)
+  website   String?  @db.NVarChar(200)
+  notes     String?  @db.NVarChar(2000)
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   tenant      Tenant       @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   salesOrders SalesOrder[]
+  addresses   CustomerAddress[]
+  contacts    CustomerContact[]
 
   @@unique([tenantId, name])
   @@index([tenantId])
+}
+
+// Addresses for a customer (billing / shipping / other). Scoped via the parent.
+model CustomerAddress {
+  id         String  @id @default(uuid()) @db.Char(36)
+  customerId String  @db.Char(36)
+  kind       String  @default("OTHER") @db.NVarChar(20) // BILLING | SHIPPING | REMIT_TO | OTHER
+  label      String? @db.NVarChar(100)
+  line1      String  @db.NVarChar(200)
+  line2      String? @db.NVarChar(200)
+  city       String? @db.NVarChar(100)
+  region     String? @db.NVarChar(100)
+  postalCode String? @db.NVarChar(20)
+  country    String? @db.NVarChar(100)
+  isPrimary  Boolean @default(false)
+  sortOrder  Int     @default(0)
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([customerId])
+}
+
+model CustomerContact {
+  id         String  @id @default(uuid()) @db.Char(36)
+  customerId String  @db.Char(36)
+  name       String  @db.NVarChar(200)
+  title      String? @db.NVarChar(100)
+  email      String? @db.NVarChar(320)
+  phone      String? @db.NVarChar(50)
+  isPrimary  Boolean @default(false)
+  notes      String? @db.NVarChar(500)
+  sortOrder  Int     @default(0)
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([customerId])
 }
 
 model SalesOrder {

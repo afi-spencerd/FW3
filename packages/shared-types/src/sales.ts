@@ -1,5 +1,11 @@
 import { z } from "zod";
 import { moneyString, quantityString } from "./money.js";
+import {
+  addressInputSchema,
+  addressSchema,
+  contactInputSchema,
+  contactSchema,
+} from "./party.js";
 
 /** Sales: customers, sales orders, and shipments against them. */
 
@@ -8,7 +14,13 @@ export const createCustomerSchema = z.object({
   name: z.string().trim().min(1).max(200),
   code: z.string().trim().max(50).optional(),
   email: z.string().trim().email().max(320).optional(),
+  phone: z.string().trim().max(50).optional(),
+  website: z.string().trim().max(200).optional(),
+  notes: z.string().trim().max(2000).optional(),
   isActive: z.boolean().default(true),
+  /** Full set of addresses / contacts; on update these replace the existing set. */
+  addresses: z.array(addressInputSchema).default([]),
+  contacts: z.array(contactInputSchema).default([]),
 });
 export const updateCustomerSchema = createCustomerSchema.partial();
 
@@ -18,7 +30,12 @@ export const customerSchema = z.object({
   name: z.string(),
   code: z.string().nullable(),
   email: z.string().nullable(),
+  phone: z.string().nullable(),
+  website: z.string().nullable(),
+  notes: z.string().nullable(),
   isActive: z.boolean(),
+  addresses: z.array(addressSchema),
+  contacts: z.array(contactSchema),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 });
