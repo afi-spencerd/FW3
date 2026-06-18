@@ -10,6 +10,8 @@ import type {
   ContactInput,
   CreateCustomer,
   Customer,
+  CustomerRating,
+  PaymentTerms,
   UpdateCustomer,
 } from "@fw3/shared-types";
 import { AuditService } from "../audit/audit.service";
@@ -88,6 +90,9 @@ export class CustomerService {
             email: input.email ?? null,
             phone: input.phone ?? null,
             website: input.website ?? null,
+            taxId: input.taxId ?? null,
+            paymentTerms: input.paymentTerms ?? null,
+            rating: input.rating ?? null,
             notes: input.notes ?? null,
             isActive: input.isActive,
             addresses: { create: input.addresses.map(addressData) },
@@ -129,6 +134,9 @@ export class CustomerService {
             ...(input.email === undefined ? {} : { email: input.email ?? null }),
             ...(input.phone === undefined ? {} : { phone: input.phone ?? null }),
             ...(input.website === undefined ? {} : { website: input.website ?? null }),
+            ...(input.taxId === undefined ? {} : { taxId: input.taxId ?? null }),
+            ...(input.paymentTerms === undefined ? {} : { paymentTerms: input.paymentTerms ?? null }),
+            ...(input.rating === undefined ? {} : { rating: input.rating ?? null }),
             ...(input.notes === undefined ? {} : { notes: input.notes ?? null }),
             ...(input.isActive === undefined ? {} : { isActive: input.isActive }),
             // Addresses / contacts, when supplied, replace the whole set.
@@ -164,6 +172,9 @@ export class CustomerService {
       email: c.email,
       phone: c.phone,
       website: c.website,
+      taxId: c.taxId,
+      paymentTerms: c.paymentTerms as PaymentTerms | null,
+      rating: c.rating as CustomerRating | null,
       notes: c.notes,
       isActive: c.isActive,
       addresses: c.addresses.map((a) => ({

@@ -4,6 +4,10 @@ import {
   ADDRESS_KINDS,
   type AddressKind,
   type Customer,
+  CUSTOMER_RATINGS,
+  type CustomerRating,
+  PAYMENT_TERMS,
+  type PaymentTerms,
   PERMISSIONS,
 } from "@fw3/shared-types";
 import { api, ApiError } from "../lib/api";
@@ -61,6 +65,9 @@ const form = reactive({
   email: "",
   phone: "",
   website: "",
+  taxId: "",
+  paymentTerms: "" as PaymentTerms | "",
+  rating: "" as CustomerRating | "",
   notes: "",
   isActive: true,
   addresses: [] as AddressRow[],
@@ -74,6 +81,9 @@ function reset(): void {
   form.email = "";
   form.phone = "";
   form.website = "";
+  form.taxId = "";
+  form.paymentTerms = "";
+  form.rating = "";
   form.notes = "";
   form.isActive = true;
   form.addresses = [];
@@ -87,6 +97,9 @@ function edit(c: Customer): void {
   form.email = c.email ?? "";
   form.phone = c.phone ?? "";
   form.website = c.website ?? "";
+  form.taxId = c.taxId ?? "";
+  form.paymentTerms = c.paymentTerms ?? "";
+  form.rating = c.rating ?? "";
   form.notes = c.notes ?? "";
   form.isActive = c.isActive;
   form.addresses = c.addresses.map((a) => ({
@@ -129,6 +142,9 @@ async function save(): Promise<void> {
       email: form.email || undefined,
       phone: form.phone || undefined,
       website: form.website || undefined,
+      taxId: form.taxId || undefined,
+      paymentTerms: form.paymentTerms || undefined,
+      rating: form.rating || undefined,
       notes: form.notes || undefined,
       isActive: form.isActive,
       addresses: form.addresses
@@ -181,6 +197,21 @@ onMounted(load);
         <div class="field"><label>Email</label><input v-model="form.email" /></div>
         <div class="field"><label>Phone</label><input v-model="form.phone" /></div>
         <div class="field"><label>Website</label><input v-model="form.website" /></div>
+        <div class="field"><label>Tax ID</label><input v-model="form.taxId" /></div>
+        <div class="field">
+          <label>Payment terms</label>
+          <select v-model="form.paymentTerms">
+            <option value="">—</option>
+            <option v-for="t in PAYMENT_TERMS" :key="t" :value="t">{{ t.replace(/_/g, " ") }}</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Rating (buy volume)</label>
+          <select v-model="form.rating">
+            <option value="">— unrated</option>
+            <option v-for="r in CUSTOMER_RATINGS" :key="r" :value="r">{{ r }}</option>
+          </select>
+        </div>
         <div class="field">
           <label><input type="checkbox" v-model="form.isActive" style="width: auto" /> Active</label>
         </div>
@@ -242,14 +273,16 @@ onMounted(load);
       <h3 style="margin-top: 0">Customers</h3>
       <table>
         <thead>
-          <tr><th>Name</th><th>Code</th><th>Email</th><th>Phone</th><th class="num">Addr</th><th class="num">Contacts</th><th>Active</th><th></th></tr>
+          <tr><th>Name</th><th>Rating</th><th>Code</th><th>Email</th><th>Phone</th><th>Terms</th><th class="num">Addr</th><th class="num">Contacts</th><th>Active</th><th></th></tr>
         </thead>
         <tbody>
           <tr v-for="c in customers" :key="c.id" :class="{ inactive: !c.isActive }">
             <td>{{ c.name }}</td>
+            <td><strong v-if="c.rating">{{ c.rating }}</strong><span v-else class="inactive">—</span></td>
             <td>{{ c.code }}</td>
             <td>{{ c.email }}</td>
             <td>{{ c.phone }}</td>
+            <td>{{ c.paymentTerms ? c.paymentTerms.replace(/_/g, " ") : "" }}</td>
             <td class="num">{{ c.addresses.length }}</td>
             <td class="num">{{ c.contacts.length }}</td>
             <td>{{ c.isActive ? "Yes" : "No" }}</td>
@@ -257,7 +290,7 @@ onMounted(load);
               <button v-if="canManage" @click="edit(c)">Edit</button>
             </td>
           </tr>
-          <tr v-if="customers.length === 0"><td colspan="8" class="inactive">No customers yet.</td></tr>
+          <tr v-if="customers.length === 0"><td colspan="10" class="inactive">No customers yet.</td></tr>
         </tbody>
       </table>
     </div>

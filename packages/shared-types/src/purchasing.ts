@@ -6,6 +6,7 @@ import {
   addressSchema,
   contactInputSchema,
   contactSchema,
+  paymentTermsSchema,
 } from "./party.js";
 
 /** Purchasing: vendors, purchase orders, and receipts against them. */
@@ -17,6 +18,8 @@ export const createVendorSchema = z.object({
   email: z.string().trim().email().max(320).optional(),
   phone: z.string().trim().max(50).optional(),
   website: z.string().trim().max(200).optional(),
+  taxId: z.string().trim().max(50).optional(),
+  paymentTerms: paymentTermsSchema.optional(),
   notes: z.string().trim().max(2000).optional(),
   isActive: z.boolean().default(true),
   /** Full set of addresses / contacts; on update these replace the existing set. */
@@ -33,6 +36,8 @@ export const vendorSchema = z.object({
   email: z.string().nullable(),
   phone: z.string().nullable(),
   website: z.string().nullable(),
+  taxId: z.string().nullable(),
+  paymentTerms: paymentTermsSchema.nullable(),
   notes: z.string().nullable(),
   isActive: z.boolean(),
   addresses: z.array(addressSchema),

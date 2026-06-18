@@ -3,6 +3,8 @@ import { onMounted, reactive, ref } from "vue";
 import {
   ADDRESS_KINDS,
   type AddressKind,
+  PAYMENT_TERMS,
+  type PaymentTerms,
   PERMISSIONS,
   type Vendor,
 } from "@fw3/shared-types";
@@ -61,6 +63,8 @@ const form = reactive({
   email: "",
   phone: "",
   website: "",
+  taxId: "",
+  paymentTerms: "" as PaymentTerms | "",
   notes: "",
   isActive: true,
   addresses: [] as AddressRow[],
@@ -74,6 +78,8 @@ function reset(): void {
   form.email = "";
   form.phone = "";
   form.website = "";
+  form.taxId = "";
+  form.paymentTerms = "";
   form.notes = "";
   form.isActive = true;
   form.addresses = [];
@@ -87,6 +93,8 @@ function edit(v: Vendor): void {
   form.email = v.email ?? "";
   form.phone = v.phone ?? "";
   form.website = v.website ?? "";
+  form.taxId = v.taxId ?? "";
+  form.paymentTerms = v.paymentTerms ?? "";
   form.notes = v.notes ?? "";
   form.isActive = v.isActive;
   form.addresses = v.addresses.map((a) => ({
@@ -129,6 +137,8 @@ async function save(): Promise<void> {
       email: form.email || undefined,
       phone: form.phone || undefined,
       website: form.website || undefined,
+      taxId: form.taxId || undefined,
+      paymentTerms: form.paymentTerms || undefined,
       notes: form.notes || undefined,
       isActive: form.isActive,
       addresses: form.addresses
@@ -181,6 +191,14 @@ onMounted(load);
         <div class="field"><label>Email</label><input v-model="form.email" /></div>
         <div class="field"><label>Phone</label><input v-model="form.phone" /></div>
         <div class="field"><label>Website</label><input v-model="form.website" /></div>
+        <div class="field"><label>Tax ID</label><input v-model="form.taxId" /></div>
+        <div class="field">
+          <label>Payment terms</label>
+          <select v-model="form.paymentTerms">
+            <option value="">—</option>
+            <option v-for="t in PAYMENT_TERMS" :key="t" :value="t">{{ t.replace(/_/g, " ") }}</option>
+          </select>
+        </div>
         <div class="field">
           <label><input type="checkbox" v-model="form.isActive" style="width: auto" /> Active</label>
         </div>
@@ -242,7 +260,7 @@ onMounted(load);
       <h3 style="margin-top: 0">Vendors</h3>
       <table>
         <thead>
-          <tr><th>Name</th><th>Code</th><th>Email</th><th>Phone</th><th class="num">Addr</th><th class="num">Contacts</th><th>Active</th><th></th></tr>
+          <tr><th>Name</th><th>Code</th><th>Email</th><th>Phone</th><th>Terms</th><th class="num">Addr</th><th class="num">Contacts</th><th>Active</th><th></th></tr>
         </thead>
         <tbody>
           <tr v-for="v in vendors" :key="v.id" :class="{ inactive: !v.isActive }">
@@ -250,6 +268,7 @@ onMounted(load);
             <td>{{ v.code }}</td>
             <td>{{ v.email }}</td>
             <td>{{ v.phone }}</td>
+            <td>{{ v.paymentTerms ? v.paymentTerms.replace(/_/g, " ") : "" }}</td>
             <td class="num">{{ v.addresses.length }}</td>
             <td class="num">{{ v.contacts.length }}</td>
             <td>{{ v.isActive ? "Yes" : "No" }}</td>
@@ -257,7 +276,7 @@ onMounted(load);
               <button v-if="canManage" @click="edit(v)">Edit</button>
             </td>
           </tr>
-          <tr v-if="vendors.length === 0"><td colspan="8" class="inactive">No vendors yet.</td></tr>
+          <tr v-if="vendors.length === 0"><td colspan="9" class="inactive">No vendors yet.</td></tr>
         </tbody>
       </table>
     </div>

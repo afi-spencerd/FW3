@@ -10,6 +10,20 @@ export const ADDRESS_KINDS = ["BILLING", "SHIPPING", "REMIT_TO", "OTHER"] as con
 export const addressKindSchema = z.enum(ADDRESS_KINDS);
 export type AddressKind = (typeof ADDRESS_KINDS)[number];
 
+/** Standard payment terms (aligned with common QuickBooks terms). */
+export const PAYMENT_TERMS = [
+  "DUE_ON_RECEIPT",
+  "NET_15",
+  "NET_30",
+  "NET_45",
+  "NET_60",
+  "NET_90",
+  "COD",
+  "PREPAID",
+] as const;
+export const paymentTermsSchema = z.enum(PAYMENT_TERMS);
+export type PaymentTerms = (typeof PAYMENT_TERMS)[number];
+
 export const addressInputSchema = z.object({
   kind: addressKindSchema.default("OTHER"),
   label: z.string().trim().max(100).optional(),

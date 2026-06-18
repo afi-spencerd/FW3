@@ -9,6 +9,7 @@ import type {
   AuthenticatedUser,
   ContactInput,
   CreateVendor,
+  PaymentTerms,
   UpdateVendor,
   Vendor,
 } from "@fw3/shared-types";
@@ -89,6 +90,8 @@ export class VendorService {
             email: input.email ?? null,
             phone: input.phone ?? null,
             website: input.website ?? null,
+            taxId: input.taxId ?? null,
+            paymentTerms: input.paymentTerms ?? null,
             notes: input.notes ?? null,
             isActive: input.isActive,
             addresses: { create: input.addresses.map(addressData) },
@@ -130,6 +133,8 @@ export class VendorService {
             ...(input.email === undefined ? {} : { email: input.email ?? null }),
             ...(input.phone === undefined ? {} : { phone: input.phone ?? null }),
             ...(input.website === undefined ? {} : { website: input.website ?? null }),
+            ...(input.taxId === undefined ? {} : { taxId: input.taxId ?? null }),
+            ...(input.paymentTerms === undefined ? {} : { paymentTerms: input.paymentTerms ?? null }),
             ...(input.notes === undefined ? {} : { notes: input.notes ?? null }),
             ...(input.isActive === undefined ? {} : { isActive: input.isActive }),
             // Addresses / contacts, when supplied, replace the whole set.
@@ -165,6 +170,8 @@ export class VendorService {
       email: v.email,
       phone: v.phone,
       website: v.website,
+      taxId: v.taxId,
+      paymentTerms: v.paymentTerms as PaymentTerms | null,
       notes: v.notes,
       isActive: v.isActive,
       addresses: v.addresses.map((a) => ({

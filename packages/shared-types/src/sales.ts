@@ -5,17 +5,29 @@ import {
   addressSchema,
   contactInputSchema,
   contactSchema,
+  paymentTermsSchema,
 } from "./party.js";
 
 /** Sales: customers, sales orders, and shipments against them. */
 
 // ---- Customer ----
+/**
+ * Sales-team buy-volume rating: A = highest, most consistent volume … D = small,
+ * infrequent orders.
+ */
+export const CUSTOMER_RATINGS = ["A", "B", "C", "D"] as const;
+export const customerRatingSchema = z.enum(CUSTOMER_RATINGS);
+export type CustomerRating = (typeof CUSTOMER_RATINGS)[number];
+
 export const createCustomerSchema = z.object({
   name: z.string().trim().min(1).max(200),
   code: z.string().trim().max(50).optional(),
   email: z.string().trim().email().max(320).optional(),
   phone: z.string().trim().max(50).optional(),
   website: z.string().trim().max(200).optional(),
+  taxId: z.string().trim().max(50).optional(),
+  paymentTerms: paymentTermsSchema.optional(),
+  rating: customerRatingSchema.optional(),
   notes: z.string().trim().max(2000).optional(),
   isActive: z.boolean().default(true),
   /** Full set of addresses / contacts; on update these replace the existing set. */
@@ -32,6 +44,9 @@ export const customerSchema = z.object({
   email: z.string().nullable(),
   phone: z.string().nullable(),
   website: z.string().nullable(),
+  taxId: z.string().nullable(),
+  paymentTerms: paymentTermsSchema.nullable(),
+  rating: customerRatingSchema.nullable(),
   notes: z.string().nullable(),
   isActive: z.boolean(),
   addresses: z.array(addressSchema),
