@@ -92,7 +92,7 @@ async function receive(): Promise<void> {
       ...(receivingLocationId.value ? { locationId: receivingLocationId.value } : {}),
     });
     for (const line of po.value.lines) receiveQty[line.id] = "0";
-    notice.value = "Receipt posted — stock and cost updated.";
+    notice.value = "Receipt posted — inventory and cost updated.";
   } catch (err) {
     error.value = err instanceof ApiError ? err.message : "Receive failed";
   } finally {

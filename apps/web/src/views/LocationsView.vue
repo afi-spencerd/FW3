@@ -222,8 +222,8 @@ onMounted(load);
       <h3 style="margin-top: 0">What's in a location</h3>
       <p class="inactive" style="font-size: 0.85rem">
         Pick locations to see their contents — choosing a building or aisle
-        includes everything under it. With none selected, all stock is shown.
-        Located stock only (INV &amp; quarantine).
+        includes everything under it. With none selected, all inventory is shown.
+        Located inventory only (INV &amp; quarantine).
       </p>
       <div class="toolbar" style="flex-wrap: wrap; gap: 0.3rem 1rem">
         <label
@@ -250,7 +250,7 @@ onMounted(load);
       </div>
 
       <p v-if="!contentsBusy && grouped.length === 0" class="inactive">
-        No located stock in the selected location(s).
+        No located inventory in the selected location(s).
       </p>
 
       <div v-for="g in grouped" :key="g.locationId" style="margin-top: 1rem">
@@ -318,7 +318,7 @@ onMounted(load);
         <div v-if="stockableKind" class="field">
           <label>
             <input type="checkbox" v-model="form.isDefault" style="width: auto" />
-            Default storage (usable stock lands here)
+            Default storage (usable inventory lands here)
           </label>
         </div>
         <div v-if="stockableKind" class="field">
@@ -347,7 +347,7 @@ onMounted(load);
       <h3 style="margin-top: 0">Locations</h3>
       <p class="inactive" style="font-size: 0.85rem">
         Tree of building → aisle → rack (bin/sub-bin reserved), plus areas like
-        receiving. Codes follow bbb-a-nnn. Stock sits at racks and areas.
+        receiving. Codes follow bbb-a-nnn. Inventory sits at racks and areas.
       </p>
       <table>
         <thead>

@@ -59,7 +59,7 @@ async function ship(): Promise<void> {
   try {
     so.value = await api.shipSalesOrder(props.id, { lines });
     for (const line of so.value.lines) shipQty[line.id] = "0";
-    notice.value = "Shipment posted — stock reduced at cost (COGS).";
+    notice.value = "Shipment posted — inventory reduced at cost (COGS).";
   } catch (err) {
     error.value = err instanceof ApiError ? err.message : "Shipment failed";
   } finally {

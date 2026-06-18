@@ -48,7 +48,7 @@ const stage = () =>
 const complete = () =>
   act(
     () => api.completeProductionWorkOrder(props.id),
-    "Work order completed — finished goods are in FG_WIP. Pack off from the Stock page.",
+    "Work order completed — finished goods are in FG_WIP. Pack off from the Inventory page.",
   );
 const cancel = () =>
   act(() => api.cancelProductionWorkOrder(props.id), "Work order cancelled.");

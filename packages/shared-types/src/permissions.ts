@@ -10,7 +10,8 @@ export const PERMISSIONS = {
   INVENTORY_READ: "inventory:read",
   INVENTORY_CREATE: "inventory:create",
   INVENTORY_UPDATE: "inventory:update",
-  INVENTORY_DELETE: "inventory:delete",
+  // Inventory items are never hard-deleted (transactions must stay auditable);
+  // deactivate via the `active` flag instead. No inventory:delete permission.
   FORMULA_READ: "formula:read",
   FORMULA_CREATE: "formula:create",
   FORMULA_UPDATE: "formula:update",

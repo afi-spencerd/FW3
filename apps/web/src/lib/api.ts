@@ -131,8 +131,6 @@ export const api = {
       method: "PUT",
       body: JSON.stringify(data),
     }),
-  deleteInventory: (id: string) =>
-    request<void>(`/inventory/${id}`, { method: "DELETE" }),
   valuation: () => request<ValuationSummary>("/inventory/valuation"),
   stockPositions: () =>
     request<StockPosition[]>("/inventory/stock/positions"),

@@ -358,7 +358,7 @@ async function submit(): Promise<void> {
             <option v-for="u in UNITS_OF_MEASURE" :key="u" :value="u">{{ u }}</option>
           </select>
           <div class="inactive" style="font-size: 0.8rem">
-            Stock is stored in pounds.
+            Inventory is stored in pounds.
             <template v-if="form.unitOfMeasure === 'KG'"> KG materials are received in kg and converted: {{ KG_TO_LB_FORMULA }}.</template>
           </div>
           <div v-if="errors.unitOfMeasure" class="error">{{ errors.unitOfMeasure }}</div>
@@ -396,7 +396,7 @@ async function submit(): Promise<void> {
     </div>
 
     <div v-if="isEdit" class="panel" style="margin-top: 1rem">
-      <h3>Stock position</h3>
+      <h3>Inventory position</h3>
       <div v-if="position" class="summary" style="margin-bottom: 1rem">
         <div class="metric">
           <div class="label">On hand</div>
@@ -413,7 +413,7 @@ async function submit(): Promise<void> {
       </div>
 
       <div v-if="auth.hasPermission(PERMISSIONS.STOCK_ADJUST)">
-        <h4>Adjust stock</h4>
+        <h4>Adjust inventory</h4>
         <div v-if="adjustError" class="banner error">{{ adjustError }}</div>
         <div class="toolbar">
           <select v-model="adjust.direction" style="max-width: 110px">
@@ -487,13 +487,13 @@ async function submit(): Promise<void> {
             <td class="num">{{ p.quantity }}</td>
           </tr>
           <tr v-if="itemLocations.length === 0">
-            <td colspan="3" class="inactive">No located stock.</td>
+            <td colspan="3" class="inactive">No located inventory.</td>
           </tr>
         </tbody>
       </table>
 
       <div v-if="canMove" style="margin-top: 1rem">
-        <h4>Move stock between locations</h4>
+        <h4>Move inventory between locations</h4>
         <div v-if="moveError" class="banner error">{{ moveError }}</div>
         <div class="toolbar">
           <select v-model="move.status" style="max-width: 130px">

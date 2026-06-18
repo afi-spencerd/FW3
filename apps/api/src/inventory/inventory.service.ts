@@ -181,24 +181,8 @@ export class InventoryService {
     }
   }
 
-  async remove(user: AuthenticatedUser, id: string): Promise<void> {
-    await this.prisma.$transaction(async (tx) => {
-      const existing = await tx.inventoryItem.findFirst({
-        where: { id, tenantId: user.tenantId },
-      });
-      if (!existing) throw new NotFoundException("Inventory item not found");
-
-      await tx.inventoryItem.delete({ where: { id: existing.id } });
-      await this.audit.record(tx, {
-        tenantId: user.tenantId,
-        actorId: user.id,
-        entityType: "InventoryItem",
-        entityId: existing.id,
-        action: "DELETE",
-        before: this.toDto(existing),
-      });
-    });
-  }
+  // Inventory items are never hard-deleted — their ledger and audit history must
+  // remain intact. To retire an item, set `active = false` via update().
 
   /**
    * Tenant valuation rollup — read straight from the SQL Server view so the

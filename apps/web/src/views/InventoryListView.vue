@@ -106,15 +106,6 @@ async function load(): Promise<void> {
   }
 }
 
-async function remove(item: InventoryItem): Promise<void> {
-  if (!confirm(`Delete ${item.sku}?`)) return;
-  try {
-    await api.deleteInventory(item.id);
-    await load();
-  } catch (err) {
-    error.value = err instanceof ApiError ? err.message : "Delete failed";
-  }
-}
 
 async function packOff(item: InventoryItem): Promise<void> {
   const qty = packQty[item.id];
@@ -127,7 +118,7 @@ async function packOff(item: InventoryItem): Promise<void> {
   try {
     await api.packOff(item.id, qty);
     packQty[item.id] = "";
-    notice.value = `Packed off ${qty} ${item.sku} — moved from WIP to traceable stock.`;
+    notice.value = `Packed off ${qty} ${item.sku} — moved from WIP to traceable inventory.`;
     await load();
   } catch (err) {
     error.value = err instanceof ApiError ? err.message : "Pack-off failed";
@@ -251,14 +242,6 @@ onMounted(load);
                 />
                 <button style="margin-left: 0.3rem" @click="packOff(item)">Pack off</button>
               </template>
-              <button
-                v-if="auth.hasPermission(PERMISSIONS.INVENTORY_DELETE)"
-                class="danger"
-                style="margin-left: 0.5rem"
-                @click="remove(item)"
-              >
-                Delete
-              </button>
             </td>
           </tr>
           <tr v-if="!loading && filteredItems.length === 0">

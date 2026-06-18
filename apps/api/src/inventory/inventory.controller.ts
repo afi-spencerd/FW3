@@ -1,9 +1,7 @@
 import {
   Body,
   Controller,
-  Delete,
   Get,
-  HttpCode,
   Param,
   Post,
   Put,
@@ -79,13 +77,6 @@ export class InventoryController {
     return this.inventory.update(user, id, body);
   }
 
-  @Delete(":id")
-  @HttpCode(204)
-  @RequirePermissions(PERMISSIONS.INVENTORY_DELETE)
-  remove(
-    @CurrentUser() user: AuthenticatedUser,
-    @Param("id") id: string,
-  ) {
-    return this.inventory.remove(user, id);
-  }
+  // No delete endpoint: inventory items are never hard-deleted so their
+  // transactions stay auditable. Deactivate with the `active` flag instead.
 }
