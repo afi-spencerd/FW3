@@ -5,7 +5,7 @@ import {
   type BatchRequirements,
   createFormulaSchema,
   type InventoryItem,
-  UNITS_OF_MEASURE,
+  kgEquivalent,
   updateFormulaSchema,
 } from "@fw3/shared-types";
 import { api, ApiError } from "../lib/api";
@@ -126,7 +126,6 @@ async function submit(): Promise<void> {
 
 // --- Batch calculator (only meaningful once the formula is saved) ---
 const batchSize = ref("1");
-const batchUnit = ref<(typeof UNITS_OF_MEASURE)[number]>("LB");
 const requirements = ref<BatchRequirements | null>(null);
 const calcError = ref<string | null>(null);
 
@@ -136,7 +135,7 @@ async function calculate(): Promise<void> {
   try {
     requirements.value = await api.formulaRequirements(props.id, {
       batchSize: batchSize.value,
-      unit: batchUnit.value,
+      unit: "LB",
     });
   } catch (err) {
     calcError.value = err instanceof ApiError ? err.message : "Calculation failed";
@@ -235,15 +234,13 @@ async function calculate(): Promise<void> {
     <div v-if="isEdit" class="panel" style="margin-top: 1rem">
       <h3>Batch calculator</h3>
       <p class="inactive" style="font-size: 0.85rem">
-        Enter a batch size to see the required quantity of each raw material (in
-        its own stocking unit).
+        Enter a batch size in pounds to see each raw material's required weight
+        (KG materials also show the kg equivalent).
       </p>
       <div v-if="calcError" class="banner error">{{ calcError }}</div>
       <div class="toolbar">
         <input v-model="batchSize" inputmode="decimal" style="max-width: 140px" />
-        <select v-model="batchUnit" style="max-width: 120px">
-          <option v-for="u in UNITS_OF_MEASURE" :key="u" :value="u">{{ u }}</option>
-        </select>
+        <span class="inactive" style="align-self: center">lb</span>
         <button @click="calculate">Calculate</button>
       </div>
       <table v-if="requirements">
@@ -251,8 +248,8 @@ async function calculate(): Promise<void> {
           <tr>
             <th>Raw material</th>
             <th class="num">Percent</th>
-            <th class="num">Required</th>
-            <th>Unit</th>
+            <th class="num">Required (lb)</th>
+            <th class="num">kg equivalent</th>
           </tr>
         </thead>
         <tbody>
@@ -260,7 +257,9 @@ async function calculate(): Promise<void> {
             <td>{{ line.name }} <span class="inactive">({{ line.sku }})</span></td>
             <td class="num">{{ line.percentage }}%</td>
             <td class="num">{{ line.requiredQuantity }}</td>
-            <td>{{ line.stockingUnit }}</td>
+            <td class="num">
+              {{ line.handlingUnit === "KG" ? kgEquivalent(line.requiredQuantity) + " kg" : "—" }}
+            </td>
           </tr>
         </tbody>
       </table>

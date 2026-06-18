@@ -25,7 +25,8 @@ export const createProductionWorkOrderSchema = z.object({
   targetItemId: z.string().uuid(),
   formulaId: z.string().uuid(),
   batchSize: positiveQty,
-  batchUnit: unitOfMeasureSchema,
+  // Batching is always in pounds (the canonical unit).
+  batchUnit: z.literal("LB").default("LB"),
   outputQty: positiveQty,
   notes: z.string().trim().max(2000).optional(),
 });
@@ -35,7 +36,9 @@ export const productionWorkOrderLineSchema = z.object({
   componentId: z.string().uuid(),
   componentSku: z.string(),
   componentName: z.string(),
-  stockingUnit: unitOfMeasureSchema,
+  /** The component's handling unit, so KG materials can show a kg equivalent. */
+  handlingUnit: unitOfMeasureSchema,
+  /** Required amount in pounds (canonical). */
   requiredQty: z.string(),
   stagedQty: z.string(),
   consumedQty: z.string(),

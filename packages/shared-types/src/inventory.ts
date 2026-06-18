@@ -8,12 +8,30 @@ import { moneyString, quantityString } from "./money.js";
  */
 
 /**
- * Stocking units. Fragrance materials are stored by weight — pounds (most) and
- * kilograms. Conversion (1 kg = 2.20462262 lb) is handled server-side.
+ * Handling/display unit for an item. Pounds is the single canonical unit for
+ * everything stored and batched; an item flagged KG is merely *handled* in
+ * kilograms (ordered/received/labelled in kg) — its stock is still stored in
+ * pounds and shown with the kg equivalent. Conversion is done at the edges
+ * (receipt) so the ledger never holds anything but pounds.
  */
 export const UNITS_OF_MEASURE = ["LB", "KG"] as const;
 export const unitOfMeasureSchema = z.enum(UNITS_OF_MEASURE);
 export type UnitOfMeasure = (typeof UNITS_OF_MEASURE)[number];
+
+/**
+ * The exact conversion the business uses. Pounds is canonical; kilograms are
+ * converted in: lb = kg × 2.20462262 (equivalently kg = lb ÷ 2.20462262).
+ */
+export const LB_PER_KG = "2.20462262";
+export const KG_TO_LB_FORMULA = "lb = kg × 2.20462262";
+export const LB_TO_KG_FORMULA = "kg = lb ÷ 2.20462262";
+
+/** Display-only kilogram equivalent of a pounds quantity, trimmed to 4 dp. */
+export function kgEquivalent(poundsQty: string): string {
+  const kg = Number(poundsQty) / Number(LB_PER_KG);
+  if (!Number.isFinite(kg)) return "0";
+  return String(Math.round(kg * 10000) / 10000);
+}
 
 /**
  * Item tiers: raw materials (purchased ingredients), semi-finished "bases"

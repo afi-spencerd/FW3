@@ -103,10 +103,10 @@ export const formulaSummarySchema = formulaSchema.omit({ lines: true }).extend({
   lineCount: z.number().int(),
 });
 
-/** Batch requirements: scale a formula to an absolute batch size. */
+/** Batch requirements: scale a formula to an absolute batch size. Pounds only. */
 export const batchRequirementsRequestSchema = z.object({
   batchSize: quantityString,
-  unit: unitOfMeasureSchema,
+  unit: z.literal("LB").default("LB"),
 });
 
 export const batchRequirementLineSchema = z.object({
@@ -114,15 +114,16 @@ export const batchRequirementLineSchema = z.object({
   sku: z.string(),
   name: z.string(),
   percentage: z.string(),
-  /** Required amount in the raw material's own stocking unit (converted). */
+  /** Required amount in pounds (the canonical batching unit). */
   requiredQuantity: z.string(),
-  stockingUnit: unitOfMeasureSchema,
+  /** The material's handling unit, so KG materials can show a kg equivalent. */
+  handlingUnit: unitOfMeasureSchema,
 });
 
 export const batchRequirementsSchema = z.object({
   formulaId: z.string().uuid(),
   batchSize: z.string(),
-  unit: unitOfMeasureSchema,
+  unit: z.literal("LB"),
   lines: z.array(batchRequirementLineSchema),
 });
 

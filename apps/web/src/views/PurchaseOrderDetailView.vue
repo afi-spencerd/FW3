@@ -2,6 +2,8 @@
 import { computed, onMounted, reactive, ref } from "vue";
 import { useRouter } from "vue-router";
 import {
+  KG_TO_LB_FORMULA,
+  LB_PER_KG,
   type Location,
   PERMISSIONS,
   type PurchaseOrder,
@@ -42,6 +44,16 @@ const canCancel = computed(
 function remaining(ordered: string, received: string): number {
   return Number(ordered) - Number(received);
 }
+
+// KG lines are entered in kg; show what they'll store as (pounds).
+function poundsPreview(kgQty: string): string {
+  const lb = Number(kgQty) * Number(LB_PER_KG);
+  if (!Number.isFinite(lb)) return "0";
+  return String(Math.round(lb * 10000) / 10000);
+}
+const hasKgLine = computed(
+  () => po.value?.lines.some((l) => l.handlingUnit === "KG") ?? false,
+);
 
 async function load(): Promise<void> {
   error.value = null;
@@ -144,6 +156,12 @@ onMounted(load);
                 style="text-align: right; max-width: 90px"
                 :disabled="remaining(line.quantityOrdered, line.quantityReceived) <= 0"
               />
+              <div class="inactive" style="font-size: 0.75rem">
+                <template v-if="line.handlingUnit === 'KG'">
+                  kg → stores {{ poundsPreview(receiveQty[line.id] ?? '0') }} lb
+                </template>
+                <template v-else>lb</template>
+              </div>
             </td>
             <td v-if="canReceive">
               <input
@@ -169,6 +187,9 @@ onMounted(load);
         <button class="primary" :disabled="busy" @click="receive">
           {{ busy ? "Posting…" : "Post receipt" }}
         </button>
+        <span v-if="hasKgLine" class="inactive" style="font-size: 0.85rem; align-self: center">
+          KG materials are converted to pounds on receipt: {{ KG_TO_LB_FORMULA }}
+        </span>
         <span class="inactive" style="font-size: 0.85rem; align-self: center">
           Received goods go to quarantine pending QC.
         </span>

@@ -16,7 +16,6 @@ import type {
 import { AuditService } from "../audit/audit.service";
 import { PrismaService } from "../database/prisma.service";
 import { Prisma } from "../generated/prisma/client";
-import { convertWeight } from "../inventory/units";
 import { requiredWeight } from "./formula-math";
 
 type FormulaWithRelations = Prisma.FormulaGetPayload<{
@@ -198,20 +197,19 @@ export class FormulaService {
     });
     if (!formula) throw new NotFoundException("Formula not found");
 
-    const lines = formula.lines.map((line) => {
-      const weightInBatchUnit = requiredWeight(batchSize, line.percentage.toString());
-      const stockingUnit = line.rawMaterial.unitOfMeasure as UnitOfMeasure;
-      return {
-        rawMaterialId: line.rawMaterialId,
-        sku: line.rawMaterial.sku,
-        name: line.rawMaterial.name,
-        percentage: line.percentage.toString(),
-        requiredQuantity: convertWeight(weightInBatchUnit, unit, stockingUnit),
-        stockingUnit,
-      };
-    });
+    // Batch size is in pounds (canonical), so each line's weight is already in
+    // pounds — no per-material conversion. KG materials carry their handling
+    // unit so the UI can show a kg equivalent.
+    const lines = formula.lines.map((line) => ({
+      rawMaterialId: line.rawMaterialId,
+      sku: line.rawMaterial.sku,
+      name: line.rawMaterial.name,
+      percentage: line.percentage.toString(),
+      requiredQuantity: requiredWeight(batchSize, line.percentage.toString()),
+      handlingUnit: line.rawMaterial.unitOfMeasure as UnitOfMeasure,
+    }));
 
-    return { formulaId: id, batchSize, unit, lines };
+    return { formulaId: id, batchSize, unit: "LB" as const, lines };
   }
 
   /** Enforce domain integrity that the DB can't: item types + tenant ownership. */

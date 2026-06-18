@@ -1,7 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
-import { PERMISSIONS, type ProductionWorkOrder } from "@fw3/shared-types";
+import {
+  kgEquivalent,
+  PERMISSIONS,
+  type ProductionWorkOrder,
+} from "@fw3/shared-types";
 import { api, ApiError } from "../lib/api";
 import { useAuthStore } from "../stores/auth";
 
@@ -76,10 +80,10 @@ onMounted(load);
         <thead>
           <tr>
             <th>Component</th>
-            <th class="num">Required</th>
-            <th class="num">Staged</th>
-            <th class="num">Consumed</th>
-            <th>Unit</th>
+            <th class="num">Required (lb)</th>
+            <th class="num">Staged (lb)</th>
+            <th class="num">Consumed (lb)</th>
+            <th class="num">kg equivalent</th>
           </tr>
         </thead>
         <tbody>
@@ -88,7 +92,9 @@ onMounted(load);
             <td class="num">{{ line.requiredQty }}</td>
             <td class="num">{{ line.stagedQty }}</td>
             <td class="num">{{ line.consumedQty }}</td>
-            <td>{{ line.stockingUnit }}</td>
+            <td class="num">
+              {{ line.handlingUnit === "KG" ? kgEquivalent(line.requiredQty) + " kg" : "—" }}
+            </td>
           </tr>
         </tbody>
       </table>

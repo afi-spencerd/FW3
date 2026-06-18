@@ -14,12 +14,14 @@ import {
   type PurchaseOrderSummary,
   QC_SUITE_BY_FORM,
   type ReceivePurchaseOrder,
+  type UnitOfMeasure,
   type UpdatePurchaseOrder,
 } from "@fw3/shared-types";
 import { AuditService } from "../audit/audit.service";
 import { PrismaService } from "../database/prisma.service";
 import { Prisma } from "../generated/prisma/client";
 import { extendedValue } from "../inventory/valuation";
+import { toPounds, unitCostToPounds } from "../inventory/units";
 import { type Movement, StockService } from "../stock/stock.service";
 import { poStatusFromLines } from "./po-status";
 
@@ -220,6 +222,8 @@ export class PurchaseOrderService {
             `Line ${recv.purchaseOrderLineId} is not on this purchase order`,
           );
         }
+        // Ordering is in the item's handling unit (kg for kg materials); the
+        // remaining check stays in that unit.
         const remaining = line.quantityOrdered.minus(line.quantityReceived);
         const qty = new Decimal(recv.quantity);
         if (qty.greaterThan(remaining)) {
@@ -227,13 +231,18 @@ export class PurchaseOrderService {
             `Cannot receive ${qty} of ${line.item.sku}: only ${remaining} remaining`,
           );
         }
+        // Convert to canonical pounds before it touches stock: a KG material's
+        // quantity scales up and its unit cost scales down (total value is kept).
+        const handlingUnit = line.item.unitOfMeasure as UnitOfMeasure;
+        const qtyLb = toPounds(recv.quantity, handlingUnit);
+        const unitCostLb = unitCostToPounds(line.unitCost.toString(), handlingUnit);
         // Received goods land in QUARANTINE at the receiving dock pending QC.
         movements.push({
           itemId: line.itemId,
           type: "RECEIPT",
           direction: "IN",
-          quantity: recv.quantity,
-          unitCost: line.unitCost.toString(),
+          quantity: qtyLb,
+          unitCost: unitCostLb,
           status: "QUARANTINE",
           ...(receivingLocationId ? { locationId: receivingLocationId } : {}),
         });
@@ -256,8 +265,8 @@ export class PurchaseOrderService {
             vendorName: order.vendor.name,
             supplierLotNumber,
             locationId: receivingLocationId,
-            quantity: recv.quantity,
-            unitCost: line.unitCost,
+            quantity: qtyLb,
+            unitCost: unitCostLb,
             qcStatus: "PENDING",
             results: {
               create: QC_SUITE_BY_FORM[line.item.physicalForm as PhysicalForm].map(
@@ -341,6 +350,7 @@ export class PurchaseOrderService {
       itemId: line.itemId,
       itemSku: line.item.sku,
       itemName: line.item.name,
+      handlingUnit: line.item.unitOfMeasure as UnitOfMeasure,
       quantityOrdered: line.quantityOrdered.toString(),
       unitCost: line.unitCost.toString(),
       quantityReceived: line.quantityReceived.toString(),

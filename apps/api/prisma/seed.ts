@@ -17,6 +17,7 @@ import {
 } from "@fw3/shared-types";
 import { PrismaClient } from "../src/generated/prisma/client";
 import { mssqlConfigFromUrl } from "../src/database/mssql-config";
+import { toPounds, unitCostToPounds } from "../src/inventory/units";
 
 loadEnv({ path: path.resolve(__dirname, "../../../.env") });
 
@@ -156,8 +157,11 @@ async function main(): Promise<void> {
     await makeLocation("RACK", "Rack 1", "1", b12AisleA, { isDefault: true });
     await makeLocation("AREA", "Receiving", "RECV", b12, { isReceiving: true });
 
-    // 6. Demo inventory items (with an opening INV stock position).
+    // 6. Demo inventory items (with an opening INV stock position). Pounds is
+    // canonical, so a KG-handled item's opening qty/cost are converted to lb.
     for (const item of DEMO_ITEMS) {
+      const qtyLb = toPounds(item.qty, item.uom);
+      const costLb = unitCostToPounds(item.cost, item.uom);
       const created = await prisma.inventoryItem.upsert({
         where: { tenantId_sku: { tenantId: tenant.id, sku: item.sku } },
         create: {
@@ -167,11 +171,17 @@ async function main(): Promise<void> {
           itemType: item.type,
           physicalForm: item.form,
           unitOfMeasure: item.uom,
-          quantityOnHand: item.qty,
-          unitCost: item.cost,
+          quantityOnHand: qtyLb,
+          unitCost: costLb,
           salesPrice: item.price,
         },
-        update: { physicalForm: item.form },
+        // Re-converge existing demo rows on the canonical pounds values.
+        update: {
+          physicalForm: item.form,
+          unitOfMeasure: item.uom,
+          quantityOnHand: qtyLb,
+          unitCost: costLb,
+        },
       });
       await prisma.itemStock.upsert({
         where: { itemId_status: { itemId: created.id, status: "INV" } },
@@ -179,10 +189,10 @@ async function main(): Promise<void> {
           tenantId: tenant.id,
           itemId: created.id,
           status: "INV",
-          quantity: item.qty,
-          avgCost: item.cost,
+          quantity: qtyLb,
+          avgCost: costLb,
         },
-        update: {},
+        update: { quantity: qtyLb, avgCost: costLb },
       });
       // Opening INV sits at Warehouse 75's default rack so the per-location
       // breakdown ties out to ItemStock from the start.
@@ -199,9 +209,9 @@ async function main(): Promise<void> {
           itemId: created.id,
           status: "INV",
           locationId: defaultRack.id,
-          quantity: item.qty,
+          quantity: qtyLb,
         },
-        update: { quantity: item.qty },
+        update: { quantity: qtyLb },
       });
     }
 

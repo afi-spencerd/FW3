@@ -10,6 +10,8 @@ import {
   ITEM_TYPES,
   type ItemType,
   isStockableKind,
+  kgEquivalent,
+  KG_TO_LB_FORMULA,
   type LocatedStockStatus,
   LOCATED_STOCK_STATUSES,
   type Location,
@@ -25,6 +27,7 @@ import {
   updateInventoryItemSchema,
 } from "@fw3/shared-types";
 import { api, ApiError } from "../lib/api";
+import { weightLabel } from "../lib/weight";
 import { useAuthStore } from "../stores/auth";
 
 const auth = useAuthStore();
@@ -350,15 +353,22 @@ async function submit(): Promise<void> {
 
       <div class="grid-2">
         <div class="field">
-          <label for="uom">Unit of measure</label>
+          <label for="uom">Handling unit</label>
           <select id="uom" v-model="form.unitOfMeasure">
             <option v-for="u in UNITS_OF_MEASURE" :key="u" :value="u">{{ u }}</option>
           </select>
+          <div class="inactive" style="font-size: 0.8rem">
+            Stock is stored in pounds.
+            <template v-if="form.unitOfMeasure === 'KG'"> KG materials are received in kg and converted: {{ KG_TO_LB_FORMULA }}.</template>
+          </div>
           <div v-if="errors.unitOfMeasure" class="error">{{ errors.unitOfMeasure }}</div>
         </div>
         <div class="field">
-          <label for="qty">Quantity on hand</label>
+          <label for="qty">Quantity on hand (lb)</label>
           <input id="qty" v-model="form.quantityOnHand" inputmode="decimal" />
+          <div v-if="form.unitOfMeasure === 'KG' && form.quantityOnHand" class="inactive" style="font-size: 0.8rem">
+            = {{ kgEquivalent(form.quantityOnHand) }} kg
+          </div>
           <div v-if="errors.quantityOnHand" class="error">{{ errors.quantityOnHand }}</div>
         </div>
         <div class="field">
@@ -390,7 +400,7 @@ async function submit(): Promise<void> {
       <div v-if="position" class="summary" style="margin-bottom: 1rem">
         <div class="metric">
           <div class="label">On hand</div>
-          <div class="value">{{ position.quantityOnHand }} {{ position.unitOfMeasure }}</div>
+          <div class="value">{{ weightLabel(position.quantityOnHand, position.unitOfMeasure) }}</div>
         </div>
         <div class="metric">
           <div class="label">Avg cost</div>

@@ -5,7 +5,6 @@ import {
   createProductionWorkOrderSchema,
   type FormulaSummary,
   type InventoryItem,
-  UNITS_OF_MEASURE,
 } from "@fw3/shared-types";
 import { api, ApiError } from "../lib/api";
 
@@ -20,7 +19,7 @@ const form = reactive({
   targetItemId: "",
   formulaId: "",
   batchSize: "0",
-  batchUnit: "LB" as (typeof UNITS_OF_MEASURE)[number],
+  batchUnit: "LB" as const,
   outputQty: "0",
   notes: "",
 });
@@ -112,17 +111,12 @@ async function submit(): Promise<void> {
       </div>
       <div class="grid-2">
         <div class="field">
-          <label>Batch size</label>
+          <label>Batch size (lb)</label>
           <input v-model="form.batchSize" inputmode="decimal" />
+          <div class="inactive" style="font-size: 0.8rem">Batching is always in pounds.</div>
         </div>
         <div class="field">
-          <label>Batch unit</label>
-          <select v-model="form.batchUnit">
-            <option v-for="u in UNITS_OF_MEASURE" :key="u" :value="u">{{ u }}</option>
-          </select>
-        </div>
-        <div class="field">
-          <label>Output quantity (in target's UoM)</label>
+          <label>Output quantity (lb)</label>
           <input v-model="form.outputQty" inputmode="decimal" />
         </div>
       </div>

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { unitOfMeasureSchema } from "./inventory.js";
 import { moneyString, quantityString } from "./money.js";
 
 /** Purchasing: vendors, purchase orders, and receipts against them. */
@@ -79,6 +80,8 @@ export const poLineSchema = z.object({
   itemId: z.string().uuid(),
   itemSku: z.string(),
   itemName: z.string(),
+  /** The item's handling unit. KG lines are entered in kg and stored as lb. */
+  handlingUnit: unitOfMeasureSchema,
   quantityOrdered: z.string(),
   unitCost: z.string(),
   quantityReceived: z.string(),

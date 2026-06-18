@@ -307,7 +307,7 @@ export class ProductionService {
         componentId: line.componentId,
         componentSku: line.component.sku,
         componentName: line.component.name,
-        stockingUnit: line.component.unitOfMeasure as UnitOfMeasure,
+        handlingUnit: line.component.unitOfMeasure as UnitOfMeasure,
         requiredQty: line.requiredQty.toString(),
         stagedQty: line.stagedQty.toString(),
         consumedQty: line.consumedQty.toString(),

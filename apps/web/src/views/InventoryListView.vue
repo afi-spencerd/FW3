@@ -4,6 +4,7 @@ import { RouterLink } from "vue-router";
 import {
   ITEM_TYPES,
   type ItemType,
+  kgEquivalent,
   PERMISSIONS,
   type InventoryItem,
   STOCK_STATUSES,
@@ -209,10 +210,10 @@ onMounted(load);
             <th>SKU</th>
             <th>Name</th>
             <th>Type</th>
-            <th>UoM</th>
-            <th class="num">Traceable</th>
-            <th class="num">WIP</th>
-            <th class="num">Quarantine</th>
+            <th>Handling</th>
+            <th class="num">Traceable (lb)</th>
+            <th class="num">WIP (lb)</th>
+            <th class="num">Quarantine (lb)</th>
             <th class="num">Avg cost</th>
             <th class="num">Value</th>
             <th></th>
@@ -223,8 +224,13 @@ onMounted(load);
             <td>{{ item.sku }}</td>
             <td>{{ item.name }}</td>
             <td>{{ ITEM_TYPE_LABELS[item.itemType] }}</td>
-            <td>{{ item.unitOfMeasure }}</td>
-            <td class="num">{{ item.quantityOnHand }}</td>
+            <td>{{ item.unitOfMeasure === "KG" ? "KG" : "LB" }}</td>
+            <td class="num">
+              {{ item.quantityOnHand }}
+              <div v-if="item.unitOfMeasure === 'KG'" class="inactive" style="font-size: 0.75rem">
+                = {{ kgEquivalent(item.quantityOnHand) }} kg
+              </div>
+            </td>
             <td class="num" :class="{ inactive: Number(wipQty(item)) === 0 }">{{ wipQty(item) }}</td>
             <td class="num" :class="{ inactive: Number(quarantineQty(item)) === 0 }">{{ quarantineQty(item) }}</td>
             <td class="num">{{ item.unitCost }}</td>
