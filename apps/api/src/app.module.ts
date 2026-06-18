@@ -12,6 +12,7 @@ import { FormulaModule } from "./formula/formula.module";
 import { PurchasingModule } from "./purchasing/purchasing.module";
 import { SalesModule } from "./sales/sales.module";
 import { ProductionModule } from "./production/production.module";
+import { CompounderModule } from "./compounder/compounder.module";
 import { QualityModule } from "./quality/quality.module";
 import { QbwcModule } from "./qbwc/qbwc.module";
 import { JobsModule } from "./jobs/jobs.module";
@@ -35,6 +36,7 @@ import { JobsModule } from "./jobs/jobs.module";
     PurchasingModule,
     SalesModule,
     ProductionModule,
+    CompounderModule,
     QualityModule,
     QbwcModule,
     JobsModule,

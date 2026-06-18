@@ -8,4 +8,5 @@ export * from "./location.js";
 export * from "./purchasing.js";
 export * from "./sales.js";
 export * from "./production.js";
+export * from "./compounder.js";
 export * from "./quality.js";

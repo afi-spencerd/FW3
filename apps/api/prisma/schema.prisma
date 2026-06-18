@@ -41,6 +41,7 @@ model Tenant {
   locations           Location[]
   itemStockLocations  ItemStockLocation[]
   locationMoves       LocationMove[]
+  compounderPours     CompounderPour[]
 }
 
 model User {
@@ -53,9 +54,10 @@ model User {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  tenant    Tenant     @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  userRoles UserRole[]
-  auditLogs AuditLog[]
+  tenant         Tenant           @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  userRoles      UserRole[]
+  auditLogs      AuditLog[]
+  compounderPours CompounderPour[]
 
   @@unique([tenantId, idpSub])
   @@unique([tenantId, email])
@@ -145,6 +147,7 @@ model InventoryItem {
   receivedLots            ReceivedLot[]
   stockLocations          ItemStockLocation[]
   locationMoves           LocationMove[]
+  componentPours          CompounderPour[]          @relation("ComponentPours")
 
   @@unique([tenantId, sku])
   @@index([tenantId])
@@ -475,7 +478,7 @@ model ProductionWorkOrder {
   batchSize       Decimal  @db.Decimal(18, 4) // total batch weight in batchUnit
   batchUnit       String   @db.NVarChar(16) // LB | KG (formula scaling unit)
   outputQty       Decimal  @db.Decimal(18, 4) // produced qty of target (target's UoM)
-  status          String   @default("PLANNED") @db.NVarChar(20) // PLANNED | STAGED | COMPLETED | CANCELLED
+  status          String   @default("PLANNED") @db.NVarChar(20) // PLANNED | STAGED | IN_PROGRESS | ON_HOLD | COMPLETED | CANCELLED
   notes           String?  @db.NVarChar(2000)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
@@ -484,6 +487,7 @@ model ProductionWorkOrder {
   target  InventoryItem             @relation("TargetProductionRuns", fields: [targetItemId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   formula Formula                   @relation(fields: [formulaId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   lines   ProductionWorkOrderLine[]
+  pours   CompounderPour[]
 
   @@unique([tenantId, workOrderNumber])
   @@index([tenantId])
@@ -501,10 +505,35 @@ model ProductionWorkOrderLine {
 
   workOrder ProductionWorkOrder @relation(fields: [productionWorkOrderId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   component InventoryItem       @relation("ComponentProductionRunLines", fields: [componentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  pours     CompounderPour[]
 
   @@index([productionWorkOrderId])
   @@index([componentId])
   @@map("ProductionRunLine")
+}
+
+// One pour reported by the compounder dosing tool: an operator dosed `quantity`
+// (canonical pounds) of `component` into a work order's batch. Append-only; each
+// pour also posts a CONSUME transaction from WIP (pours drive consumption).
+model CompounderPour {
+  id                    String   @id @default(uuid()) @db.Char(36)
+  tenantId              String   @db.Char(36)
+  productionWorkOrderId String   @map("productionRunId") @db.Char(36)
+  workOrderLineId       String   @map("productionRunLineId") @db.Char(36)
+  componentId           String   @db.Char(36)
+  quantity              Decimal  @db.Decimal(18, 4)
+  operatorId            String   @db.Char(36)
+  note                  String?  @db.NVarChar(500)
+  occurredAt            DateTime @default(now())
+
+  tenant    Tenant                  @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  workOrder ProductionWorkOrder     @relation(fields: [productionWorkOrderId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  line      ProductionWorkOrderLine @relation(fields: [workOrderLineId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  component InventoryItem           @relation("ComponentPours", fields: [componentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  operator  User                    @relation(fields: [operatorId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([tenantId, productionWorkOrderId])
+  @@index([operatorId])
 }
 
 // A fragrance formula: finished good = raw materials by percentage of weight.

@@ -169,7 +169,7 @@ export class ProductionService {
   async complete(user: AuthenticatedUser, id: string): Promise<ProductionWorkOrder> {
     await this.prisma.$transaction(async (tx) => {
       const workOrder = await this.loadWorkOrder(tx, user.tenantId, id);
-      if (workOrder.status !== "STAGED") {
+      if (workOrder.status !== "STAGED" && workOrder.status !== "IN_PROGRESS") {
         throw new BadRequestException(`Cannot complete a ${workOrder.status} work order`);
       }
 
@@ -178,18 +178,45 @@ export class ProductionService {
         docId: id,
         note: `Work order ${workOrder.workOrderNumber}`,
       };
-      const consumeMovements: Movement[] = workOrder.lines.map((line) => ({
-        itemId: line.componentId,
-        type: "CONSUME",
-        direction: "OUT",
-        quantity: line.stagedQty.toString(),
-        status: "WIP",
-      }));
-      const consumed = await this.stock.post(tx, user.tenantId, consumeMovements, doc);
-      const consumedValue = consumed.reduce(
-        (sum, line) => sum.plus(new Decimal(line.value).abs()),
+
+      // Components are consumed by the compounder's pours as they happen. If any
+      // pours were posted, that consumption already stands — total it from the
+      // ledger. Otherwise (completed straight from the app, no tool), consume the
+      // staged quantities wholesale, as before. Either way the FG output is cost
+      // from the actual consumed value, so the run balances.
+      const consumeTxns = await tx.inventoryTxn.findMany({
+        where: {
+          tenantId: user.tenantId,
+          docType: "PRODUCTION_RUN",
+          docId: id,
+          type: "CONSUME",
+        },
+        select: { value: true },
+      });
+      let consumedValue = consumeTxns.reduce(
+        (sum, t) => sum.plus(new Decimal(t.value.toString()).abs()),
         new Decimal(0),
       );
+      if (consumedValue.isZero()) {
+        const consumeMovements: Movement[] = workOrder.lines.map((line) => ({
+          itemId: line.componentId,
+          type: "CONSUME",
+          direction: "OUT",
+          quantity: line.stagedQty.toString(),
+          status: "WIP",
+        }));
+        const consumed = await this.stock.post(tx, user.tenantId, consumeMovements, doc);
+        consumedValue = consumed.reduce(
+          (sum, line) => sum.plus(new Decimal(line.value).abs()),
+          new Decimal(0),
+        );
+        for (const line of workOrder.lines) {
+          await tx.productionWorkOrderLine.update({
+            where: { id: line.id },
+            data: { consumedQty: line.stagedQty },
+          });
+        }
+      }
 
       const unitCost = rollUpUnitCost(
         consumedValue.toString(),
@@ -232,12 +259,6 @@ export class ProductionService {
         },
       });
 
-      for (const line of workOrder.lines) {
-        await tx.productionWorkOrderLine.update({
-          where: { id: line.id },
-          data: { consumedQty: line.stagedQty },
-        });
-      }
       await tx.productionWorkOrder.update({ where: { id }, data: { status: "COMPLETED" } });
       await this.audit.record(tx, {
         tenantId: user.tenantId,

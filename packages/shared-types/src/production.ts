@@ -10,10 +10,25 @@ import { unitOfMeasureSchema } from "./inventory.js";
 export const PRODUCTION_STATUSES = [
   "PLANNED",
   "STAGED",
+  "IN_PROGRESS",
+  "ON_HOLD",
   "COMPLETED",
   "CANCELLED",
 ] as const;
 export type ProductionStatus = (typeof PRODUCTION_STATUSES)[number];
+
+/**
+ * Statuses the compounder dosing tool may set on a staged work order:
+ * start pouring (IN_PROGRESS), pause (ON_HOLD), or finish the batch (COMPLETED,
+ * which outputs the FG and opens its QC lot).
+ */
+export const COMPOUNDER_SETTABLE_STATUSES = [
+  "IN_PROGRESS",
+  "ON_HOLD",
+  "COMPLETED",
+] as const;
+export type CompounderSettableStatus =
+  (typeof COMPOUNDER_SETTABLE_STATUSES)[number];
 
 const positiveQty = quantityString.refine(
   (v) => Number(v) > 0,
