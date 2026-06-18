@@ -95,6 +95,9 @@ async function main(): Promise<void> {
     // Rebuilt from scratch each run so the hierarchy stays clean.
     await prisma.locationMove.deleteMany({ where: { tenantId: tenant.id } });
     await prisma.itemStockLocation.deleteMany({ where: { tenantId: tenant.id } });
+    await prisma.scrapRecord.deleteMany({ where: { tenantId: tenant.id } });
+    await prisma.cycleCountLine.deleteMany({ where: { tenantId: tenant.id } });
+    await prisma.cycleCount.deleteMany({ where: { tenantId: tenant.id } });
     await prisma.receivedLot.updateMany({
       where: { tenantId: tenant.id },
       data: { locationId: null },

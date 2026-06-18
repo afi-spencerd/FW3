@@ -33,6 +33,7 @@ export const TXN_TYPES = [
   "SHIPMENT",
   "ADJUSTMENT",
   "TRANSFER",
+  "SCRAP",
 ] as const;
 export type TxnType = (typeof TXN_TYPES)[number];
 
@@ -98,7 +99,54 @@ export const stockPositionSchema = z.object({
   totalValue: z.string(),
 });
 
+/**
+ * Scrap: write inventory off as a loss from any stage (INV, WIP, QUARANTINE).
+ * Costs out at the bucket's average cost and is recorded as a SCRAP transaction
+ * plus a ScrapRecord (with reason) for write-off reporting.
+ */
+export const SCRAP_REASONS = [
+  "DAMAGED",
+  "EXPIRED",
+  "CONTAMINATED",
+  "SPILL",
+  "QC_FAILED",
+  "OTHER",
+] as const;
+export const scrapReasonSchema = z.enum(SCRAP_REASONS);
+export type ScrapReason = (typeof SCRAP_REASONS)[number];
+
+export const scrapStockSchema = z.object({
+  /** Which stage to scrap from: INV (usable), WIP, or QUARANTINE. */
+  status: stockStatusSchema,
+  quantity: quantityString.refine((v) => Number(v) > 0, "must be greater than 0"),
+  /** Located stock (INV/QUARANTINE): which location to pull from. */
+  locationId: z.string().uuid().optional(),
+  reason: scrapReasonSchema,
+  note: z.string().trim().max(500).optional(),
+});
+
+export const scrapRecordSchema = z.object({
+  id: z.string().uuid(),
+  itemId: z.string().uuid(),
+  sku: z.string(),
+  name: z.string(),
+  status: stockStatusSchema,
+  locationId: z.string().uuid().nullable(),
+  locationCode: z.string().nullable(),
+  locationName: z.string().nullable(),
+  quantity: z.string(),
+  /** The written-off value (loss) at the bucket's average cost. */
+  value: z.string(),
+  reason: scrapReasonSchema,
+  note: z.string().nullable(),
+  operatorId: z.string().uuid(),
+  operatorName: z.string(),
+  occurredAt: z.string().datetime(),
+});
+
 export type InventoryTxn = z.infer<typeof inventoryTxnSchema>;
 export type InventoryPosition = z.infer<typeof inventoryPositionSchema>;
 export type AdjustStock = z.infer<typeof adjustStockSchema>;
 export type StockPosition = z.infer<typeof stockPositionSchema>;
+export type ScrapStock = z.infer<typeof scrapStockSchema>;
+export type ScrapRecord = z.infer<typeof scrapRecordSchema>;

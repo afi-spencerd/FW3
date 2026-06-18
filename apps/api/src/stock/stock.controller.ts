@@ -8,6 +8,8 @@ import {
   type PackOff,
   packOffSchema,
   PERMISSIONS,
+  type ScrapStock,
+  scrapStockSchema,
 } from "@fw3/shared-types";
 import { CurrentUser } from "../common/current-user.decorator";
 import { ZodValidationPipe } from "../common/zod-validation.pipe";
@@ -80,5 +82,22 @@ export class StockController {
     @Body(new ZodValidationPipe(packOffSchema)) body: PackOff,
   ) {
     return this.stock.packOff(user, id, body.quantity);
+  }
+
+  @Get(":id/scraps")
+  @RequirePermissions(PERMISSIONS.INVENTORY_READ)
+  scraps(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string) {
+    return this.stock.getScraps(user.tenantId, id);
+  }
+
+  /** Scrap (write off) stock from any stage — INV, WIP, or QUARANTINE. */
+  @Post(":id/scrap")
+  @RequirePermissions(PERMISSIONS.STOCK_SCRAP)
+  scrap(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param("id") id: string,
+    @Body(new ZodValidationPipe(scrapStockSchema)) body: ScrapStock,
+  ) {
+    return this.stock.scrap(user, id, body);
   }
 }

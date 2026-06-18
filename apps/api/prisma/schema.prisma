@@ -44,6 +44,7 @@ model Tenant {
   compounderPours     CompounderPour[]
   cycleCounts         CycleCount[]
   cycleCountLines     CycleCountLine[]
+  scrapRecords        ScrapRecord[]
 }
 
 model User {
@@ -62,6 +63,7 @@ model User {
   compounderPours CompounderPour[]
   createdCycleCounts   CycleCount[] @relation("CycleCountCreatedBy")
   completedCycleCounts CycleCount[] @relation("CycleCountCompletedBy")
+  scrapRecords         ScrapRecord[]
 
   @@unique([tenantId, idpSub])
   @@unique([tenantId, email])
@@ -153,6 +155,7 @@ model InventoryItem {
   locationMoves           LocationMove[]
   componentPours          CompounderPour[]          @relation("ComponentPours")
   cycleCountLines         CycleCountLine[]
+  scrapRecords            ScrapRecord[]
 
   @@unique([tenantId, sku])
   @@index([tenantId])
@@ -286,6 +289,7 @@ model Location {
   receivedLots ReceivedLot[]
   cycleCountScopes CycleCount[]
   cycleCountLines  CycleCountLine[]
+  scrapRecords     ScrapRecord[]
 
   @@unique([tenantId, code])
   @@index([tenantId])
@@ -681,4 +685,29 @@ model CycleCountLine {
 
   @@unique([cycleCountId, itemId, status, locationId])
   @@index([cycleCountId])
+}
+
+// A write-off: scrap of quantity from a stock stage (INV/WIP/QUARANTINE), with a
+// reason. The matching ledger movement is an InventoryTxn of type SCRAP; this row
+// adds the structured reason, value (loss), location, and operator for reporting.
+model ScrapRecord {
+  id         String   @id @default(uuid()) @db.Char(36)
+  tenantId   String   @db.Char(36)
+  itemId     String   @db.Char(36)
+  status     String   @map("state") @db.NVarChar(10) // INV | WIP | QUARANTINE
+  locationId String?  @db.Char(36)
+  quantity   Decimal  @db.Decimal(18, 4)
+  value      Decimal  @db.Decimal(38, 4) // written-off value at average cost
+  reason     String   @db.NVarChar(20) // DAMAGED | EXPIRED | CONTAMINATED | SPILL | QC_FAILED | OTHER
+  note       String?  @db.NVarChar(500)
+  operatorId String   @db.Char(36)
+  occurredAt DateTime @default(now())
+
+  tenant   Tenant        @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  item     InventoryItem @relation(fields: [itemId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  location Location?     @relation(fields: [locationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  operator User          @relation(fields: [operatorId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([tenantId, itemId, occurredAt])
+  @@index([tenantId, reason])
 }

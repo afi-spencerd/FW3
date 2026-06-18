@@ -22,6 +22,10 @@ import {
   QC_TEST_KIND,
   QC_TEST_TYPES,
   type QcTestType,
+  SCRAP_REASONS,
+  type ScrapRecord,
+  type StockStatus,
+  STOCK_STATUSES,
   UNITS_OF_MEASURE,
   updateInventoryItemSchema,
 } from "@fw3/shared-types";
@@ -123,14 +127,57 @@ const moveSources = computed(() =>
   itemLocations.value.filter((p) => p.status === move.status),
 );
 
+// --- Scrap / write-off (edit mode only) ---
+const canScrap = auth.hasPermission(PERMISSIONS.STOCK_SCRAP);
+const scraps = ref<ScrapRecord[]>([]);
+const scrap = reactive({
+  status: "INV" as StockStatus,
+  locationId: "",
+  quantity: "0",
+  reason: "DAMAGED" as (typeof SCRAP_REASONS)[number],
+  note: "",
+});
+const scrapError = ref<string | null>(null);
+const scrapBusy = ref(false);
+
+// WIP isn't location-tracked; INV/QUARANTINE scrap from a specific location.
+const scrapLocated = computed(() => scrap.status !== "WIP");
+const scrapSources = computed(() =>
+  itemLocations.value.filter((p) => p.status === scrap.status),
+);
+
 async function loadLocations(): Promise<void> {
   if (!props.id) return;
-  [itemLocations.value, allLocations.value, locationMoves.value] =
+  [itemLocations.value, allLocations.value, locationMoves.value, scraps.value] =
     await Promise.all([
       api.itemLocations(props.id),
       api.listLocations(),
       api.itemLocationMoves(props.id),
+      api.itemScraps(props.id),
     ]);
+}
+
+async function doScrap(): Promise<void> {
+  if (!props.id) return;
+  scrapError.value = null;
+  scrapBusy.value = true;
+  try {
+    await api.scrapStock(props.id, {
+      status: scrap.status,
+      quantity: scrap.quantity,
+      locationId: scrapLocated.value && scrap.locationId ? scrap.locationId : undefined,
+      reason: scrap.reason,
+      note: scrap.note || undefined,
+    });
+    scrap.quantity = "0";
+    scrap.note = "";
+    await loadStock();
+    await loadLocations();
+  } catch (err) {
+    scrapError.value = err instanceof ApiError ? err.message : "Scrap failed";
+  } finally {
+    scrapBusy.value = false;
+  }
 }
 
 async function doMove(): Promise<void> {
@@ -526,6 +573,65 @@ async function submit(): Promise<void> {
               <td>{{ m.toLocationName ?? "—" }}</td>
               <td class="num">{{ m.quantity }}</td>
               <td>{{ m.note }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </template>
+    </div>
+
+    <div v-if="isEdit && (canScrap || scraps.length)" class="panel" style="margin-top: 1rem">
+      <h3>Scrap (write-off)</h3>
+      <p class="inactive" style="font-size: 0.85rem">
+        Write off unusable inventory from any stage — INV (usable), WIP, or
+        quarantine. Posts a loss at the item's average cost and records the reason.
+      </p>
+      <div v-if="canScrap">
+        <div v-if="scrapError" class="banner error">{{ scrapError }}</div>
+        <div class="toolbar" style="flex-wrap: wrap">
+          <select v-model="scrap.status" style="max-width: 130px">
+            <option v-for="s in STOCK_STATUSES" :key="s" :value="s">{{ s }}</option>
+          </select>
+          <select v-if="scrapLocated" v-model="scrap.locationId" style="max-width: 240px">
+            <option value="">From… (location)</option>
+            <option v-for="p in scrapSources" :key="p.locationId" :value="p.locationId">
+              {{ p.locationCode }} — {{ p.locationName }} ({{ p.quantity }})
+            </option>
+          </select>
+          <input v-model="scrap.quantity" inputmode="decimal" placeholder="Qty (lb)" style="max-width: 100px" />
+          <select v-model="scrap.reason" style="max-width: 160px">
+            <option v-for="r in SCRAP_REASONS" :key="r" :value="r">{{ r }}</option>
+          </select>
+          <input v-model="scrap.note" placeholder="Note (optional)" />
+          <button
+            class="danger"
+            :disabled="scrapBusy || Number(scrap.quantity) <= 0"
+            @click="doScrap"
+          >
+            {{ scrapBusy ? "Scrapping…" : "Scrap" }}
+          </button>
+        </div>
+      </div>
+
+      <template v-if="scraps.length">
+        <h4>Scrap history</h4>
+        <table>
+          <thead>
+            <tr>
+              <th>When</th><th>Stage</th><th>Location</th>
+              <th class="num">Qty</th><th class="num">Value</th>
+              <th>Reason</th><th>By</th><th>Note</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="s in scraps" :key="s.id">
+              <td>{{ new Date(s.occurredAt).toLocaleString() }}</td>
+              <td>{{ s.status }}</td>
+              <td>{{ s.locationCode ?? "—" }}</td>
+              <td class="num">{{ s.quantity }}</td>
+              <td class="num">${{ s.value }}</td>
+              <td>{{ s.reason }}</td>
+              <td>{{ s.operatorName }}</td>
+              <td>{{ s.note }}</td>
             </tr>
           </tbody>
         </table>

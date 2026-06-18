@@ -30,6 +30,8 @@ import type {
   Lot,
   MoveStock,
   RecordCycleCounts,
+  ScrapRecord,
+  ScrapStock,
   LotSummary,
   PaginatedInventory,
   ProductionWorkOrder,
@@ -152,6 +154,12 @@ export const api = {
     request<InventoryPosition>(`/inventory/${id}/pack-off`, {
       method: "POST",
       body: JSON.stringify({ quantity }),
+    }),
+  itemScraps: (id: string) => request<ScrapRecord[]>(`/inventory/${id}/scraps`),
+  scrapStock: (id: string, body: ScrapStock) =>
+    request<ScrapRecord>(`/inventory/${id}/scrap`, {
+      method: "POST",
+      body: JSON.stringify(body),
     }),
   itemLocations: (id: string) =>
     request<ItemLocationPosition[]>(`/inventory/${id}/locations`),

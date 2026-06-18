@@ -17,6 +17,8 @@ import {
   type LocationKind,
   type LocationMove,
   type MoveStock,
+  type ScrapRecord,
+  type ScrapStock,
   type StockPosition,
   type StockStatus,
   type TxnType,
@@ -421,6 +423,110 @@ export class StockService {
         totalValue: extendedValue(r.quantity.toString(), r.avgCost.toString()),
       }))
       .sort((a, b) => a.sku.localeCompare(b.sku) || a.status.localeCompare(b.status));
+  }
+
+  // ---- Scrap (write-off) ----
+
+  /**
+   * Scrap (write off) a quantity from any stage (INV/WIP/QUARANTINE). Posts a
+   * SCRAP movement out at the bucket's average cost — the value is a loss — and
+   * records a ScrapRecord with the reason for write-off reporting.
+   */
+  async scrap(
+    user: AuthenticatedUser,
+    itemId: string,
+    input: ScrapStock,
+  ): Promise<ScrapRecord> {
+    const id = await this.prisma.$transaction(async (tx) => {
+      const item = await tx.inventoryItem.findFirst({
+        where: { id: itemId, tenantId: user.tenantId },
+      });
+      if (!item) throw new NotFoundException("Inventory item not found");
+
+      const [line] = await this.post(
+        tx,
+        user.tenantId,
+        [
+          {
+            itemId,
+            type: "SCRAP",
+            direction: "OUT",
+            quantity: input.quantity,
+            status: input.status,
+            ...(input.locationId ? { locationId: input.locationId } : {}),
+          },
+        ],
+        { note: `Scrap (${input.reason})${input.note ? `: ${input.note}` : ""}` },
+      );
+      if (!line) throw new BadRequestException("Scrap failed");
+
+      const record = await tx.scrapRecord.create({
+        data: {
+          tenantId: user.tenantId,
+          itemId,
+          status: input.status,
+          locationId: input.locationId ?? null,
+          quantity: input.quantity,
+          value: new Decimal(line.value).abs().toString(),
+          reason: input.reason,
+          note: input.note ?? null,
+          operatorId: user.id,
+        },
+      });
+      await this.audit.record(tx, {
+        tenantId: user.tenantId,
+        actorId: user.id,
+        entityType: "InventoryItem",
+        entityId: itemId,
+        action: "UPDATE",
+        after: { scrap: input, value: record.value.toString() },
+      });
+      return record.id;
+    });
+    return this.getScrap(user.tenantId, id);
+  }
+
+  /** Scrap (write-off) history for an item, newest first. */
+  async getScraps(tenantId: string, itemId: string): Promise<ScrapRecord[]> {
+    const rows = await this.prisma.scrapRecord.findMany({
+      where: { tenantId, itemId },
+      include: { item: true, location: true, operator: true },
+      orderBy: { occurredAt: "desc" },
+    });
+    return rows.map((r) => this.toScrapDto(r));
+  }
+
+  private async getScrap(tenantId: string, id: string): Promise<ScrapRecord> {
+    const row = await this.prisma.scrapRecord.findFirst({
+      where: { id, tenantId },
+      include: { item: true, location: true, operator: true },
+    });
+    if (!row) throw new NotFoundException("Scrap record not found");
+    return this.toScrapDto(row);
+  }
+
+  private toScrapDto(
+    row: Prisma.ScrapRecordGetPayload<{
+      include: { item: true; location: true; operator: true };
+    }>,
+  ): ScrapRecord {
+    return {
+      id: row.id,
+      itemId: row.itemId,
+      sku: row.item.sku,
+      name: row.item.name,
+      status: row.status as StockStatus,
+      locationId: row.locationId,
+      locationCode: row.location?.code ?? null,
+      locationName: row.location?.name ?? null,
+      quantity: row.quantity.toString(),
+      value: row.value.toString(),
+      reason: row.reason as ScrapRecord["reason"],
+      note: row.note,
+      operatorId: row.operatorId,
+      operatorName: row.operator.displayName,
+      occurredAt: row.occurredAt.toISOString(),
+    };
   }
 
   // ---- Physical locations ----
