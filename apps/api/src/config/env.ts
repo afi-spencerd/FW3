@@ -23,6 +23,10 @@ const envSchema = z.object({
   OIDC_CLIENT_ID: z.string().optional(),
   OIDC_CLIENT_SECRET: z.string().optional(),
   OIDC_REDIRECT_URI: z.string().optional(),
+  // FormulaWeb QuickBooks Agent (local REST → QuickBooks Desktop). Sync is
+  // disabled unless both are set.
+  QB_AGENT_URL: z.string().url().optional(),
+  QB_AGENT_API_KEY: z.string().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;

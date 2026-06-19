@@ -490,6 +490,10 @@ model Customer {
   rating    String?  @db.NVarChar(1) // A | B | C | D — sales buy-volume rating (CHECK in migration)
   notes     String?  @db.NVarChar(2000)
   isActive  Boolean  @default(true)
+  // QuickBooks linkage (set by the agent sync round-trip).
+  qbListId       String?   @db.NVarChar(64)
+  qbEditSequence String?   @db.NVarChar(64)
+  qbSyncedAt     DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

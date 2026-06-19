@@ -3,13 +3,13 @@ import { ConfigService } from "@nestjs/config";
 import { Queue } from "bullmq";
 import type { Env } from "../config/env";
 import { redisConnectionOptions } from "../redis/redis-options";
-import { QbwcModule } from "../qbwc/qbwc.module";
+import { QbModule } from "../qb/qb.module";
 import { JobsController } from "./jobs.controller";
 import { QB_SYNC_QUEUE, QB_SYNC_QUEUE_NAME } from "./jobs.constants";
 import { QbSyncWorker } from "./qb-sync.worker";
 
 @Module({
-  imports: [QbwcModule],
+  imports: [QbModule],
   controllers: [JobsController],
   providers: [
     {

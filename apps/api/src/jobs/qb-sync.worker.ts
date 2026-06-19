@@ -8,7 +8,7 @@ import { ConfigService } from "@nestjs/config";
 import { type Job, Worker } from "bullmq";
 import type { Env } from "../config/env";
 import { redisConnectionOptions } from "../redis/redis-options";
-import { QbwcService } from "../qbwc/qbwc.service";
+import { QbSyncService } from "../qb/qb-sync.service";
 import { QB_SYNC_QUEUE_NAME, type QbSyncJobData } from "./jobs.constants";
 
 /**
@@ -23,7 +23,7 @@ export class QbSyncWorker implements OnModuleInit, OnModuleDestroy {
 
   constructor(
     private readonly config: ConfigService<Env, true>,
-    private readonly qbwc: QbwcService,
+    private readonly qbSync: QbSyncService,
   ) {}
 
   onModuleInit(): void {
@@ -31,7 +31,7 @@ export class QbSyncWorker implements OnModuleInit, OnModuleDestroy {
       QB_SYNC_QUEUE_NAME,
       async (job: Job<QbSyncJobData>) => {
         this.logger.log(`Processing qb-sync job ${job.id} for tenant ${job.data.tenantId}`);
-        return this.qbwc.requestItemSync(job.data.tenantId);
+        return this.qbSync.syncTenant(job.data.tenantId);
       },
       {
         connection: redisConnectionOptions(
