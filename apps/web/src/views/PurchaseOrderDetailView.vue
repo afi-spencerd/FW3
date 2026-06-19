@@ -194,6 +194,34 @@ onMounted(load);
           Received goods go to quarantine pending QC.
         </span>
       </div>
+
+      <h3 style="margin-top: 1.5rem">Receipts</h3>
+      <p class="inactive" style="font-size: 0.85rem">
+        Every posted receipt against this PO, including partials — each is its own
+        quarantine lot with a timestamp and QC status.
+      </p>
+      <table>
+        <thead>
+          <tr>
+            <th>When</th><th>Item</th><th class="num">Qty (lb)</th>
+            <th class="num">Unit cost</th><th>Lot #</th><th>Location</th><th>QC</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="r in po.receipts" :key="r.id">
+            <td>{{ new Date(r.receivedAt).toLocaleString() }}</td>
+            <td>{{ r.itemName }} <span class="inactive">({{ r.itemSku }})</span></td>
+            <td class="num">{{ r.quantity }}</td>
+            <td class="num">{{ r.unitCost }}</td>
+            <td>{{ r.lotNumber }}</td>
+            <td>{{ r.locationCode ?? "—" }}</td>
+            <td>{{ r.qcStatus }}</td>
+          </tr>
+          <tr v-if="po.receipts.length === 0">
+            <td colspan="7" class="inactive">No receipts posted yet.</td>
+          </tr>
+        </tbody>
+      </table>
     </div>
   </div>
 </template>

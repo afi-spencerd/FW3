@@ -45,14 +45,21 @@ export class PurchaseOrderService {
     });
     return orders.map((o) => {
       const dto = this.toDto(o);
-      const { lines, ...summary } = dto;
+      const { lines, receipts, ...summary } = dto;
       return { ...summary, lineCount: lines.length };
     });
   }
 
   async getById(tenantId: string, id: string): Promise<PurchaseOrder> {
     const order = await this.loadOrder(this.prisma, tenantId, id);
-    return this.toDto(order);
+    // Each posted receipt against this PO is a ReceivedLot (origin RECEIPT) —
+    // the auditable receiving history, including partials.
+    const receipts = await this.prisma.receivedLot.findMany({
+      where: { tenantId, purchaseOrderId: id, origin: "RECEIPT" },
+      include: { item: true, location: true },
+      orderBy: { receivedAt: "asc" },
+    });
+    return this.toDto(order, receipts);
   }
 
   async create(
@@ -344,7 +351,12 @@ export class PurchaseOrderService {
     }
   }
 
-  private toDto(order: PoWithRelations): PurchaseOrder {
+  private toDto(
+    order: PoWithRelations,
+    receiptRows: Prisma.ReceivedLotGetPayload<{
+      include: { item: true; location: true };
+    }>[] = [],
+  ): PurchaseOrder {
     const lines = order.lines.map((line) => ({
       id: line.id,
       itemId: line.itemId,
@@ -363,6 +375,19 @@ export class PurchaseOrderService {
     const totalValue = lines
       .reduce((sum, l) => sum.plus(l.lineValue), new Decimal(0))
       .toString();
+    const receipts = receiptRows.map((r) => ({
+      id: r.id,
+      purchaseOrderLineId: r.purchaseOrderLineId,
+      itemId: r.itemId,
+      itemSku: r.item.sku,
+      itemName: r.item.name,
+      quantity: r.quantity.toString(),
+      unitCost: r.unitCost.toString(),
+      lotNumber: r.supplierLotNumber,
+      locationCode: r.location?.code ?? null,
+      qcStatus: r.qcStatus,
+      receivedAt: r.receivedAt.toISOString(),
+    }));
     return {
       id: order.id,
       tenantId: order.tenantId,
@@ -374,6 +399,7 @@ export class PurchaseOrderService {
       notes: order.notes,
       totalValue,
       lines,
+      receipts,
       createdAt: order.createdAt.toISOString(),
       updatedAt: order.updatedAt.toISOString(),
     };

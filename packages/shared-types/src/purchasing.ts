@@ -111,6 +111,25 @@ export const poLineSchema = z.object({
   sortOrder: z.number().int(),
 });
 
+/**
+ * One posted receipt against a PO line — a single receiving event. Partial
+ * receipts produce multiple rows (one per receive of a line), each with its own
+ * timestamp + lot, so the receiving history against the PO is fully auditable.
+ */
+export const poReceiptSchema = z.object({
+  id: z.string().uuid(),
+  purchaseOrderLineId: z.string().uuid().nullable(),
+  itemId: z.string().uuid(),
+  itemSku: z.string(),
+  itemName: z.string(),
+  quantity: z.string(),
+  unitCost: z.string(),
+  lotNumber: z.string(),
+  locationCode: z.string().nullable(),
+  qcStatus: z.string(),
+  receivedAt: z.string().datetime(),
+});
+
 export const purchaseOrderSchema = z.object({
   id: z.string().uuid(),
   tenantId: z.string().uuid(),
@@ -122,12 +141,13 @@ export const purchaseOrderSchema = z.object({
   notes: z.string().nullable(),
   totalValue: z.string(),
   lines: z.array(poLineSchema),
+  receipts: z.array(poReceiptSchema),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 });
 
 export const purchaseOrderSummarySchema = purchaseOrderSchema
-  .omit({ lines: true })
+  .omit({ lines: true, receipts: true })
   .extend({ lineCount: z.number().int() });
 
 export type CreateVendor = z.infer<typeof createVendorSchema>;
@@ -138,5 +158,6 @@ export type CreatePurchaseOrder = z.infer<typeof createPurchaseOrderSchema>;
 export type UpdatePurchaseOrder = z.infer<typeof updatePurchaseOrderSchema>;
 export type ReceivePurchaseOrder = z.infer<typeof receivePurchaseOrderSchema>;
 export type PurchaseOrderLine = z.infer<typeof poLineSchema>;
+export type PoReceipt = z.infer<typeof poReceiptSchema>;
 export type PurchaseOrder = z.infer<typeof purchaseOrderSchema>;
 export type PurchaseOrderSummary = z.infer<typeof purchaseOrderSummarySchema>;
