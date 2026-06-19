@@ -1,0 +1,770 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "fw3 Compounder Dosing-Tool API",
+    "version": "1.0.0",
+    "description": "Machine-facing API for the compounder dosing tool: read the work-order queue, each order's bill of materials, and available inventory; report pours (which consume from WIP), drive work-order status, and identify the operator. Pack-off is handled by a separate tool feature and is not part of this API. All weights are canonical pounds."
+  },
+  "servers": [
+    {
+      "url": "/",
+      "description": "Same-origin API"
+    }
+  ],
+  "security": [
+    {
+      "sessionCookie": []
+    }
+  ],
+  "tags": [
+    {
+      "name": "Compounder",
+      "description": "Compounder dosing-tool integration"
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "sessionCookie": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "connect.sid",
+        "description": "Session cookie from the standard user login (POST /auth/dev-login in dev, or OIDC). The tool reuses a user session; that user is recorded as the operator on each pour."
+      }
+    },
+    "schemas": {
+      "Operator": {
+        "type": "object",
+        "required": [
+          "id",
+          "displayName",
+          "email"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          }
+        }
+      },
+      "InventoryRow": {
+        "type": "object",
+        "required": [
+          "itemId",
+          "sku",
+          "name",
+          "itemType",
+          "handlingUnit",
+          "invQuantity",
+          "wipQuantity"
+        ],
+        "properties": {
+          "itemId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "sku": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "itemType": {
+            "type": "string",
+            "enum": [
+              "RAW_MATERIAL",
+              "SEMI_FINISHED",
+              "FINISHED_GOOD"
+            ]
+          },
+          "handlingUnit": {
+            "type": "string",
+            "enum": [
+              "LB",
+              "KG"
+            ],
+            "description": "Display/handling unit; stock is stored in pounds."
+          },
+          "invQuantity": {
+            "type": "string",
+            "description": "Usable (LOT-traceable) on hand, in pounds.",
+            "example": "12.5000"
+          },
+          "wipQuantity": {
+            "type": "string",
+            "description": "Work-in-progress (staged), in pounds.",
+            "example": "12.5000"
+          }
+        }
+      },
+      "WorkOrderLine": {
+        "type": "object",
+        "required": [
+          "lineId",
+          "componentId",
+          "sku",
+          "name",
+          "handlingUnit",
+          "percentage",
+          "requiredQty",
+          "stagedQty",
+          "consumedQty",
+          "wipAvailable"
+        ],
+        "properties": {
+          "lineId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "componentId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "sku": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "handlingUnit": {
+            "type": "string",
+            "enum": [
+              "LB",
+              "KG"
+            ]
+          },
+          "percentage": {
+            "type": "string",
+            "description": "Formula percentage of the batch by weight.",
+            "example": "12.5000"
+          },
+          "requiredQty": {
+            "type": "string",
+            "description": "Target amount for this batch (lb).",
+            "example": "12.5000"
+          },
+          "stagedQty": {
+            "type": "string",
+            "description": "Amount staged into WIP (lb).",
+            "example": "12.5000"
+          },
+          "consumedQty": {
+            "type": "string",
+            "description": "Amount poured/consumed so far (lb).",
+            "example": "12.5000"
+          },
+          "wipAvailable": {
+            "type": "string",
+            "description": "Currently available to pour from WIP (lb).",
+            "example": "12.5000"
+          }
+        }
+      },
+      "WorkOrderSummary": {
+        "type": "object",
+        "required": [
+          "id",
+          "workOrderNumber",
+          "status",
+          "targetItemId",
+          "targetSku",
+          "targetName",
+          "formulaName",
+          "batchSize",
+          "outputQty",
+          "lineCount"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "workOrderNumber": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "PLANNED",
+              "STAGED",
+              "IN_PROGRESS",
+              "ON_HOLD",
+              "COMPLETED",
+              "CANCELLED"
+            ]
+          },
+          "targetItemId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "targetSku": {
+            "type": "string"
+          },
+          "targetName": {
+            "type": "string"
+          },
+          "formulaName": {
+            "type": "string"
+          },
+          "batchSize": {
+            "type": "string",
+            "description": "Batch size in pounds.",
+            "example": "12.5000"
+          },
+          "outputQty": {
+            "type": "string",
+            "description": "Planned finished-good output (lb).",
+            "example": "12.5000"
+          },
+          "lineCount": {
+            "type": "integer"
+          }
+        }
+      },
+      "WorkOrder": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/WorkOrderSummary"
+          },
+          {
+            "type": "object",
+            "required": [
+              "lines"
+            ],
+            "properties": {
+              "lines": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/WorkOrderLine"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "PourInput": {
+        "type": "object",
+        "required": [
+          "componentId",
+          "quantity"
+        ],
+        "properties": {
+          "componentId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "A component on the work order's BOM."
+          },
+          "quantity": {
+            "type": "string",
+            "description": "Amount poured, in pounds (> 0).",
+            "example": "12.5000"
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 500
+          }
+        }
+      },
+      "Pour": {
+        "type": "object",
+        "required": [
+          "id",
+          "workOrderId",
+          "workOrderLineId",
+          "componentId",
+          "componentSku",
+          "componentName",
+          "quantity",
+          "operator",
+          "note",
+          "occurredAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "workOrderId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "workOrderLineId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "componentId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "componentSku": {
+            "type": "string"
+          },
+          "componentName": {
+            "type": "string"
+          },
+          "quantity": {
+            "type": "string",
+            "description": "Poured amount, in pounds.",
+            "example": "12.5000"
+          },
+          "operator": {
+            "$ref": "#/components/schemas/Operator"
+          },
+          "note": {
+            "type": "string",
+            "nullable": true
+          },
+          "occurredAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "StatusUpdate": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "IN_PROGRESS",
+              "ON_HOLD",
+              "COMPLETED"
+            ],
+            "description": "IN_PROGRESS = start pouring; ON_HOLD = pause; COMPLETED = finish the batch (outputs the FG to FG_WIP and opens its QC lot)."
+          }
+        }
+      },
+      "Error": {
+        "type": "object",
+        "required": [
+          "statusCode",
+          "message"
+        ],
+        "properties": {
+          "statusCode": {
+            "type": "integer"
+          },
+          "message": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            ]
+          },
+          "error": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  },
+  "paths": {
+    "/compounder/me": {
+      "get": {
+        "tags": [
+          "Compounder"
+        ],
+        "summary": "Current operator",
+        "description": "The signed-in user the tool is acting as (operator of record).",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Operator"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation or state error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "403": {
+            "description": "Missing permission"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      }
+    },
+    "/compounder/inventory": {
+      "get": {
+        "tags": [
+          "Compounder"
+        ],
+        "summary": "Available inventory",
+        "description": "Usable (INV) and work-in-progress (WIP) quantities per item, in pounds.",
+        "parameters": [
+          {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Match SKU or name."
+          },
+          {
+            "name": "itemType",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "RAW_MATERIAL",
+                "SEMI_FINISHED",
+                "FINISHED_GOOD"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/InventoryRow"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation or state error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "403": {
+            "description": "Missing permission"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      }
+    },
+    "/compounder/work-orders": {
+      "get": {
+        "tags": [
+          "Compounder"
+        ],
+        "summary": "List work orders",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "PLANNED",
+                "STAGED",
+                "IN_PROGRESS",
+                "ON_HOLD",
+                "COMPLETED",
+                "CANCELLED"
+              ]
+            },
+            "description": "Filter by status (e.g. STAGED, IN_PROGRESS, ON_HOLD)."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/WorkOrderSummary"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation or state error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "403": {
+            "description": "Missing permission"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      }
+    },
+    "/compounder/work-orders/{id}": {
+      "get": {
+        "tags": [
+          "Compounder"
+        ],
+        "summary": "Work order detail (with BOM)",
+        "description": "Header plus BOM lines: formula percentage, required/staged/consumed, and WIP available to pour.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkOrder"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation or state error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "403": {
+            "description": "Missing permission"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      }
+    },
+    "/compounder/work-orders/{id}/pours": {
+      "get": {
+        "tags": [
+          "Compounder"
+        ],
+        "summary": "List pours for a work order",
+        "description": "Who poured what, how much, and when.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Pour"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation or state error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "403": {
+            "description": "Missing permission"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Compounder"
+        ],
+        "summary": "Report a pour",
+        "description": "Dose a component into the batch. Consumes the amount from WIP and, on the first pour, moves a STAGED order to IN_PROGRESS. Requires the production:execute permission. The operator is the authenticated user.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PourInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Pour"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation or state error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "403": {
+            "description": "Missing permission"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      }
+    },
+    "/compounder/work-orders/{id}/status": {
+      "post": {
+        "tags": [
+          "Compounder"
+        ],
+        "summary": "Set work-order status",
+        "description": "Start (IN_PROGRESS), pause (ON_HOLD), or finish (COMPLETED) the batch. COMPLETED outputs the finished good to FG_WIP against the actual poured value and opens its QC lot. Requires the production:execute permission.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StatusUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkOrder"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation or state error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "403": {
+            "description": "Missing permission"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      }
+    }
+  }
+}
