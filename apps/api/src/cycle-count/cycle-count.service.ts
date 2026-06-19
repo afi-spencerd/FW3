@@ -237,7 +237,7 @@ export class CycleCountService {
           const bucket = await tx.itemStock.findUnique({
             where: { itemId_status: { itemId: line.itemId, status } },
           });
-          const unitCost = (bucket?.avgCost ?? line.item.unitCost).toString();
+          const unitCost = (bucket?.avgCost ?? new Decimal(0)).toString();
           const movement: Movement = {
             itemId: line.itemId,
             type: "ADJUSTMENT",

@@ -182,25 +182,30 @@ export class LocationService {
       },
       include: { item: true, location: { include: { building: true } } },
     });
+    // Value at the (item, status) bucket's moving-average cost from the ledger.
+    const buckets = await this.prisma.itemStock.findMany({ where: { tenantId } });
+    const costByBucket = new Map(
+      buckets.map((b) => [`${b.itemId}:${b.status}`, b.avgCost.toString()]),
+    );
     return rows
       .filter((r) => !r.quantity.isZero())
-      .map((r) => ({
-        locationId: r.locationId,
-        locationName: r.location.name,
-        locationCode: r.location.code,
-        buildingName: r.location.building?.name ?? null,
-        itemId: r.itemId,
-        sku: r.item.sku,
-        name: r.item.name,
-        itemType: r.item.itemType as ItemType,
-        status: r.status as LocatedStockStatus,
-        quantity: r.quantity.toString(),
-        unitCost: r.item.unitCost.toString(),
-        totalValue: extendedValue(
-          r.quantity.toString(),
-          r.item.unitCost.toString(),
-        ),
-      }))
+      .map((r) => {
+        const unitCost = costByBucket.get(`${r.itemId}:${r.status}`) ?? "0";
+        return {
+          locationId: r.locationId,
+          locationName: r.location.name,
+          locationCode: r.location.code,
+          buildingName: r.location.building?.name ?? null,
+          itemId: r.itemId,
+          sku: r.item.sku,
+          name: r.item.name,
+          itemType: r.item.itemType as ItemType,
+          status: r.status as LocatedStockStatus,
+          quantity: r.quantity.toString(),
+          unitCost,
+          totalValue: extendedValue(r.quantity.toString(), unitCost),
+        };
+      })
       .sort(
         (a, b) =>
           a.locationName.localeCompare(b.locationName) ||

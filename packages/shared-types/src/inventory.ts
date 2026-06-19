@@ -48,11 +48,18 @@ export const physicalFormSchema = z.enum(PHYSICAL_FORMS);
 export type PhysicalForm = (typeof PHYSICAL_FORMS)[number];
 
 /**
- * Fields a user can submit when creating an item. Note: quantity on hand and
- * unit (average) cost are NOT settable here — they are derived from the stock
- * ledger. A new item starts at zero; establish opening stock with an inventory
- * adjustment (which posts a transaction). salesPrice is a list price, not
- * ledger-derived, so it stays editable.
+ * How the item maps to a QuickBooks item: an inventory part (quantity tracked),
+ * a non-inventory part, or a service. Distinct from our RAW/SEMI/FINISHED tier.
+ */
+export const QB_ITEM_TYPES = ["INVENTORY", "NON_INVENTORY", "SERVICE"] as const;
+export const qbItemTypeSchema = z.enum(QB_ITEM_TYPES);
+export type QbItemType = (typeof QB_ITEM_TYPES)[number];
+
+/**
+ * Item master — the item's *definition*, separate from its inventory position.
+ * Quantity on hand and average cost are NOT part of the master; they live in the
+ * stock ledger (see InventoryPosition / StockPosition). The master is what syncs
+ * to QuickBooks as an Item; inventory levels sync separately via transactions.
  */
 export const createInventoryItemSchema = z.object({
   sku: z.string().trim().min(1).max(64),
@@ -62,6 +69,15 @@ export const createInventoryItemSchema = z.object({
   physicalForm: physicalFormSchema.default("LIQUID"),
   unitOfMeasure: unitOfMeasureSchema.default("LB"),
   salesPrice: moneyString.default("0"),
+  // ---- QuickBooks item-master attributes ----
+  qbItemType: qbItemTypeSchema.default("INVENTORY"),
+  /** Standard/purchase cost for the item record (the moving-average cost lives in the ledger). */
+  standardCost: moneyString.default("0"),
+  purchaseDescription: z.string().trim().max(2000).optional(),
+  /** QuickBooks account references, by full account name. */
+  incomeAccount: z.string().trim().max(159).optional(),
+  cogsAccount: z.string().trim().max(159).optional(),
+  assetAccount: z.string().trim().max(159).optional(),
   active: z.boolean().default(true),
 });
 
@@ -70,7 +86,7 @@ export const updateInventoryItemSchema = createInventoryItemSchema
   .omit({ sku: true })
   .partial();
 
-/** Shape returned to clients. Money/qty are strings (see money.ts). */
+/** Item master returned to clients — no inventory position (see InventoryPosition). */
 export const inventoryItemSchema = z.object({
   id: z.string().uuid(),
   tenantId: z.string().uuid(),
@@ -80,11 +96,13 @@ export const inventoryItemSchema = z.object({
   itemType: itemTypeSchema,
   physicalForm: physicalFormSchema,
   unitOfMeasure: unitOfMeasureSchema,
-  quantityOnHand: z.string(),
-  unitCost: z.string(),
   salesPrice: z.string(),
-  /** quantityOnHand * unitCost, computed server-side. */
-  extendedValue: z.string(),
+  qbItemType: qbItemTypeSchema,
+  standardCost: z.string(),
+  purchaseDescription: z.string().nullable(),
+  incomeAccount: z.string().nullable(),
+  cogsAccount: z.string().nullable(),
+  assetAccount: z.string().nullable(),
   active: z.boolean(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),

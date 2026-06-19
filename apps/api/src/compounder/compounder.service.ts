@@ -108,7 +108,7 @@ export class CompounderService {
         name: item.name,
         itemType: item.itemType as ItemType,
         handlingUnit: item.unitOfMeasure as UnitOfMeasure,
-        invQuantity: (inv?.quantity ?? item.quantityOnHand).toString(),
+        invQuantity: (inv?.quantity ?? new Decimal(0)).toString(),
         wipQuantity: (wip?.quantity ?? new Decimal(0)).toString(),
       };
     });

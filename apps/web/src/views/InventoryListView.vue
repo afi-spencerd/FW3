@@ -28,7 +28,8 @@ const STATUS_LABELS: Record<StockStatus, string> = {
 
 const items = ref<InventoryItem[]>([]);
 const valuation = ref<ValuationSummary | null>(null);
-// itemId -> position, per non-traceable status
+// itemId -> position per status (from the stock ledger, not the item master)
+const inv = reactive<Record<string, { quantity: string; value: string; avgCost: string }>>({});
 const wip = reactive<Record<string, { quantity: string; value: string }>>({});
 const quarantine = reactive<Record<string, { quantity: string; value: string }>>({});
 const wipTotal = ref("0");
@@ -52,9 +53,12 @@ function wipQty(item: InventoryItem): string {
 function quarantineQty(item: InventoryItem): string {
   return quarantine[item.id]?.quantity ?? "0";
 }
+function invQty(item: InventoryItem): string {
+  return inv[item.id]?.quantity ?? "0";
+}
 function totalValue(item: InventoryItem): string {
   return (
-    Number(item.extendedValue) +
+    Number(inv[item.id]?.value ?? "0") +
     Number(wip[item.id]?.value ?? "0") +
     Number(quarantine[item.id]?.value ?? "0")
   ).toFixed(2);
@@ -64,7 +68,7 @@ const filteredItems = computed(() =>
   items.value.filter((i) => {
     if (statusFilter.value === "WIP") return Number(wipQty(i)) > 0;
     if (statusFilter.value === "QUARANTINE") return Number(quarantineQty(i)) > 0;
-    if (statusFilter.value === "INV") return Number(i.quantityOnHand) > 0;
+    if (statusFilter.value === "INV") return Number(invQty(i)) > 0;
     return true;
   }),
 );
@@ -84,12 +88,15 @@ async function load(): Promise<void> {
     ]);
     items.value = page.items;
     valuation.value = val;
+    for (const key of Object.keys(inv)) delete inv[key];
     for (const key of Object.keys(wip)) delete wip[key];
     for (const key of Object.keys(quarantine)) delete quarantine[key];
     let wipSum = 0;
     let quarantineSum = 0;
     for (const p of positions) {
-      if (p.status === "WIP") {
+      if (p.status === "INV") {
+        inv[p.itemId] = { quantity: p.quantity, value: p.totalValue, avgCost: p.avgCost };
+      } else if (p.status === "WIP") {
         wip[p.itemId] = { quantity: p.quantity, value: p.totalValue };
         wipSum += Number(p.totalValue);
       } else if (p.status === "QUARANTINE") {
@@ -217,14 +224,14 @@ onMounted(load);
             <td>{{ ITEM_TYPE_LABELS[item.itemType] }}</td>
             <td>{{ item.unitOfMeasure === "KG" ? "KG" : "LB" }}</td>
             <td class="num">
-              {{ item.quantityOnHand }}
+              {{ invQty(item) }}
               <div v-if="item.unitOfMeasure === 'KG'" class="inactive" style="font-size: 0.75rem">
-                = {{ kgEquivalent(item.quantityOnHand) }} kg
+                = {{ kgEquivalent(invQty(item)) }} kg
               </div>
             </td>
             <td class="num" :class="{ inactive: Number(wipQty(item)) === 0 }">{{ wipQty(item) }}</td>
             <td class="num" :class="{ inactive: Number(quarantineQty(item)) === 0 }">{{ quarantineQty(item) }}</td>
-            <td class="num">{{ item.unitCost }}</td>
+            <td class="num">{{ inv[item.id]?.avgCost ?? "0" }}</td>
             <td class="num">${{ totalValue(item) }}</td>
             <td>
               <RouterLink

@@ -18,6 +18,8 @@ import {
   PERMISSIONS,
   PHYSICAL_FORMS,
   type PhysicalForm,
+  QB_ITEM_TYPES,
+  type QbItemType,
   QC_SUITE_BY_FORM,
   QC_TEST_KIND,
   QC_TEST_TYPES,
@@ -58,6 +60,12 @@ const form = reactive({
   physicalForm: "LIQUID" as PhysicalForm,
   unitOfMeasure: "LB",
   salesPrice: "0",
+  qbItemType: "INVENTORY" as QbItemType,
+  standardCost: "0",
+  purchaseDescription: "",
+  incomeAccount: "",
+  cogsAccount: "",
+  assetAccount: "",
   active: true,
 });
 
@@ -277,6 +285,12 @@ onMounted(async () => {
       physicalForm: item.physicalForm,
       unitOfMeasure: item.unitOfMeasure,
       salesPrice: item.salesPrice,
+      qbItemType: item.qbItemType,
+      standardCost: item.standardCost,
+      purchaseDescription: item.purchaseDescription ?? "",
+      incomeAccount: item.incomeAccount ?? "",
+      cogsAccount: item.cogsAccount ?? "",
+      assetAccount: item.assetAccount ?? "",
       active: item.active,
     });
     await loadStock();
@@ -298,6 +312,12 @@ async function submit(): Promise<void> {
       physicalForm: form.physicalForm,
       unitOfMeasure: form.unitOfMeasure,
       salesPrice: form.salesPrice,
+      qbItemType: form.qbItemType,
+      standardCost: form.standardCost,
+      purchaseDescription: form.purchaseDescription || undefined,
+      incomeAccount: form.incomeAccount || undefined,
+      cogsAccount: form.cogsAccount || undefined,
+      assetAccount: form.assetAccount || undefined,
       active: form.active,
     };
 
@@ -411,10 +431,41 @@ async function submit(): Promise<void> {
       </div>
 
       <p class="inactive" style="font-size: 0.8rem">
-        Quantity on hand and unit cost are derived from transactions, not set here.
+        This is the item master. Quantity on hand and average cost are derived
+        from transactions (the stock ledger), not set here.
         <template v-if="isEdit">Use “Adjust inventory” below to post an opening balance or correction.</template>
         <template v-else>After saving, open the item to post an opening balance via an inventory adjustment.</template>
       </p>
+
+      <h4>QuickBooks / accounting</h4>
+      <div class="grid-2">
+        <div class="field">
+          <label for="qbtype">QuickBooks item type</label>
+          <select id="qbtype" v-model="form.qbItemType">
+            <option v-for="t in QB_ITEM_TYPES" :key="t" :value="t">{{ t.replace(/_/g, " ") }}</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Standard / purchase cost</label>
+          <input v-model="form.standardCost" inputmode="decimal" />
+        </div>
+        <div class="field">
+          <label>Income account</label>
+          <input v-model="form.incomeAccount" placeholder="e.g. Sales:Fragrance" />
+        </div>
+        <div class="field">
+          <label>COGS account</label>
+          <input v-model="form.cogsAccount" placeholder="e.g. Cost of Goods Sold" />
+        </div>
+        <div class="field">
+          <label>Inventory asset account</label>
+          <input v-model="form.assetAccount" placeholder="e.g. Inventory Asset" />
+        </div>
+        <div class="field">
+          <label>Purchase description</label>
+          <input v-model="form.purchaseDescription" />
+        </div>
+      </div>
 
       <div class="field">
         <label><input type="checkbox" v-model="form.active" style="width: auto" /> Active</label>

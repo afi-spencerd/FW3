@@ -174,16 +174,12 @@ async function main(): Promise<void> {
           itemType: item.type,
           physicalForm: item.form,
           unitOfMeasure: item.uom,
-          quantityOnHand: qtyLb,
-          unitCost: costLb,
           salesPrice: item.price,
+          // Item master only — opening quantity/cost go to ItemStock below.
         },
-        // Re-converge existing demo rows on the canonical pounds values.
         update: {
           physicalForm: item.form,
           unitOfMeasure: item.uom,
-          quantityOnHand: qtyLb,
-          unitCost: costLb,
         },
       });
       await prisma.itemStock.upsert({

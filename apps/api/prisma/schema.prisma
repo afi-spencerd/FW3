@@ -129,10 +129,16 @@ model InventoryItem {
   physicalForm   String    @default("LIQUID") @db.NVarChar(10)
   // LB | KG — also CHECK-constrained. Fragrance is stored by weight, mostly lbs.
   unitOfMeasure  String    @default("LB") @db.NVarChar(16)
-  quantityOnHand Decimal   @default(0) @db.Decimal(18, 4)
-  unitCost       Decimal   @default(0) @db.Decimal(19, 4)
   salesPrice     Decimal   @default(0) @db.Decimal(19, 4)
   active         Boolean   @default(true)
+  // ---- Item master / QuickBooks attributes (NO inventory position here;
+  // quantity + moving-average cost live in ItemStock / the ledger) ----
+  qbItemType          String    @default("INVENTORY") @db.NVarChar(20) // INVENTORY | NON_INVENTORY | SERVICE
+  standardCost        Decimal   @default(0) @db.Decimal(19, 4) // item-record purchase/standard cost
+  purchaseDescription String?   @db.NVarChar(2000)
+  incomeAccount       String?   @db.NVarChar(159) // QB account full names
+  cogsAccount         String?   @db.NVarChar(159)
+  assetAccount        String?   @db.NVarChar(159)
   // QuickBooks linkage from the QBWC round-trip (per tenant).
   qbListId       String?   @db.NVarChar(64)
   qbEditSequence String?   @db.NVarChar(64)

@@ -102,16 +102,10 @@ export class StockService {
       const stock = await tx.itemStock.findUnique({
         where: { itemId_status: { itemId: movement.itemId, status } },
       });
-      // Fall back to the item's mirrored opening balance for INV when no
-      // ItemStock row exists yet (e.g. an item created with an opening qty).
+      // ItemStock is the sole source of position; a missing bucket starts at zero.
       const position = stock
         ? { quantity: stock.quantity.toString(), avgCost: stock.avgCost.toString() }
-        : status === "INV"
-          ? {
-              quantity: item.quantityOnHand.toString(),
-              avgCost: item.unitCost.toString(),
-            }
-          : { quantity: "0", avgCost: "0" };
+        : { quantity: "0", avgCost: "0" };
 
       let result: PostingResult;
       if (movement.direction === "IN") {
@@ -161,15 +155,6 @@ export class StockService {
         },
         update: { quantity: result.balanceQty, avgCost: result.balanceAvgCost },
       });
-      if (status === "INV") {
-        await tx.inventoryItem.update({
-          where: { id: movement.itemId },
-          data: {
-            quantityOnHand: result.balanceQty,
-            unitCost: result.balanceAvgCost,
-          },
-        });
-      }
 
       // Maintain the per-location quantity breakdown for located statuses, so
       // the sum over locations stays equal to the ItemStock quantity. Cost is
@@ -356,23 +341,26 @@ export class StockService {
     return this.getPosition(user.tenantId, itemId);
   }
 
-  /** Current LOT-traceable (INV) position of an item. */
+  /** Current LOT-traceable (INV) position of an item — read from the stock ledger. */
   async getPosition(tenantId: string, itemId: string): Promise<InventoryPosition> {
     const item = await this.prisma.inventoryItem.findFirst({
       where: { id: itemId, tenantId },
+      select: { id: true, sku: true, name: true, unitOfMeasure: true },
     });
     if (!item) throw new NotFoundException("Inventory item not found");
+    const inv = await this.prisma.itemStock.findUnique({
+      where: { itemId_status: { itemId, status: "INV" } },
+    });
+    const quantity = (inv?.quantity ?? new Decimal(0)).toString();
+    const avgCost = (inv?.avgCost ?? new Decimal(0)).toString();
     return {
       itemId: item.id,
       sku: item.sku,
       name: item.name,
       unitOfMeasure: item.unitOfMeasure as UnitOfMeasure,
-      quantityOnHand: item.quantityOnHand.toString(),
-      avgCost: item.unitCost.toString(),
-      totalValue: extendedValue(
-        item.quantityOnHand.toString(),
-        item.unitCost.toString(),
-      ),
+      quantityOnHand: quantity,
+      avgCost,
+      totalValue: extendedValue(quantity, avgCost),
     };
   }
 

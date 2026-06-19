@@ -11,13 +11,13 @@ import type {
   ItemType,
   PaginatedInventory,
   PhysicalForm,
+  QbItemType,
   UnitOfMeasure,
   UpdateInventoryItem,
 } from "@fw3/shared-types";
 import { AuditService } from "../audit/audit.service";
 import { PrismaService } from "../database/prisma.service";
 import { Prisma } from "../generated/prisma/client";
-import { extendedValue } from "./valuation";
 
 // Row type as Prisma returns it (Decimal fields are Prisma.Decimal instances).
 type InventoryRow = Awaited<
@@ -97,13 +97,18 @@ export class InventoryService {
             physicalForm: input.physicalForm,
             unitOfMeasure: input.unitOfMeasure,
             salesPrice: input.salesPrice,
+            qbItemType: input.qbItemType,
+            standardCost: input.standardCost,
+            purchaseDescription: input.purchaseDescription ?? null,
+            incomeAccount: input.incomeAccount ?? null,
+            cogsAccount: input.cogsAccount ?? null,
+            assetAccount: input.assetAccount ?? null,
             active: input.active,
-            // quantityOnHand / unitCost default to 0 — they are ledger-derived.
+            // No quantity/cost here — inventory position lives in ItemStock/ledger.
           },
         });
         // The INV bucket starts empty; opening stock comes from a transaction
-        // (an inventory adjustment), which posts to the ledger and re-mirrors
-        // quantity/cost back onto the item.
+        // (an inventory adjustment) posted to the ledger.
         await tx.itemStock.create({
           data: {
             tenantId: user.tenantId,
@@ -155,10 +160,26 @@ export class InventoryService {
             ...(input.unitOfMeasure === undefined
               ? {}
               : { unitOfMeasure: input.unitOfMeasure }),
-            // quantityOnHand and unitCost are ledger-derived — not editable here.
+            // Quantity / cost are ledger-derived — not on the item master.
             ...(input.salesPrice === undefined
               ? {}
               : { salesPrice: input.salesPrice }),
+            ...(input.qbItemType === undefined ? {} : { qbItemType: input.qbItemType }),
+            ...(input.standardCost === undefined
+              ? {}
+              : { standardCost: input.standardCost }),
+            ...(input.purchaseDescription === undefined
+              ? {}
+              : { purchaseDescription: input.purchaseDescription ?? null }),
+            ...(input.incomeAccount === undefined
+              ? {}
+              : { incomeAccount: input.incomeAccount ?? null }),
+            ...(input.cogsAccount === undefined
+              ? {}
+              : { cogsAccount: input.cogsAccount ?? null }),
+            ...(input.assetAccount === undefined
+              ? {}
+              : { assetAccount: input.assetAccount ?? null }),
             ...(input.active === undefined ? {} : { active: input.active }),
           },
         });
@@ -219,13 +240,13 @@ export class InventoryService {
       itemType: row.itemType as ItemType,
       physicalForm: row.physicalForm as PhysicalForm,
       unitOfMeasure: row.unitOfMeasure as UnitOfMeasure,
-      quantityOnHand: row.quantityOnHand.toString(),
-      unitCost: row.unitCost.toString(),
       salesPrice: row.salesPrice.toString(),
-      extendedValue: extendedValue(
-        row.quantityOnHand.toString(),
-        row.unitCost.toString(),
-      ),
+      qbItemType: row.qbItemType as QbItemType,
+      standardCost: row.standardCost.toString(),
+      purchaseDescription: row.purchaseDescription,
+      incomeAccount: row.incomeAccount,
+      cogsAccount: row.cogsAccount,
+      assetAccount: row.assetAccount,
       active: row.active,
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
