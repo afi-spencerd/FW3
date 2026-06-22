@@ -28,9 +28,6 @@ const form = reactive({
   capacityLb: "",
   standardCost: "0",
   active: true,
-  // Opening stock (create only): qty already on hand, never PO'd.
-  openingQuantity: "",
-  openingUnitCost: "",
 });
 const position = ref<Container | null>(null);
 const ledger = ref<ContainerTxn[]>([]);
@@ -100,23 +97,13 @@ async function submit(): Promise<void> {
       await loadDetail();
       notice.value = "Saved.";
     } else {
-      const parsed = createContainerSchema.safeParse({
-        ...payload,
-        sku: form.sku,
-        openingQuantity: form.openingQuantity.trim() || undefined,
-        openingUnitCost: form.openingUnitCost.trim() || undefined,
-      });
+      const parsed = createContainerSchema.safeParse({ ...payload, sku: form.sku });
       if (!parsed.success) {
         setIssues(parsed.error.issues.map((i) => ({ path: String(i.path[0] ?? ""), message: i.message })));
         return;
       }
-      const created = await api.createContainer(parsed.data);
-      // Opening stock posted → open the detail to see/adjust; else back to list.
-      if (parsed.data.openingQuantity) {
-        await router.push({ name: "container-detail", params: { id: created.id } });
-      } else {
-        await router.push({ name: "containers" });
-      }
+      await api.createContainer(parsed.data);
+      await router.push({ name: "containers" });
     }
   } catch (err) {
     if (err instanceof ApiError) {
@@ -217,27 +204,6 @@ async function doScrap(): Promise<void> {
           <label><input type="checkbox" v-model="form.active" style="width: auto" /> Active</label>
         </div>
       </div>
-
-      <template v-if="!isEdit">
-        <h4>Opening stock (optional)</h4>
-        <p class="inactive" style="font-size: 0.8rem">
-          Quantity already on hand that never came through a PO. Posts one opening
-          adjustment on create (unit cost defaults to standard cost). Leave blank
-          to start at zero and receive later.
-        </p>
-        <div class="grid-2">
-          <div class="field">
-            <label>Opening quantity</label>
-            <input v-model="form.openingQuantity" inputmode="numeric" placeholder="0" />
-            <div v-if="errors.openingQuantity" class="error">{{ errors.openingQuantity }}</div>
-          </div>
-          <div class="field">
-            <label>Opening unit cost</label>
-            <input v-model="form.openingUnitCost" inputmode="decimal" :placeholder="form.standardCost" />
-            <div v-if="errors.openingUnitCost" class="error">{{ errors.openingUnitCost }}</div>
-          </div>
-        </div>
-      </template>
 
       <div class="toolbar">
         <button class="primary" :disabled="busy || !form.name" @click="submit">
