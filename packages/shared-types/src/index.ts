@@ -10,6 +10,7 @@ export * from "./party.js";
 export * from "./purchasing.js";
 export * from "./sales.js";
 export * from "./container.js";
+export * from "./regulatory.js";
 export * from "./production.js";
 export * from "./compounder.js";
 export * from "./qb.js";

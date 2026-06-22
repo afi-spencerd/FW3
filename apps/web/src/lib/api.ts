@@ -19,6 +19,8 @@ import type {
   InventoryItem,
   CreateProductionWorkOrder,
   CreateLocation,
+  FgRegulatory,
+  FgRegulatorySummary,
   InventoryPosition,
   InventoryTxn,
   ItemLocationPosition,
@@ -139,6 +141,13 @@ export const api = {
   listInventory: (query: InventoryQuery = {}) =>
     request<PaginatedInventory>(`/inventory${toQueryString(query)}`),
   getInventory: (id: string) => request<InventoryItem>(`/inventory/${id}`),
+  getFgRegulatory: (id: string) =>
+    request<FgRegulatory>(`/inventory/${id}/regulatory`),
+  refreshFgRegulatory: (id: string) =>
+    request<FgRegulatory>(`/inventory/${id}/regulatory/refresh`, { method: "POST" }),
+  fgRegulatorySummary: () =>
+    request<FgRegulatorySummary[]>("/inventory/regulatory/summary"),
+
   createOpeningStock: (data: OpeningStock) =>
     request<InventoryItem>("/inventory/opening", {
       method: "POST",

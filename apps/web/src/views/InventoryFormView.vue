@@ -34,6 +34,7 @@ import {
   STOCK_STATUSES,
   UNITS_OF_MEASURE,
   updateInventoryItemSchema,
+  type FgRegulatory,
 } from "@fw3/shared-types";
 import { api, ApiError } from "../lib/api";
 import { weightLabel } from "../lib/weight";
@@ -93,6 +94,35 @@ const form = reactive({
 
 // Whether the regulatory panel applies (raw materials only).
 const isRawMaterial = computed(() => form.itemType === "RAW_MATERIAL");
+
+// --- Finished-good regulatory profile (derived + FormPak+), edit mode only ---
+const isFinishedGood = computed(() => form.itemType === "FINISHED_GOOD");
+const fgReg = ref<FgRegulatory | null>(null);
+const fgRegError = ref<string | null>(null);
+const fgRegBusy = ref(false);
+const canRefreshFg = auth.hasPermission(PERMISSIONS.INVENTORY_UPDATE);
+
+async function loadFgRegulatory(): Promise<void> {
+  if (!props.id || form.itemType !== "FINISHED_GOOD") return;
+  fgRegError.value = null;
+  try {
+    fgReg.value = await api.getFgRegulatory(props.id);
+  } catch (err) {
+    fgRegError.value = err instanceof ApiError ? err.message : "Failed to load";
+  }
+}
+async function refreshFormPak(): Promise<void> {
+  if (!props.id) return;
+  fgRegError.value = null;
+  fgRegBusy.value = true;
+  try {
+    fgReg.value = await api.refreshFgRegulatory(props.id);
+  } catch (err) {
+    fgRegError.value = err instanceof ApiError ? err.message : "Refresh failed";
+  } finally {
+    fgRegBusy.value = false;
+  }
+}
 
 // IFRA category usage limits, keyed by category. Empty string = no limit set.
 const ifraLimits = reactive<Record<IfraCategory, string>>(
@@ -342,6 +372,7 @@ onMounted(async () => {
     await loadStock();
     await loadLocations();
     await loadSpecs();
+    await loadFgRegulatory();
   } catch (err) {
     formError.value = err instanceof ApiError ? err.message : "Failed to load";
   }
@@ -861,10 +892,126 @@ async function submit(): Promise<void> {
         </button>
       </div>
     </div>
+
+    <div v-if="isEdit && isFinishedGood" class="panel" style="margin-top: 1rem">
+      <div class="toolbar">
+        <h3 style="margin: 0">Regulatory</h3>
+        <span class="spacer" />
+        <button v-if="canRefreshFg" :disabled="fgRegBusy" @click="refreshFormPak">
+          {{ fgRegBusy ? "Refreshing…" : "Refresh from FormPak+" }}
+        </button>
+      </div>
+      <div v-if="fgRegError" class="banner error">{{ fgRegError }}</div>
+
+      <template v-if="fgReg">
+        <p class="inactive" style="font-size: 0.85rem">
+          Derived from the raw-material make-up of
+          <template v-if="fgReg.derived.hasFormula">
+            <strong>{{ fgReg.derived.formulaName }}</strong> (v{{ fgReg.derived.formulaVersion }})
+          </template>
+          <template v-else>— no active formula —</template>.
+          FormPak+ values are the authoritative finished-product data.
+        </p>
+
+        <h4>Derived from raw materials</h4>
+        <div class="summary" style="margin-bottom: 0.5rem">
+          <div class="metric">
+            <div class="label">Prop 65</div>
+            <div class="value" style="font-size: 1rem" :class="{ warn: fgReg.derived.prop65Status === 'LISTED' }">
+              {{ fgReg.derived.prop65Status }}
+            </div>
+          </div>
+          <div class="metric">
+            <div class="label">Components</div>
+            <div class="value" style="font-size: 1rem">{{ fgReg.derived.components.length }}</div>
+          </div>
+        </div>
+        <p v-if="fgReg.derived.prop65Contributors.length" class="inactive" style="font-size: 0.8rem">
+          Prop 65 via:
+          {{ fgReg.derived.prop65Contributors.map((c) => c.sku).join(", ") }}
+        </p>
+
+        <table v-if="fgReg.derived.components.length">
+          <thead>
+            <tr><th>Component</th><th>CAS #</th><th class="num">Effective %</th></tr>
+          </thead>
+          <tbody>
+            <tr v-for="c in fgReg.derived.components" :key="c.itemId">
+              <td>{{ c.name }} <span class="inactive">({{ c.sku }})</span></td>
+              <td>{{ c.casNumber ?? "—" }}</td>
+              <td class="num">{{ c.effectivePercent }}</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <template v-if="fgReg.derived.ifraDerived.length">
+          <h4>IFRA — derived max in finished product (indicative)</h4>
+          <table>
+            <thead>
+              <tr><th>Category</th><th class="num">Max %</th><th>Limited by</th></tr>
+            </thead>
+            <tbody>
+              <tr v-for="r in fgReg.derived.ifraDerived" :key="r.category">
+                <td>Cat {{ r.category }}</td>
+                <td class="num">{{ r.maxPercent }}</td>
+                <td class="inactive">{{ r.limitingSku }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </template>
+
+        <h4 style="margin-top: 1rem">FormPak+</h4>
+        <template v-if="fgReg.formPak">
+          <div class="summary" style="margin-bottom: 0.5rem">
+            <div class="metric">
+              <div class="label">Compliance</div>
+              <div class="value" style="font-size: 1rem" :class="{ warn: fgReg.formPak.complianceStatus === 'NON_COMPLIANT' }">
+                {{ fgReg.formPak.complianceStatus }}
+              </div>
+            </div>
+            <div class="metric">
+              <div class="label">Flash point</div>
+              <div class="value" style="font-size: 1rem">
+                {{ fgReg.formPak.flashPointC ?? "—" }}<span v-if="fgReg.formPak.flashPointC">°C</span>
+              </div>
+            </div>
+          </div>
+          <p v-if="fgReg.formPak.allergenDeclaration" style="font-size: 0.85rem">
+            {{ fgReg.formPak.allergenDeclaration }}
+          </p>
+          <table v-if="fgReg.formPak.ifraLevels.length">
+            <thead>
+              <tr><th>IFRA category</th><th class="num">QRA max %</th></tr>
+            </thead>
+            <tbody>
+              <tr v-for="l in fgReg.formPak.ifraLevels" :key="l.category">
+                <td>Cat {{ l.category }}</td>
+                <td class="num">{{ l.maxPercent }}</td>
+              </tr>
+            </tbody>
+          </table>
+          <p class="inactive" style="font-size: 0.8rem; margin-top: 0.5rem">
+            <a v-if="fgReg.formPak.certificateUrl" :href="fgReg.formPak.certificateUrl" target="_blank">Certificate</a>
+            <span v-if="fgReg.formPak.certificateUrl"> · </span>
+            <span v-if="fgReg.formPak.syncedAt">
+              Synced {{ new Date(fgReg.formPak.syncedAt).toLocaleString() }}
+            </span>
+          </p>
+        </template>
+        <p v-else class="inactive" style="font-size: 0.85rem">
+          Not yet synced from FormPak+. Use “Refresh from FormPak+” to pull flash
+          point, IFRA QRA levels, allergen declaration, and compliance.
+        </p>
+      </template>
+    </div>
   </div>
 </template>
 
 <style scoped>
+.warn {
+  color: #b45309;
+  font-weight: 600;
+}
 .ifra-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));

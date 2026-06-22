@@ -22,6 +22,12 @@ export const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
+      path: "/finished-goods",
+      name: "finished-goods",
+      component: () => import("./views/FinishedGoodsView.vue"),
+      meta: { requiresAuth: true },
+    },
+    {
       path: "/inventory/new",
       name: "inventory-new",
       component: () => import("./views/InventoryFormView.vue"),

@@ -27,6 +27,9 @@ const envSchema = z.object({
   // disabled unless both are set.
   QB_AGENT_URL: z.string().url().optional(),
   QB_AGENT_API_KEY: z.string().optional(),
+  // FormPak+ regulatory software (external). Unconfigured -> deterministic stub.
+  FORMPAK_URL: z.string().url().optional(),
+  FORMPAK_API_KEY: z.string().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;

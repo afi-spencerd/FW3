@@ -52,6 +52,8 @@ model Tenant {
   containers          Container[]
   containerStocks     ContainerStock[]
   containerTxns       ContainerTxn[]
+  fgRegulatoryProfiles FgRegulatoryProfile[]
+  fgIfraLevels        FgIfraLevel[]
 }
 
 model User {
@@ -182,6 +184,7 @@ model InventoryItem {
   vendorReturns           VendorReturn[]
   ifraLimits              IfraCategoryLimit[]
   shipmentLines           ShipmentLine[]
+  regulatoryProfile       FgRegulatoryProfile?
 
   @@unique([tenantId, sku])
   @@index([tenantId])
@@ -203,6 +206,45 @@ model IfraCategoryLimit {
   item   InventoryItem @relation(fields: [itemId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@unique([itemId, category])
+  @@index([tenantId])
+}
+
+// FormPak+ regulatory snapshot for a finished good (the authoritative third-party
+// data we can't derive in-house). One per FG item; refreshed on demand. The
+// derived-from-RM part is computed live and never stored here.
+model FgRegulatoryProfile {
+  id                  String    @id @default(uuid()) @db.Char(36)
+  tenantId            String    @db.Char(36)
+  itemId              String    @unique @db.Char(36)
+  flashPointC         Decimal?  @db.Decimal(7, 2)
+  complianceStatus    String    @default("UNKNOWN") @db.NVarChar(20) // UNKNOWN | COMPLIANT | NON_COMPLIANT | PENDING (CHECK)
+  allergenDeclaration String?   @db.NVarChar(2000)
+  certificateUrl      String?   @db.NVarChar(500)
+  formPakRef          String?   @db.NVarChar(80)
+  syncedAt            DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  tenant     Tenant         @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  item       InventoryItem  @relation(fields: [itemId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  ifraLevels FgIfraLevel[]
+
+  @@index([tenantId])
+}
+
+// FormPak+ IFRA QRA level per category for a finished good (max % in finished
+// product per IFRA category). Replaced wholesale on each refresh.
+model FgIfraLevel {
+  id         String  @id @default(uuid()) @db.Char(36)
+  tenantId   String  @db.Char(36)
+  profileId  String  @db.Char(36)
+  category   String  @db.NVarChar(10)
+  maxPercent Decimal @db.Decimal(7, 4)
+
+  tenant  Tenant              @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  profile FgRegulatoryProfile @relation(fields: [profileId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([profileId, category])
   @@index([tenantId])
 }
 

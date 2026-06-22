@@ -13,6 +13,7 @@ import { FormulaModule } from "./formula/formula.module";
 import { PurchasingModule } from "./purchasing/purchasing.module";
 import { SalesModule } from "./sales/sales.module";
 import { ContainerModule } from "./container/container.module";
+import { RegulatoryModule } from "./regulatory/regulatory.module";
 import { ProductionModule } from "./production/production.module";
 import { CompounderModule } from "./compounder/compounder.module";
 import { QualityModule } from "./quality/quality.module";
@@ -39,6 +40,7 @@ import { JobsModule } from "./jobs/jobs.module";
     PurchasingModule,
     SalesModule,
     ContainerModule,
+    RegulatoryModule,
     ProductionModule,
     CompounderModule,
     QualityModule,
