@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { moneyString } from "./money.js";
+import { moneyString, quantityString } from "./money.js";
 
 /**
  * Inventory item contracts — shared by the API (DTO validation) and the web
@@ -176,6 +176,24 @@ export const inventoryItemSchema = z.object({
   updatedAt: z.string().datetime(),
 });
 
+/**
+ * Create an item together with its opening balance — for stock already on hand
+ * that never came through a PO (go-live balances, samples, found stock). Creates
+ * the item and posts one opening IN adjustment, so no dummy PO is needed.
+ */
+export const openingStockSchema = z.object({
+  sku: z.string().trim().min(1).max(64),
+  name: z.string().trim().min(1).max(200),
+  itemType: itemTypeSchema,
+  physicalForm: physicalFormSchema.default("LIQUID"),
+  unitOfMeasure: unitOfMeasureSchema.default("LB"),
+  /** Opening quantity, in the item's handling unit; must be positive. */
+  quantity: quantityString.refine((v) => Number(v) > 0, "must be greater than 0"),
+  /** Unit cost the opening stock is valued at. */
+  unitCost: moneyString,
+  note: z.string().trim().max(500).optional(),
+});
+
 export const inventoryListQuerySchema = z.object({
   search: z.string().trim().max(200).optional(),
   itemType: itemTypeSchema.optional(),
@@ -201,5 +219,6 @@ export type CreateInventoryItemInput = z.input<typeof createInventoryItemSchema>
 export type CreateInventoryItem = z.infer<typeof createInventoryItemSchema>;
 export type UpdateInventoryItem = z.infer<typeof updateInventoryItemSchema>;
 export type InventoryItem = z.infer<typeof inventoryItemSchema>;
+export type OpeningStock = z.infer<typeof openingStockSchema>;
 export type InventoryListQuery = z.infer<typeof inventoryListQuerySchema>;
 export type PaginatedInventory = z.infer<typeof paginatedInventorySchema>;

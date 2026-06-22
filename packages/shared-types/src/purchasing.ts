@@ -82,17 +82,29 @@ export const PO_LINE_TYPES = ["ITEM", "CONTAINER"] as const;
 export const poLineTypeSchema = z.enum(PO_LINE_TYPES);
 export type PoLineType = (typeof PO_LINE_TYPES)[number];
 
+/** Define a brand-new material/base inline on a PO line (created when the PO is). */
+export const poNewItemSchema = z.object({
+  sku: z.string().trim().min(1).max(64),
+  name: z.string().trim().min(1).max(200),
+  // Procurable tiers only — finished goods aren't purchased.
+  itemType: z.enum(["RAW_MATERIAL", "SEMI_FINISHED"]),
+  unitOfMeasure: unitOfMeasureSchema.default("LB"),
+});
+
 export const poLineInputSchema = z
   .object({
     itemId: z.string().uuid().nullish(),
     containerId: z.string().uuid().nullish(),
+    /** Create a new item inline; mutually exclusive with itemId/containerId. */
+    newItem: poNewItemSchema.nullish(),
     quantityOrdered: positiveQty,
     unitCost: moneyString,
     sortOrder: z.number().int().min(0).default(0),
   })
   .refine(
-    (l) => (l.itemId ? 1 : 0) + (l.containerId ? 1 : 0) === 1,
-    "a line must reference exactly one item or container",
+    (l) =>
+      (l.itemId ? 1 : 0) + (l.containerId ? 1 : 0) + (l.newItem ? 1 : 0) === 1,
+    "a line must reference exactly one item, container, or new item",
   );
 
 export const createPurchaseOrderSchema = z.object({
@@ -193,6 +205,7 @@ export type CreateVendor = z.infer<typeof createVendorSchema>;
 export type UpdateVendor = z.infer<typeof updateVendorSchema>;
 export type Vendor = z.infer<typeof vendorSchema>;
 export type VendorSupplySummary = z.infer<typeof vendorSupplySummarySchema>;
+export type PoNewItem = z.infer<typeof poNewItemSchema>;
 export type PurchaseOrderLineInput = z.infer<typeof poLineInputSchema>;
 export type CreatePurchaseOrder = z.infer<typeof createPurchaseOrderSchema>;
 export type UpdatePurchaseOrder = z.infer<typeof updatePurchaseOrderSchema>;

@@ -14,6 +14,8 @@ import {
   createInventoryItemSchema,
   type InventoryListQuery,
   inventoryListQuerySchema,
+  type OpeningStock,
+  openingStockSchema,
   PERMISSIONS,
   type UpdateInventoryItem,
   updateInventoryItemSchema,
@@ -64,6 +66,16 @@ export class InventoryController {
     body: CreateInventoryItem,
   ) {
     return this.inventory.create(user, body);
+  }
+
+  // Create an item together with its opening balance (no PO needed).
+  @Post("opening")
+  @RequirePermissions(PERMISSIONS.INVENTORY_CREATE)
+  createOpening(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body(new ZodValidationPipe(openingStockSchema)) body: OpeningStock,
+  ) {
+    return this.inventory.createWithOpeningBalance(user, body);
   }
 
   @Put(":id")

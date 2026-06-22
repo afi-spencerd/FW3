@@ -10,6 +10,7 @@ import type {
   InventoryItem,
   InventoryListQuery,
   ItemType,
+  OpeningStock,
   PaginatedInventory,
   PhysicalForm,
   Prop65Status,
@@ -20,6 +21,7 @@ import type {
 import { AuditService } from "../audit/audit.service";
 import { PrismaService } from "../database/prisma.service";
 import { Prisma } from "../generated/prisma/client";
+import { StockService } from "../stock/stock.service";
 
 // Row type as Prisma returns it (Decimal fields are Prisma.Decimal instances),
 // with the regulatory IFRA limits included for the DTO.
@@ -38,6 +40,7 @@ export class InventoryService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly stock: StockService,
   ) {}
 
   async list(
@@ -148,6 +151,72 @@ export class InventoryService {
         return row;
       });
       return this.toDto(created);
+    } catch (err) {
+      throw this.mapWriteError(err, input.sku);
+    }
+  }
+
+  /**
+   * Create an item and post its opening balance in one transaction — for stock
+   * already on hand that never came through a PO. Creates the item (minimal
+   * fields; the rest filled in later on the item page) then posts a single
+   * ADJUSTMENT IN at the given cost. No dummy PO required.
+   */
+  async createWithOpeningBalance(
+    user: AuthenticatedUser,
+    input: OpeningStock,
+  ): Promise<InventoryItem> {
+    try {
+      const id = await this.prisma.$transaction(async (tx) => {
+        const dup = await tx.inventoryItem.findFirst({
+          where: { tenantId: user.tenantId, sku: input.sku },
+        });
+        if (dup) throw new ConflictException(`SKU "${input.sku}" already exists`);
+
+        const row = await tx.inventoryItem.create({
+          data: {
+            tenantId: user.tenantId,
+            sku: input.sku,
+            name: input.name,
+            itemType: input.itemType,
+            physicalForm: input.physicalForm,
+            unitOfMeasure: input.unitOfMeasure,
+          },
+        });
+        // Opening IN adjustment (re-averages from zero -> the given unit cost).
+        // StockService.post upserts the INV bucket, so no separate 0-bucket needed.
+        await this.stock.post(
+          tx,
+          user.tenantId,
+          [
+            {
+              itemId: row.id,
+              type: "ADJUSTMENT",
+              direction: "IN",
+              quantity: input.quantity,
+              unitCost: input.unitCost,
+              status: "INV",
+            },
+          ],
+          { docType: "ADJUSTMENT", note: input.note ?? "Opening balance" },
+        );
+        await this.audit.record(tx, {
+          tenantId: user.tenantId,
+          actorId: user.id,
+          entityType: "InventoryItem",
+          entityId: row.id,
+          action: "CREATE",
+          after: {
+            sku: row.sku,
+            name: row.name,
+            itemType: row.itemType,
+            opening: { quantity: input.quantity, unitCost: input.unitCost },
+            via: "opening_balance",
+          },
+        });
+        return row.id;
+      });
+      return this.getById(user.tenantId, id);
     } catch (err) {
       throw this.mapWriteError(err, input.sku);
     }

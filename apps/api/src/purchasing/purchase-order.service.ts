@@ -8,9 +8,11 @@ import Decimal from "decimal.js";
 import {
   type AuthenticatedUser,
   type CreatePurchaseOrder,
+  type PoNewItem,
   type PurchaseOrder,
   type PurchaseOrderStatus,
   type PhysicalForm,
+  type PurchaseOrderLineInput,
   type PurchaseOrderSummary,
   QC_SUITE_BY_FORM,
   type ReceivePurchaseOrder,
@@ -81,6 +83,7 @@ export class PurchaseOrderService {
         });
         if (!vendor) throw new BadRequestException("Vendor not found");
         await this.assertProcurable(tx, user.tenantId, input.lines);
+        const lineData = await this.resolveLineData(tx, user, input.lines);
 
         const order = await tx.purchaseOrder.create({
           data: {
@@ -90,15 +93,7 @@ export class PurchaseOrderService {
             status: "OPEN",
             ...(input.orderDate ? { orderDate: new Date(input.orderDate) } : {}),
             notes: input.notes ?? null,
-            lines: {
-              create: input.lines.map((line) => ({
-                itemId: line.itemId ?? null,
-                containerId: line.containerId ?? null,
-                quantityOrdered: line.quantityOrdered,
-                unitCost: line.unitCost,
-                sortOrder: line.sortOrder,
-              })),
-            },
+            lines: { create: lineData },
           },
         });
         await this.audit.record(tx, {
@@ -131,8 +126,10 @@ export class PurchaseOrderService {
             "Only an open purchase order with no receipts can be edited",
           );
         }
+        let lineData: Awaited<ReturnType<typeof this.resolveLineData>> | null = null;
         if (input.lines) {
           await this.assertProcurable(tx, user.tenantId, input.lines);
+          lineData = await this.resolveLineData(tx, user, input.lines);
         }
         await tx.purchaseOrder.update({
           where: { id },
@@ -140,20 +137,7 @@ export class PurchaseOrderService {
             ...(input.vendorId === undefined ? {} : { vendorId: input.vendorId }),
             ...(input.poNumber === undefined ? {} : { poNumber: input.poNumber }),
             ...(input.notes === undefined ? {} : { notes: input.notes ?? null }),
-            ...(input.lines
-              ? {
-                  lines: {
-                    deleteMany: {},
-                    create: input.lines.map((line) => ({
-                      itemId: line.itemId ?? null,
-                      containerId: line.containerId ?? null,
-                      quantityOrdered: line.quantityOrdered,
-                      unitCost: line.unitCost,
-                      sortOrder: line.sortOrder,
-                    })),
-                  },
-                }
-              : {}),
+            ...(lineData ? { lines: { deleteMany: {}, create: lineData } } : {}),
           },
         });
         await this.audit.record(tx, {
@@ -367,6 +351,77 @@ export class PurchaseOrderService {
     });
     if (!order) throw new NotFoundException("Purchase order not found");
     return order;
+  }
+
+  /**
+   * Resolve PO line inputs to stored line data, creating any inline `newItem`
+   * within the transaction first (so a line that defines a new material ends up
+   * referencing the freshly created item).
+   */
+  private async resolveLineData(
+    tx: Prisma.TransactionClient,
+    user: AuthenticatedUser,
+    lines: PurchaseOrderLineInput[],
+  ) {
+    const out: {
+      itemId: string | null;
+      containerId: string | null;
+      quantityOrdered: string;
+      unitCost: string;
+      sortOrder: number;
+    }[] = [];
+    for (const line of lines) {
+      const itemId = line.newItem
+        ? await this.createItemInline(tx, user, line.newItem)
+        : (line.itemId ?? null);
+      out.push({
+        itemId,
+        containerId: line.containerId ?? null,
+        quantityOrdered: line.quantityOrdered,
+        unitCost: line.unitCost,
+        sortOrder: line.sortOrder,
+      });
+    }
+    return out;
+  }
+
+  /** Create a new procurable item inline (opening its INV bucket at zero). */
+  private async createItemInline(
+    tx: Prisma.TransactionClient,
+    user: AuthenticatedUser,
+    newItem: PoNewItem,
+  ): Promise<string> {
+    const dup = await tx.inventoryItem.findFirst({
+      where: { tenantId: user.tenantId, sku: newItem.sku },
+    });
+    if (dup) throw new ConflictException(`SKU "${newItem.sku}" already exists`);
+    const item = await tx.inventoryItem.create({
+      data: {
+        tenantId: user.tenantId,
+        sku: newItem.sku,
+        name: newItem.name,
+        itemType: newItem.itemType,
+        unitOfMeasure: newItem.unitOfMeasure,
+      },
+    });
+    await tx.itemStock.create({
+      data: {
+        tenantId: user.tenantId,
+        itemId: item.id,
+        status: "INV",
+        quantity: "0",
+        avgCost: "0",
+      },
+    });
+    await this.audit.record(tx, {
+      tenantId: user.tenantId,
+      actorId: user.id,
+      entityType: "InventoryItem",
+      entityId: item.id,
+      action: "CREATE",
+      after: { sku: item.sku, name: item.name, itemType: item.itemType, via: "po" },
+    });
+    return item.id;
   }
 
   /**

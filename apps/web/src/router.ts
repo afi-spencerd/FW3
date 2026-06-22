@@ -28,6 +28,12 @@ export const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
+      path: "/inventory/opening",
+      name: "inventory-opening",
+      component: () => import("./views/OpeningStockView.vue"),
+      meta: { requiresAuth: true },
+    },
+    {
       path: "/inventory/:id",
       name: "inventory-edit",
       component: () => import("./views/InventoryFormView.vue"),

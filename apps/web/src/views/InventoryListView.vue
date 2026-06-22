@@ -230,11 +230,11 @@ onMounted(load);
         Sync QuickBooks
       </button>
       <RouterLink
-        v-if="auth.hasPermission(PERMISSIONS.INVENTORY_CREATE)"
+        v-if="auth.hasPermission(PERMISSIONS.INVENTORY_CREATE) && auth.hasPermission(PERMISSIONS.STOCK_ADJUST)"
         class="btn primary"
-        :to="{ name: 'inventory-new' }"
+        :to="{ name: 'inventory-opening' }"
       >
-        New item
+        Add opening stock
       </RouterLink>
     </div>
 

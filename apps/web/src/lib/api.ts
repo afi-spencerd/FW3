@@ -39,6 +39,7 @@ import type {
   ScrapStock,
   VendorReturn,
   LotSummary,
+  OpeningStock,
   PaginatedInventory,
   ProductionWorkOrder,
   ProductionWorkOrderSummary,
@@ -138,6 +139,11 @@ export const api = {
   listInventory: (query: InventoryQuery = {}) =>
     request<PaginatedInventory>(`/inventory${toQueryString(query)}`),
   getInventory: (id: string) => request<InventoryItem>(`/inventory/${id}`),
+  createOpeningStock: (data: OpeningStock) =>
+    request<InventoryItem>("/inventory/opening", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
   createInventory: (data: CreateInventoryItem) =>
     request<InventoryItem>("/inventory", {
       method: "POST",

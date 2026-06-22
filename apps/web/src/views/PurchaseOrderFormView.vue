@@ -19,11 +19,16 @@ const summary = reactive<Record<string, VendorSupplySummary>>({});
 const issues = ref<string[]>([]);
 const busy = ref(false);
 
+// subjectId === NEW_ITEM means "create a new material inline" (fields below).
+const NEW_ITEM = "__NEW__";
 interface PoLine {
   kind: PoLineType;
   subjectId: string;
   quantityOrdered: string;
   unitCost: string;
+  newSku: string;
+  newName: string;
+  newUom: string;
 }
 const form = reactive({
   vendorId: "",
@@ -58,7 +63,10 @@ const allowed = computed(() => allowedKinds(selectedVendor.value));
 // The subject ids currently on the lines — used to find vendors who've supplied
 // similar orders before.
 const lineSubjectIds = computed(
-  () => new Set(form.lines.map((l) => l.subjectId).filter(Boolean)),
+  () =>
+    new Set(
+      form.lines.map((l) => l.subjectId).filter((id) => id && id !== NEW_ITEM),
+    ),
 );
 function priorMatches(vendorId: string): number {
   const s = summary[vendorId];
@@ -100,6 +108,9 @@ function addLine(): void {
     subjectId: "",
     quantityOrdered: "0",
     unitCost: "0",
+    newSku: "",
+    newName: "",
+    newUom: "LB",
   });
 }
 function removeLine(i: number): void {
@@ -152,13 +163,24 @@ async function submit(): Promise<void> {
       vendorId: form.vendorId,
       poNumber: form.poNumber,
       notes: form.notes || undefined,
-      lines: form.lines.map((l, i) => ({
-        itemId: l.kind === "ITEM" ? l.subjectId : undefined,
-        containerId: l.kind === "CONTAINER" ? l.subjectId : undefined,
-        quantityOrdered: l.quantityOrdered,
-        unitCost: l.unitCost,
-        sortOrder: i,
-      })),
+      lines: form.lines.map((l, i) => {
+        const isNew = l.kind === "ITEM" && l.subjectId === NEW_ITEM;
+        return {
+          itemId: l.kind === "ITEM" && !isNew ? l.subjectId : undefined,
+          containerId: l.kind === "CONTAINER" ? l.subjectId : undefined,
+          newItem: isNew
+            ? {
+                sku: l.newSku.trim(),
+                name: l.newName.trim(),
+                itemType: "RAW_MATERIAL" as const,
+                unitOfMeasure: l.newUom,
+              }
+            : undefined,
+          quantityOrdered: l.quantityOrdered,
+          unitCost: l.unitCost,
+          sortOrder: i,
+        };
+      }),
     };
     const parsed = createPurchaseOrderSchema.safeParse(payload);
     if (!parsed.success) {
@@ -239,12 +261,23 @@ async function submit(): Promise<void> {
               </select>
             </td>
             <td>
-              <select v-if="line.kind === 'ITEM'" v-model="line.subjectId">
-                <option value="" disabled>Select an item…</option>
-                <option v-for="it in items" :key="it.id" :value="it.id">
-                  {{ it.name }} ({{ it.sku }}) · {{ it.unitOfMeasure }}
-                </option>
-              </select>
+              <template v-if="line.kind === 'ITEM'">
+                <select v-model="line.subjectId">
+                  <option value="" disabled>Select an item…</option>
+                  <option value="__NEW__">➕ New material…</option>
+                  <option v-for="it in items" :key="it.id" :value="it.id">
+                    {{ it.name }} ({{ it.sku }}) · {{ it.unitOfMeasure }}
+                  </option>
+                </select>
+                <div v-if="line.subjectId === '__NEW__'" class="new-item">
+                  <input v-model="line.newSku" placeholder="SKU" style="max-width: 110px" />
+                  <input v-model="line.newName" placeholder="Name" style="max-width: 160px" />
+                  <select v-model="line.newUom" style="max-width: 70px">
+                    <option value="LB">LB</option>
+                    <option value="KG">KG</option>
+                  </select>
+                </div>
+              </template>
               <select v-else v-model="line.subjectId">
                 <option value="" disabled>Select a container…</option>
                 <option v-for="c in containers" :key="c.id" :value="c.id">
@@ -276,3 +309,11 @@ async function submit(): Promise<void> {
     </div>
   </div>
 </template>
+
+<style scoped>
+.new-item {
+  display: flex;
+  gap: 0.4rem;
+  margin-top: 0.3rem;
+}
+</style>
