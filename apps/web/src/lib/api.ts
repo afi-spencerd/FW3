@@ -260,6 +260,7 @@ export const api = {
     }),
 
   listCustomers: () => request<Customer[]>("/customers"),
+  getCustomer: (id: string) => request<Customer>(`/customers/${id}`),
   createCustomer: (data: CreateCustomer) =>
     request<Customer>("/customers", { method: "POST", body: JSON.stringify(data) }),
   updateCustomer: (id: string, data: UpdateCustomer) =>
