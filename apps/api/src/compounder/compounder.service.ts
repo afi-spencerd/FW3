@@ -86,6 +86,9 @@ export class CompounderService {
       where: {
         tenantId,
         active: true,
+        // R&D/lab-only materials are stocked but never exposed to the production
+        // dosing tool — only production-use items appear here.
+        productionUse: true,
         ...(query.itemType ? { itemType: query.itemType } : {}),
         ...(query.search
           ? {

@@ -6,11 +6,13 @@ import {
 import type {
   AuthenticatedUser,
   CreateInventoryItem,
+  IfraCategory,
   InventoryItem,
   InventoryListQuery,
   ItemType,
   PaginatedInventory,
   PhysicalForm,
+  Prop65Status,
   QbItemType,
   UnitOfMeasure,
   UpdateInventoryItem,
@@ -19,10 +21,11 @@ import { AuditService } from "../audit/audit.service";
 import { PrismaService } from "../database/prisma.service";
 import { Prisma } from "../generated/prisma/client";
 
-// Row type as Prisma returns it (Decimal fields are Prisma.Decimal instances).
-type InventoryRow = Awaited<
-  ReturnType<PrismaService["inventoryItem"]["findFirstOrThrow"]>
->;
+// Row type as Prisma returns it (Decimal fields are Prisma.Decimal instances),
+// with the regulatory IFRA limits included for the DTO.
+type InventoryRow = Prisma.InventoryItemGetPayload<{
+  include: { ifraLimits: true };
+}>;
 
 export interface ValuationSummary {
   itemCount: number;
@@ -58,6 +61,7 @@ export class InventoryService {
     const [rows, total] = await this.prisma.$transaction([
       this.prisma.inventoryItem.findMany({
         where,
+        include: { ifraLimits: { orderBy: { category: "asc" } } },
         orderBy: { sku: "asc" },
         skip: (query.page - 1) * query.pageSize,
         take: query.pageSize,
@@ -76,6 +80,7 @@ export class InventoryService {
   async getById(tenantId: string, id: string): Promise<InventoryItem> {
     const row = await this.prisma.inventoryItem.findFirst({
       where: { id, tenantId },
+      include: { ifraLimits: { orderBy: { category: "asc" } } },
     });
     if (!row) throw new NotFoundException("Inventory item not found");
     return this.toDto(row);
@@ -104,8 +109,22 @@ export class InventoryService {
             cogsAccount: input.cogsAccount ?? null,
             assetAccount: input.assetAccount ?? null,
             active: input.active,
+            // Raw-material regulatory data.
+            productionUse: input.productionUse,
+            casNumber: input.casNumber ?? null,
+            flashPointC: input.flashPointC ?? null,
+            prop65Status: input.prop65Status,
+            prop65Notes: input.prop65Notes ?? null,
+            ifraLimits: {
+              create: input.ifraLimits.map((l) => ({
+                tenantId: user.tenantId,
+                category: l.category,
+                maxPercent: l.maxPercent,
+              })),
+            },
             // No quantity/cost here — inventory position lives in ItemStock/ledger.
           },
+          include: { ifraLimits: { orderBy: { category: "asc" } } },
         });
         // The INV bucket starts empty; opening stock comes from a transaction
         // (an inventory adjustment) posted to the ledger.
@@ -143,10 +162,11 @@ export class InventoryService {
       const updated = await this.prisma.$transaction(async (tx) => {
         const existing = await tx.inventoryItem.findFirst({
           where: { id, tenantId: user.tenantId },
+          include: { ifraLimits: { orderBy: { category: "asc" } } },
         });
         if (!existing) throw new NotFoundException("Inventory item not found");
 
-        const row = await tx.inventoryItem.update({
+        await tx.inventoryItem.update({
           where: { id: existing.id },
           data: {
             ...(input.name === undefined ? {} : { name: input.name }),
@@ -181,7 +201,43 @@ export class InventoryService {
               ? {}
               : { assetAccount: input.assetAccount ?? null }),
             ...(input.active === undefined ? {} : { active: input.active }),
+            // Raw-material regulatory data.
+            ...(input.productionUse === undefined
+              ? {}
+              : { productionUse: input.productionUse }),
+            ...(input.casNumber === undefined
+              ? {}
+              : { casNumber: input.casNumber ?? null }),
+            ...(input.flashPointC === undefined
+              ? {}
+              : { flashPointC: input.flashPointC ?? null }),
+            ...(input.prop65Status === undefined
+              ? {}
+              : { prop65Status: input.prop65Status }),
+            ...(input.prop65Notes === undefined
+              ? {}
+              : { prop65Notes: input.prop65Notes ?? null }),
           },
+        });
+
+        // IFRA limits replace the existing set wholesale when provided.
+        if (input.ifraLimits !== undefined) {
+          await tx.ifraCategoryLimit.deleteMany({ where: { itemId: existing.id } });
+          if (input.ifraLimits.length > 0) {
+            await tx.ifraCategoryLimit.createMany({
+              data: input.ifraLimits.map((l) => ({
+                tenantId: user.tenantId,
+                itemId: existing.id,
+                category: l.category,
+                maxPercent: l.maxPercent,
+              })),
+            });
+          }
+        }
+
+        const row = await tx.inventoryItem.findFirstOrThrow({
+          where: { id: existing.id },
+          include: { ifraLimits: { orderBy: { category: "asc" } } },
         });
         await this.audit.record(tx, {
           tenantId: user.tenantId,
@@ -248,6 +304,15 @@ export class InventoryService {
       cogsAccount: row.cogsAccount,
       assetAccount: row.assetAccount,
       active: row.active,
+      productionUse: row.productionUse,
+      casNumber: row.casNumber,
+      flashPointC: row.flashPointC === null ? null : row.flashPointC.toString(),
+      prop65Status: row.prop65Status as Prop65Status,
+      prop65Notes: row.prop65Notes,
+      ifraLimits: row.ifraLimits.map((l) => ({
+        category: l.category as IfraCategory,
+        maxPercent: l.maxPercent.toString(),
+      })),
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
     };

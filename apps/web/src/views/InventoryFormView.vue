@@ -3,6 +3,8 @@ import { computed, onMounted, reactive, ref } from "vue";
 import { useRouter } from "vue-router";
 import {
   createInventoryItemSchema,
+  type IfraCategory,
+  IFRA_CATEGORIES,
   type InventoryPosition,
   type InventoryTxn,
   type ItemLocationPosition,
@@ -11,6 +13,8 @@ import {
   type ItemType,
   isStockableKind,
   KG_TO_LB_FORMULA,
+  PROP65_STATUSES,
+  type Prop65Status,
   type LocatedStockStatus,
   LOCATED_STOCK_STATUSES,
   type Location,
@@ -67,7 +71,30 @@ const form = reactive({
   cogsAccount: "",
   assetAccount: "",
   active: true,
+  // Raw-material regulatory data.
+  productionUse: true,
+  casNumber: "",
+  flashPointC: "",
+  prop65Status: "UNKNOWN" as Prop65Status,
+  prop65Notes: "",
 });
+
+// Whether the regulatory panel applies (raw materials only).
+const isRawMaterial = computed(() => form.itemType === "RAW_MATERIAL");
+
+// IFRA category usage limits, keyed by category. Empty string = no limit set.
+const ifraLimits = reactive<Record<IfraCategory, string>>(
+  Object.fromEntries(IFRA_CATEGORIES.map((c) => [c, ""])) as Record<
+    IfraCategory,
+    string
+  >,
+);
+
+const PROP65_LABELS: Record<Prop65Status, string> = {
+  UNKNOWN: "Unknown / not assessed",
+  NOT_LISTED: "No listed chemicals",
+  LISTED: "Contains listed chemical(s)",
+};
 
 const errors = reactive<Record<string, string>>({});
 const formError = ref<string | null>(null);
@@ -292,7 +319,14 @@ onMounted(async () => {
       cogsAccount: item.cogsAccount ?? "",
       assetAccount: item.assetAccount ?? "",
       active: item.active,
+      productionUse: item.productionUse,
+      casNumber: item.casNumber ?? "",
+      flashPointC: item.flashPointC ?? "",
+      prop65Status: item.prop65Status,
+      prop65Notes: item.prop65Notes ?? "",
     });
+    for (const c of IFRA_CATEGORIES) ifraLimits[c] = "";
+    for (const l of item.ifraLimits) ifraLimits[l.category] = l.maxPercent;
     await loadStock();
     await loadLocations();
     await loadSpecs();
@@ -305,6 +339,14 @@ async function submit(): Promise<void> {
   clearErrors();
   busy.value = true;
   try {
+    // Only raw materials carry regulatory data; for other tiers send the
+    // defaults so the fields stay clean.
+    const ifra = isRawMaterial.value
+      ? IFRA_CATEGORIES.filter((c) => ifraLimits[c].trim() !== "").map((c) => ({
+          category: c,
+          maxPercent: ifraLimits[c].trim(),
+        }))
+      : [];
     const payload = {
       name: form.name,
       description: form.description || undefined,
@@ -319,6 +361,14 @@ async function submit(): Promise<void> {
       cogsAccount: form.cogsAccount || undefined,
       assetAccount: form.assetAccount || undefined,
       active: form.active,
+      productionUse: isRawMaterial.value ? form.productionUse : true,
+      casNumber: isRawMaterial.value && form.casNumber ? form.casNumber : undefined,
+      flashPointC:
+        isRawMaterial.value && form.flashPointC ? form.flashPointC : undefined,
+      prop65Status: isRawMaterial.value ? form.prop65Status : "UNKNOWN",
+      prop65Notes:
+        isRawMaterial.value && form.prop65Notes ? form.prop65Notes : undefined,
+      ifraLimits: ifra,
     };
 
     if (isEdit && props.id) {
@@ -466,6 +516,61 @@ async function submit(): Promise<void> {
           <input v-model="form.purchaseDescription" />
         </div>
       </div>
+
+      <template v-if="isRawMaterial">
+        <h4>Regulatory</h4>
+        <div class="field">
+          <label>
+            <input type="checkbox" v-model="form.productionUse" style="width: auto" />
+            Used in production
+          </label>
+          <div class="inactive" style="font-size: 0.8rem">
+            Uncheck for R&amp;D / lab-only materials. Unchecked materials stay in
+            inventory but are hidden from the production compounder dosing tool.
+          </div>
+        </div>
+        <div class="grid-2">
+          <div class="field">
+            <label>CAS number</label>
+            <input v-model="form.casNumber" placeholder="e.g. 3738-00-9" />
+            <div v-if="errors.casNumber" class="error">{{ errors.casNumber }}</div>
+          </div>
+          <div class="field">
+            <label>Flash point (°C)</label>
+            <input v-model="form.flashPointC" inputmode="decimal" placeholder="closed cup" />
+            <div v-if="errors.flashPointC" class="error">{{ errors.flashPointC }}</div>
+          </div>
+          <div class="field">
+            <label>Prop 65 status</label>
+            <select v-model="form.prop65Status">
+              <option v-for="s in PROP65_STATUSES" :key="s" :value="s">
+                {{ PROP65_LABELS[s] }}
+              </option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Prop 65 notes</label>
+            <input v-model="form.prop65Notes" placeholder="listed chemical(s)" />
+          </div>
+        </div>
+
+        <div class="field">
+          <label>IFRA usage limits (max % in finished product)</label>
+          <div class="inactive" style="font-size: 0.8rem; margin-bottom: 0.4rem">
+            Leave a category blank if there is no restriction (49th Amendment categories).
+          </div>
+          <div class="ifra-grid">
+            <label v-for="c in IFRA_CATEGORIES" :key="c" class="ifra-cell">
+              <span class="ifra-cat">Cat {{ c }}</span>
+              <input
+                v-model="ifraLimits[c]"
+                inputmode="decimal"
+                placeholder="—"
+              />
+            </label>
+          </div>
+        </div>
+      </template>
 
       <div class="field">
         <label><input type="checkbox" v-model="form.active" style="width: auto" /> Active</label>
@@ -746,3 +851,24 @@ async function submit(): Promise<void> {
     </div>
   </div>
 </template>
+
+<style scoped>
+.ifra-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 0.5rem;
+}
+.ifra-cell {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+.ifra-cat {
+  font-size: 0.8rem;
+  min-width: 3.2rem;
+}
+.ifra-cell input {
+  max-width: 70px;
+  text-align: right;
+}
+</style>

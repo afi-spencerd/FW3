@@ -46,6 +46,7 @@ model Tenant {
   cycleCountLines     CycleCountLine[]
   scrapRecords        ScrapRecord[]
   vendorReturns       VendorReturn[]
+  ifraCategoryLimits  IfraCategoryLimit[]
 }
 
 model User {
@@ -143,6 +144,14 @@ model InventoryItem {
   qbListId       String?   @db.NVarChar(64)
   qbEditSequence String?   @db.NVarChar(64)
   qbSyncedAt     DateTime?
+  // ---- Raw-material regulatory data (RM-only; null/default elsewhere) ----
+  // R&D/lab-only materials stay in inventory but are hidden from the production
+  // compounder dosing tool (see CompounderService.getInventory).
+  productionUse  Boolean   @default(true)
+  casNumber      String?   @db.NVarChar(40)
+  flashPointC    Decimal?  @db.Decimal(7, 2) // flash point °C (closed cup)
+  prop65Status   String    @default("UNKNOWN") @db.NVarChar(20) // UNKNOWN | NOT_LISTED | LISTED (CHECK)
+  prop65Notes    String?   @db.NVarChar(500)
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
@@ -165,8 +174,28 @@ model InventoryItem {
   cycleCountLines         CycleCountLine[]
   scrapRecords            ScrapRecord[]
   vendorReturns           VendorReturn[]
+  ifraLimits              IfraCategoryLimit[]
 
   @@unique([tenantId, sku])
+  @@index([tenantId])
+}
+
+// Per-raw-material IFRA usage limit: the maximum percentage the material may
+// reach in a finished product of a given IFRA use category (49th Amendment).
+// One row per (item, category); the set replaces wholesale on item update.
+model IfraCategoryLimit {
+  id         String   @id @default(uuid()) @db.Char(36)
+  tenantId   String   @db.Char(36)
+  itemId     String   @db.Char(36)
+  category   String   @db.NVarChar(10) // "1".."12", with IFRA sub-categories (5A, 7B, 10A, …)
+  maxPercent Decimal  @db.Decimal(7, 4) // max % in finished product, 0–100 (CHECK)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  tenant Tenant        @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  item   InventoryItem @relation(fields: [itemId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([itemId, category])
   @@index([tenantId])
 }
 

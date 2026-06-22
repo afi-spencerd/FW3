@@ -55,6 +55,53 @@ export const QB_ITEM_TYPES = ["INVENTORY", "NON_INVENTORY", "SERVICE"] as const;
 export const qbItemTypeSchema = z.enum(QB_ITEM_TYPES);
 export type QbItemType = (typeof QB_ITEM_TYPES)[number];
 
+// ---- Raw-material regulatory data ----
+
+/**
+ * California Proposition 65 status for the material. UNKNOWN = not yet assessed;
+ * NOT_LISTED = no listed chemicals; LISTED = contains a Prop-65 listed chemical
+ * (a consumer warning may be required — capture which chemicals in prop65Notes).
+ */
+export const PROP65_STATUSES = ["UNKNOWN", "NOT_LISTED", "LISTED"] as const;
+export const prop65StatusSchema = z.enum(PROP65_STATUSES);
+export type Prop65Status = (typeof PROP65_STATUSES)[number];
+
+/**
+ * IFRA Standards use categories (49th Amendment). A raw material carries a
+ * maximum-usage percentage per category — the highest concentration it may reach
+ * in a finished product of that category. Categories with letter suffixes are
+ * IFRA's own sub-categories (e.g. 5A–5D body lotions, 7A/7B, 10A/10B, 11A/11B).
+ */
+export const IFRA_CATEGORIES = [
+  "1", "2", "3", "4",
+  "5A", "5B", "5C", "5D",
+  "6", "7A", "7B", "8", "9",
+  "10A", "10B", "11A", "11B", "12",
+] as const;
+export const ifraCategorySchema = z.enum(IFRA_CATEGORIES);
+export type IfraCategory = (typeof IFRA_CATEGORIES)[number];
+
+/** Flash point in degrees Celsius — may be negative (volatile solvents), 2 dp. */
+const flashPointString = z
+  .string()
+  .regex(/^-?\d{1,4}(\.\d{1,2})?$/, "must be a number (°C) with up to 2 places");
+
+/** A percentage in [0, 100], up to 4 decimal places (IFRA usage limits). */
+const percentString = z
+  .string()
+  .regex(/^\d{1,3}(\.\d{1,4})?$/, "must be a percentage with up to 4 places")
+  .refine((v) => Number(v) <= 100, "must not exceed 100");
+
+/** One IFRA category usage limit on a raw material (max % in a finished good). */
+export const ifraLimitInputSchema = z.object({
+  category: ifraCategorySchema,
+  maxPercent: percentString,
+});
+export const ifraLimitSchema = z.object({
+  category: ifraCategorySchema,
+  maxPercent: z.string(),
+});
+
 /**
  * Item master — the item's *definition*, separate from its inventory position.
  * Quantity on hand and average cost are NOT part of the master; they live in the
@@ -79,6 +126,21 @@ export const createInventoryItemSchema = z.object({
   cogsAccount: z.string().trim().max(159).optional(),
   assetAccount: z.string().trim().max(159).optional(),
   active: z.boolean().default(true),
+  // ---- Raw-material regulatory attributes (only meaningful for RAW_MATERIAL) ----
+  /**
+   * Whether the material is used in production. R&D/lab-only materials are kept
+   * in inventory but excluded from the production compounder dosing tool.
+   */
+  productionUse: z.boolean().default(true),
+  /** CAS registry number (regulatory identity). */
+  casNumber: z.string().trim().max(40).optional(),
+  /** Flash point in °C (closed cup); omit if not applicable. */
+  flashPointC: flashPointString.optional(),
+  prop65Status: prop65StatusSchema.default("UNKNOWN"),
+  /** Which listed chemical(s) / warning text, when prop65Status is LISTED. */
+  prop65Notes: z.string().trim().max(500).optional(),
+  /** IFRA usage limits; on update this array REPLACES the existing set. */
+  ifraLimits: z.array(ifraLimitInputSchema).default([]),
 });
 
 /** All fields optional on update; sku is immutable so it is intentionally omitted. */
@@ -104,6 +166,12 @@ export const inventoryItemSchema = z.object({
   cogsAccount: z.string().nullable(),
   assetAccount: z.string().nullable(),
   active: z.boolean(),
+  productionUse: z.boolean(),
+  casNumber: z.string().nullable(),
+  flashPointC: z.string().nullable(),
+  prop65Status: prop65StatusSchema,
+  prop65Notes: z.string().nullable(),
+  ifraLimits: z.array(ifraLimitSchema),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 });
@@ -127,6 +195,8 @@ export const paginatedInventorySchema = z.object({
   pageSize: z.number().int(),
 });
 
+export type IfraLimitInput = z.infer<typeof ifraLimitInputSchema>;
+export type IfraLimit = z.infer<typeof ifraLimitSchema>;
 export type CreateInventoryItemInput = z.input<typeof createInventoryItemSchema>;
 export type CreateInventoryItem = z.infer<typeof createInventoryItemSchema>;
 export type UpdateInventoryItem = z.infer<typeof updateInventoryItemSchema>;

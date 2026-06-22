@@ -21,13 +21,26 @@ import { toPounds, unitCostToPounds } from "../src/inventory/units";
 
 loadEnv({ path: path.resolve(__dirname, "../../../.env") });
 
+// Regulatory data is meaningful only for raw materials; other tiers carry the
+// defaults (productionUse true, prop65 UNKNOWN, no IFRA limits).
 const DEMO_ITEMS = [
   // Ambroxan and Vanillin are crystalline solids -> SOLID QC suite (odor, appearance, melting point).
-  { sku: "RM-AMBROXAN", name: "Ambroxan", type: "RAW_MATERIAL", form: "SOLID", uom: "LB", qty: "1.3000", cost: "210.0000", price: "0.0000" },
-  { sku: "RM-HEDIONE", name: "Hedione", type: "RAW_MATERIAL", form: "LIQUID", uom: "LB", qty: "44.5000", cost: "38.5000", price: "0.0000" },
-  { sku: "RM-ISO-E-SUPER", name: "Iso E Super", type: "RAW_MATERIAL", form: "LIQUID", uom: "KG", qty: "12.0000", cost: "33.0000", price: "0.0000" },
-  { sku: "RM-VANILLIN", name: "Vanillin", type: "RAW_MATERIAL", form: "SOLID", uom: "LB", qty: "8.2500", cost: "19.7500", price: "0.0000" },
-  { sku: "RM-IPM", name: "Isopropyl Myristate (IPM)", type: "RAW_MATERIAL", form: "LIQUID", uom: "LB", qty: "120.0000", cost: "3.2500", price: "0.0000" },
+  { sku: "RM-AMBROXAN", name: "Ambroxan", type: "RAW_MATERIAL", form: "SOLID", uom: "LB", qty: "1.3000", cost: "210.0000", price: "0.0000",
+    cas: "6790-58-5", flash: "150.00", prop65: "NOT_LISTED", prop65Notes: null, productionUse: true,
+    ifra: [{ category: "5A", maxPercent: "21.0000" }, { category: "4", maxPercent: "30.0000" }] },
+  { sku: "RM-HEDIONE", name: "Hedione", type: "RAW_MATERIAL", form: "LIQUID", uom: "LB", qty: "44.5000", cost: "38.5000", price: "0.0000",
+    cas: "24851-98-7", flash: "113.00", prop65: "NOT_LISTED", prop65Notes: null, productionUse: true, ifra: [] },
+  { sku: "RM-ISO-E-SUPER", name: "Iso E Super", type: "RAW_MATERIAL", form: "LIQUID", uom: "KG", qty: "12.0000", cost: "33.0000", price: "0.0000",
+    cas: "54464-57-2", flash: "112.00", prop65: "NOT_LISTED", prop65Notes: null, productionUse: true,
+    ifra: [{ category: "1", maxPercent: "1.3900" }, { category: "5A", maxPercent: "21.4000" }] },
+  { sku: "RM-VANILLIN", name: "Vanillin", type: "RAW_MATERIAL", form: "SOLID", uom: "LB", qty: "8.2500", cost: "19.7500", price: "0.0000",
+    cas: "121-33-5", flash: "153.00", prop65: "NOT_LISTED", prop65Notes: null, productionUse: true, ifra: [] },
+  { sku: "RM-IPM", name: "Isopropyl Myristate (IPM)", type: "RAW_MATERIAL", form: "LIQUID", uom: "LB", qty: "120.0000", cost: "3.2500", price: "0.0000",
+    cas: "110-27-0", flash: "153.00", prop65: "NOT_LISTED", prop65Notes: null, productionUse: true, ifra: [] },
+  // Stocked for R&D / lab evaluation only — must NOT appear in the production compounder tool.
+  { sku: "RM-OAKMOSS-ABS", name: "Oakmoss Absolute (R&D)", type: "RAW_MATERIAL", form: "LIQUID", uom: "LB", qty: "0.5000", cost: "420.0000", price: "0.0000",
+    cas: "9000-50-4", flash: "100.00", prop65: "LISTED", prop65Notes: "Contains atranol/chloroatranol allergens", productionUse: false,
+    ifra: [{ category: "4", maxPercent: "0.1000" }] },
   { sku: "SF-AMBROXAN-10", name: "Ambroxan 10% Solution", type: "SEMI_FINISHED", form: "LIQUID", uom: "LB", qty: "5.0000", cost: "23.7000", price: "0.0000" },
   { sku: "FG-NOIR-01", name: "Noir Extrait (fragrance)", type: "FINISHED_GOOD", form: "LIQUID", uom: "LB", qty: "6.0000", cost: "62.4000", price: "180.0000" },
 ] as const;
@@ -165,6 +178,16 @@ async function main(): Promise<void> {
     for (const item of DEMO_ITEMS) {
       const qtyLb = toPounds(item.qty, item.uom);
       const costLb = unitCostToPounds(item.cost, item.uom);
+      // Regulatory fields are present only on the raw-material entries.
+      const reg = "cas" in item
+        ? {
+            casNumber: item.cas,
+            flashPointC: item.flash,
+            prop65Status: item.prop65,
+            prop65Notes: item.prop65Notes,
+            productionUse: item.productionUse,
+          }
+        : {};
       const created = await prisma.inventoryItem.upsert({
         where: { tenantId_sku: { tenantId: tenant.id, sku: item.sku } },
         create: {
@@ -175,13 +198,28 @@ async function main(): Promise<void> {
           physicalForm: item.form,
           unitOfMeasure: item.uom,
           salesPrice: item.price,
+          ...reg,
           // Item master only — opening quantity/cost go to ItemStock below.
         },
         update: {
           physicalForm: item.form,
           unitOfMeasure: item.uom,
+          ...reg,
         },
       });
+      // IFRA usage limits (replace-set so re-seeding is idempotent).
+      const ifra = "ifra" in item ? item.ifra : [];
+      await prisma.ifraCategoryLimit.deleteMany({ where: { itemId: created.id } });
+      for (const limit of ifra) {
+        await prisma.ifraCategoryLimit.create({
+          data: {
+            tenantId: tenant.id,
+            itemId: created.id,
+            category: limit.category,
+            maxPercent: limit.maxPercent,
+          },
+        });
+      }
       await prisma.itemStock.upsert({
         where: { itemId_status: { itemId: created.id, status: "INV" } },
         create: {
