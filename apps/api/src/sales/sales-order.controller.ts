@@ -16,6 +16,8 @@ import {
   shipSalesOrderSchema,
   type UpdateSalesOrder,
   updateSalesOrderSchema,
+  type UpdateShipment,
+  updateShipmentSchema,
 } from "@fw3/shared-types";
 import { CurrentUser } from "../common/current-user.decorator";
 import { ZodValidationPipe } from "../common/zod-validation.pipe";
@@ -81,5 +83,16 @@ export class SalesOrderController {
     @Body(new ZodValidationPipe(shipSalesOrderSchema)) body: ShipSalesOrder,
   ) {
     return this.orders.ship(user, id, body);
+  }
+
+  @Put(":id/shipments/:shipmentId")
+  @RequirePermissions(PERMISSIONS.SO_SHIP)
+  updateShipment(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param("id") id: string,
+    @Param("shipmentId") shipmentId: string,
+    @Body(new ZodValidationPipe(updateShipmentSchema)) body: UpdateShipment,
+  ) {
+    return this.orders.updateShipment(user, id, shipmentId, body);
   }
 }

@@ -14,6 +14,13 @@ const error = ref<string | null>(null);
 const notice = ref<string | null>(null);
 const busy = ref(false);
 const shipQty = reactive<Record<string, string>>({});
+// Carrier / tracking / notes for the despatch being entered.
+const shipMeta = reactive({ carrier: "", trackingNumber: "", notes: "" });
+// Editable tracking per existing shipment (shipmentId -> fields).
+const trackEdits = reactive<
+  Record<string, { carrier: string; trackingNumber: string; notes: string }>
+>({});
+const trackBusy = ref<string | null>(null);
 
 const canShip = computed(
   () =>
@@ -34,13 +41,50 @@ function remaining(ordered: string, shipped: string): number {
   return Number(ordered) - Number(shipped);
 }
 
+function syncTrackEdits(order: SalesOrder): void {
+  for (const key of Object.keys(trackEdits)) delete trackEdits[key];
+  for (const s of order.shipments) {
+    trackEdits[s.id] = {
+      carrier: s.carrier ?? "",
+      trackingNumber: s.trackingNumber ?? "",
+      notes: s.notes ?? "",
+    };
+  }
+}
+
 async function load(): Promise<void> {
   error.value = null;
   try {
     so.value = await api.getSalesOrder(props.id);
     for (const line of so.value.lines) shipQty[line.id] = "0";
+    syncTrackEdits(so.value);
   } catch (err) {
     error.value = err instanceof ApiError ? err.message : "Failed to load";
+  }
+}
+
+function shipmentQty(s: SalesOrder["shipments"][number]): number {
+  return s.lines.reduce((n, l) => n + Number(l.quantity), 0);
+}
+
+async function saveTracking(shipmentId: string): Promise<void> {
+  if (!so.value) return;
+  error.value = null;
+  notice.value = null;
+  trackBusy.value = shipmentId;
+  try {
+    const edit = trackEdits[shipmentId]!;
+    so.value = await api.updateShipment(so.value.id, shipmentId, {
+      carrier: edit.carrier.trim() || null,
+      trackingNumber: edit.trackingNumber.trim() || null,
+      notes: edit.notes.trim() || null,
+    });
+    syncTrackEdits(so.value);
+    notice.value = "Tracking updated.";
+  } catch (err) {
+    error.value = err instanceof ApiError ? err.message : "Update failed";
+  } finally {
+    trackBusy.value = null;
   }
 }
 
@@ -57,8 +101,17 @@ async function ship(): Promise<void> {
   }
   busy.value = true;
   try {
-    so.value = await api.shipSalesOrder(props.id, { lines });
+    so.value = await api.shipSalesOrder(props.id, {
+      lines,
+      carrier: shipMeta.carrier.trim() || undefined,
+      trackingNumber: shipMeta.trackingNumber.trim() || undefined,
+      notes: shipMeta.notes.trim() || undefined,
+    });
     for (const line of so.value.lines) shipQty[line.id] = "0";
+    shipMeta.carrier = "";
+    shipMeta.trackingNumber = "";
+    shipMeta.notes = "";
+    syncTrackEdits(so.value);
     notice.value = "Shipment posted — inventory reduced at cost (COGS).";
   } catch (err) {
     error.value = err instanceof ApiError ? err.message : "Shipment failed";
@@ -127,11 +180,58 @@ onMounted(load);
         </tbody>
       </table>
 
-      <div v-if="canShip" class="toolbar">
+      <div v-if="canShip" class="toolbar" style="flex-wrap: wrap; align-items: center">
+        <input v-model="shipMeta.carrier" placeholder="Carrier (e.g. UPS)" style="max-width: 160px" />
+        <input v-model="shipMeta.trackingNumber" placeholder="Tracking #" style="max-width: 200px" />
+        <input v-model="shipMeta.notes" placeholder="Notes (optional)" style="max-width: 220px" />
+        <span class="spacer" />
         <button class="primary" :disabled="busy" @click="ship">
           {{ busy ? "Posting…" : "Post shipment" }}
         </button>
       </div>
+
+      <template v-if="so.shipments.length">
+        <h3 style="margin-top: 1.5rem">Shipments</h3>
+        <p class="inactive" style="font-size: 0.85rem">
+          Each despatch against this order — its own numbered record with carrier
+          and tracking. Stock was reduced at cost (COGS) when posted; carrier and
+          tracking can be edited after the fact.
+        </p>
+        <table>
+          <thead>
+            <tr>
+              <th>Shipment</th><th>When</th><th>By</th>
+              <th class="num">Qty</th><th class="num">COGS</th>
+              <th>Carrier</th><th>Tracking</th><th>Notes</th>
+              <th v-if="canShip"></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="s in so.shipments" :key="s.id">
+              <td>{{ s.shipmentNumber }}</td>
+              <td>{{ new Date(s.shippedAt).toLocaleString() }}</td>
+              <td>{{ s.shippedByName ?? "—" }}</td>
+              <td class="num">{{ shipmentQty(s) }}</td>
+              <td class="num">${{ s.totalValue }}</td>
+              <template v-if="canShip && trackEdits[s.id]">
+                <td><input v-model="trackEdits[s.id]!.carrier" style="max-width: 120px" /></td>
+                <td><input v-model="trackEdits[s.id]!.trackingNumber" style="max-width: 160px" /></td>
+                <td><input v-model="trackEdits[s.id]!.notes" style="max-width: 160px" /></td>
+                <td>
+                  <button :disabled="trackBusy === s.id" @click="saveTracking(s.id)">
+                    {{ trackBusy === s.id ? "Saving…" : "Save" }}
+                  </button>
+                </td>
+              </template>
+              <template v-else>
+                <td>{{ s.carrier ?? "—" }}</td>
+                <td>{{ s.trackingNumber ?? "—" }}</td>
+                <td>{{ s.notes ?? "—" }}</td>
+              </template>
+            </tr>
+          </tbody>
+        </table>
+      </template>
     </div>
   </div>
 </template>

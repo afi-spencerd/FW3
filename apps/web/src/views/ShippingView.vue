@@ -11,6 +11,10 @@ const orders = ref<SalesOrder[]>([]);
 const onHand = reactive<Record<string, string>>({});
 // salesOrderLineId -> quantity to ship now.
 const shipQty = reactive<Record<string, string>>({});
+// salesOrderId -> carrier / tracking / notes for the despatch being entered.
+const shipMeta = reactive<
+  Record<string, { carrier: string; trackingNumber: string; notes: string }>
+>({});
 const error = ref<string | null>(null);
 const notice = ref<string | null>(null);
 const loading = ref(false);
@@ -40,6 +44,7 @@ async function load(): Promise<void> {
     }
     for (const o of orders.value) {
       for (const line of o.lines) shipQty[line.id] = "0";
+      shipMeta[o.id] = { carrier: "", trackingNumber: "", notes: "" };
     }
   } catch (err) {
     error.value = err instanceof ApiError ? err.message : "Failed to load";
@@ -60,7 +65,13 @@ async function ship(order: SalesOrder): Promise<void> {
   }
   busyId.value = order.id;
   try {
-    await api.shipSalesOrder(order.id, { lines });
+    const meta = shipMeta[order.id];
+    await api.shipSalesOrder(order.id, {
+      lines,
+      carrier: meta?.carrier.trim() || undefined,
+      trackingNumber: meta?.trackingNumber.trim() || undefined,
+      notes: meta?.notes.trim() || undefined,
+    });
     notice.value = `Shipment posted for ${order.soNumber} — inventory reduced at cost (COGS).`;
     await load();
   } catch (err) {
@@ -156,7 +167,28 @@ const totalRemaining = computed(() =>
         </tbody>
       </table>
 
-      <div v-if="canShip" class="toolbar">
+      <template v-if="o.shipments.length">
+        <h4 style="margin-bottom: 0.3rem">Shipped so far</h4>
+        <table class="sub">
+          <thead>
+            <tr><th>Shipment</th><th>When</th><th>Carrier</th><th>Tracking</th><th class="num">Qty</th></tr>
+          </thead>
+          <tbody>
+            <tr v-for="s in o.shipments" :key="s.id">
+              <td>{{ s.shipmentNumber }}</td>
+              <td>{{ new Date(s.shippedAt).toLocaleString() }}</td>
+              <td>{{ s.carrier ?? "—" }}</td>
+              <td>{{ s.trackingNumber ?? "—" }}</td>
+              <td class="num">{{ s.lines.reduce((n, l) => n + Number(l.quantity), 0) }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </template>
+
+      <div v-if="canShip && shipMeta[o.id]" class="ship-controls">
+        <input v-model="shipMeta[o.id]!.carrier" placeholder="Carrier (e.g. UPS)" style="max-width: 160px" />
+        <input v-model="shipMeta[o.id]!.trackingNumber" placeholder="Tracking #" style="max-width: 200px" />
+        <input v-model="shipMeta[o.id]!.notes" placeholder="Notes (optional)" />
         <span class="spacer" />
         <button
           class="primary"
@@ -186,5 +218,19 @@ const totalRemaining = computed(() =>
 .short {
   color: #b45309;
   font-weight: 600;
+}
+.ship-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+.ship-controls input {
+  flex: 1 1 auto;
+}
+table.sub {
+  font-size: 0.85rem;
+  margin-bottom: 0.5rem;
 }
 </style>

@@ -52,6 +52,7 @@ import type {
   UpdateFormula,
   UpdateInventoryItem,
   UpdateLocation,
+  UpdateShipment,
   UpdateVendor,
   Vendor,
 } from "@fw3/shared-types";
@@ -283,6 +284,11 @@ export const api = {
   shipSalesOrder: (id: string, data: ShipSalesOrder) =>
     request<SalesOrder>(`/sales-orders/${id}/ship`, {
       method: "POST",
+      body: JSON.stringify(data),
+    }),
+  updateShipment: (soId: string, shipmentId: string, data: UpdateShipment) =>
+    request<SalesOrder>(`/sales-orders/${soId}/shipments/${shipmentId}`, {
+      method: "PUT",
       body: JSON.stringify(data),
     }),
 

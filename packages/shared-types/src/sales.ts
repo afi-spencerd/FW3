@@ -86,8 +86,14 @@ export const updateSalesOrderSchema = z.object({
   lines: z.array(soLineInputSchema).min(1).optional(),
 });
 
-/** Ship specified quantities against SO lines. */
+/**
+ * Ship specified quantities against SO lines. Each call produces one Shipment
+ * record (a single despatch) with optional carrier + tracking details.
+ */
 export const shipSalesOrderSchema = z.object({
+  carrier: z.string().trim().max(100).optional(),
+  trackingNumber: z.string().trim().max(120).optional(),
+  notes: z.string().trim().max(500).optional(),
   lines: z
     .array(
       z.object({
@@ -96,6 +102,13 @@ export const shipSalesOrderSchema = z.object({
       }),
     )
     .min(1),
+});
+
+/** Edit a shipment's carrier / tracking after the fact (e.g. tracking# assigned at pickup). */
+export const updateShipmentSchema = z.object({
+  carrier: z.string().trim().max(100).nullish(),
+  trackingNumber: z.string().trim().max(120).nullish(),
+  notes: z.string().trim().max(500).nullish(),
 });
 
 export const soLineSchema = z.object({
@@ -110,6 +123,33 @@ export const soLineSchema = z.object({
   sortOrder: z.number().int(),
 });
 
+/** One line of a shipment — the quantity of an SO line despatched, at COGS. */
+export const shipmentLineSchema = z.object({
+  id: z.string().uuid(),
+  salesOrderLineId: z.string().uuid(),
+  itemId: z.string().uuid(),
+  itemSku: z.string(),
+  itemName: z.string(),
+  quantity: z.string(),
+  /** Cost of goods at ship time (per unit / total). */
+  unitCost: z.string(),
+  value: z.string(),
+});
+
+/** A first-class shipment against a sales order: one despatch with tracking. */
+export const shipmentSchema = z.object({
+  id: z.string().uuid(),
+  salesOrderId: z.string().uuid(),
+  shipmentNumber: z.string(),
+  carrier: z.string().nullable(),
+  trackingNumber: z.string().nullable(),
+  notes: z.string().nullable(),
+  shippedByName: z.string().nullable(),
+  shippedAt: z.string().datetime(),
+  lines: z.array(shipmentLineSchema),
+  totalValue: z.string(),
+});
+
 export const salesOrderSchema = z.object({
   id: z.string().uuid(),
   tenantId: z.string().uuid(),
@@ -121,12 +161,13 @@ export const salesOrderSchema = z.object({
   notes: z.string().nullable(),
   totalRevenue: z.string(),
   lines: z.array(soLineSchema),
+  shipments: z.array(shipmentSchema),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 });
 
 export const salesOrderSummarySchema = salesOrderSchema
-  .omit({ lines: true })
+  .omit({ lines: true, shipments: true })
   .extend({ lineCount: z.number().int() });
 
 export type CreateCustomer = z.infer<typeof createCustomerSchema>;
@@ -136,6 +177,9 @@ export type SalesOrderLineInput = z.infer<typeof soLineInputSchema>;
 export type CreateSalesOrder = z.infer<typeof createSalesOrderSchema>;
 export type UpdateSalesOrder = z.infer<typeof updateSalesOrderSchema>;
 export type ShipSalesOrder = z.infer<typeof shipSalesOrderSchema>;
+export type UpdateShipment = z.infer<typeof updateShipmentSchema>;
 export type SalesOrderLine = z.infer<typeof soLineSchema>;
+export type ShipmentLine = z.infer<typeof shipmentLineSchema>;
+export type Shipment = z.infer<typeof shipmentSchema>;
 export type SalesOrder = z.infer<typeof salesOrderSchema>;
 export type SalesOrderSummary = z.infer<typeof salesOrderSummarySchema>;

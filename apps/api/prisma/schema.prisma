@@ -47,6 +47,8 @@ model Tenant {
   scrapRecords        ScrapRecord[]
   vendorReturns       VendorReturn[]
   ifraCategoryLimits  IfraCategoryLimit[]
+  shipments           Shipment[]
+  shipmentLines       ShipmentLine[]
 }
 
 model User {
@@ -67,6 +69,7 @@ model User {
   completedCycleCounts CycleCount[] @relation("CycleCountCompletedBy")
   scrapRecords         ScrapRecord[]
   vendorReturns        VendorReturn[]
+  shipments            Shipment[]
 
   @@unique([tenantId, idpSub])
   @@unique([tenantId, email])
@@ -175,6 +178,7 @@ model InventoryItem {
   scrapRecords            ScrapRecord[]
   vendorReturns           VendorReturn[]
   ifraLimits              IfraCategoryLimit[]
+  shipmentLines           ShipmentLine[]
 
   @@unique([tenantId, sku])
   @@index([tenantId])
@@ -582,9 +586,10 @@ model SalesOrder {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
-  tenant   Tenant           @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  customer Customer         @relation(fields: [customerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  lines    SalesOrderLine[]
+  tenant    Tenant           @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  customer  Customer         @relation(fields: [customerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  lines     SalesOrderLine[]
+  shipments Shipment[]
 
   @@unique([tenantId, soNumber])
   @@index([tenantId])
@@ -602,9 +607,57 @@ model SalesOrderLine {
 
   salesOrder SalesOrder    @relation(fields: [salesOrderId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   item       InventoryItem @relation("ItemSalesOrderLines", fields: [itemId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  shipmentLines ShipmentLine[]
 
   @@index([salesOrderId])
   @@index([itemId])
+}
+
+// A first-class shipment against a sales order: one physical despatch with its
+// own number, carrier, and tracking. Partial fulfilment produces several
+// shipments per order. Stock is reduced (at COGS) by the ledger SHIPMENT
+// movements posted alongside; each ShipmentLine snapshots that cost.
+model Shipment {
+  id             String   @id @default(uuid()) @db.Char(36)
+  tenantId       String   @db.Char(36)
+  salesOrderId   String   @db.Char(36)
+  shipmentNumber String   @db.NVarChar(60)
+  carrier        String?  @db.NVarChar(100)
+  trackingNumber String?  @db.NVarChar(120)
+  notes          String?  @db.NVarChar(500)
+  shippedById    String   @db.Char(36) // operator of record
+  shippedAt      DateTime @default(now())
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  tenant     Tenant         @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  salesOrder SalesOrder     @relation(fields: [salesOrderId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  shippedBy  User           @relation(fields: [shippedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  lines      ShipmentLine[]
+
+  @@unique([tenantId, shipmentNumber])
+  @@index([tenantId])
+  @@index([salesOrderId])
+}
+
+model ShipmentLine {
+  id               String   @id @default(uuid()) @db.Char(36)
+  tenantId         String   @db.Char(36)
+  shipmentId       String   @db.Char(36)
+  salesOrderLineId String   @db.Char(36)
+  itemId           String   @db.Char(36)
+  quantity         Decimal  @db.Decimal(18, 4)
+  unitCost         Decimal  @db.Decimal(19, 4) // COGS per unit at ship time
+  value            Decimal  @db.Decimal(38, 4) // COGS total for the line
+  createdAt        DateTime @default(now())
+
+  tenant         Tenant         @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  shipment       Shipment       @relation(fields: [shipmentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  salesOrderLine SalesOrderLine @relation(fields: [salesOrderLineId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  item           InventoryItem  @relation(fields: [itemId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([tenantId])
+  @@index([shipmentId])
 }
 
 // A production run makes a target (finished good or base) from a formula.

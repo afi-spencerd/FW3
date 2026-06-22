@@ -13,6 +13,7 @@ import type {
   SalesOrderSummary,
   ShipSalesOrder,
   UpdateSalesOrder,
+  UpdateShipment,
 } from "@fw3/shared-types";
 import { AuditService } from "../audit/audit.service";
 import { PrismaService } from "../database/prisma.service";
@@ -22,7 +23,13 @@ import { poStatusFromLines } from "../purchasing/po-status";
 import { type Movement, StockService } from "../stock/stock.service";
 
 type SoWithRelations = Prisma.SalesOrderGetPayload<{
-  include: { customer: true; lines: { include: { item: true } } };
+  include: {
+    customer: true;
+    lines: { include: { item: true } };
+    shipments: {
+      include: { lines: { include: { item: true } }; shippedBy: true };
+    };
+  };
 }>;
 
 @Injectable()
@@ -36,12 +43,18 @@ export class SalesOrderService {
   async list(tenantId: string): Promise<SalesOrderSummary[]> {
     const orders = await this.prisma.salesOrder.findMany({
       where: { tenantId },
-      include: { customer: true, lines: { include: { item: true } } },
+      include: {
+        customer: true,
+        lines: { include: { item: true } },
+        shipments: {
+          include: { lines: { include: { item: true } }, shippedBy: true },
+        },
+      },
       orderBy: { orderDate: "desc" },
     });
     return orders.map((o) => {
       const dto = this.toDto(o);
-      const { lines, ...summary } = dto;
+      const { lines, shipments, ...summary } = dto;
       return { ...summary, lineCount: lines.length };
     });
   }
@@ -61,6 +74,10 @@ export class SalesOrderService {
       include: {
         customer: true,
         lines: { include: { item: true }, orderBy: { sortOrder: "asc" } },
+        shipments: {
+          include: { lines: { include: { item: true } }, shippedBy: true },
+          orderBy: { shippedAt: "asc" },
+        },
       },
       orderBy: { orderDate: "asc" },
     });
@@ -203,6 +220,9 @@ export class SalesOrderService {
 
       const linesById = new Map(order.lines.map((l) => [l.id, l]));
       const movements: Movement[] = [];
+      // Keep the ship entries in posting order so we can pair them with the
+      // PostedLine results (which carry the cost-of-goods each shipped out at).
+      const entries: { line: (typeof order.lines)[number]; qty: string }[] = [];
 
       for (const ship of input.lines) {
         const line = linesById.get(ship.salesOrderLineId);
@@ -224,6 +244,7 @@ export class SalesOrderService {
           direction: "OUT",
           quantity: ship.quantity,
         });
+        entries.push({ line, qty: ship.quantity });
         await tx.salesOrderLine.update({
           where: { id: line.id },
           data: { quantityShipped: line.quantityShipped.plus(qty) },
@@ -231,10 +252,39 @@ export class SalesOrderService {
       }
 
       // Out at average cost; StockService rejects shipping more than on hand.
-      await this.stock.post(tx, user.tenantId, movements, {
+      // Posted results return in the same order as the movements we built.
+      const posted = await this.stock.post(tx, user.tenantId, movements, {
         docType: "SALES_ORDER",
         docId: id,
         note: `SO ${order.soNumber} shipment`,
+      });
+
+      // Record the despatch as a first-class shipment, numbered per order.
+      const priorShipments = await tx.shipment.count({
+        where: { salesOrderId: id },
+      });
+      const shipmentNumber = `${order.soNumber}-S${priorShipments + 1}`;
+      await tx.shipment.create({
+        data: {
+          tenantId: user.tenantId,
+          salesOrderId: id,
+          shipmentNumber,
+          carrier: input.carrier ?? null,
+          trackingNumber: input.trackingNumber ?? null,
+          notes: input.notes ?? null,
+          shippedById: user.id,
+          lines: {
+            create: entries.map((entry, i) => ({
+              tenantId: user.tenantId,
+              salesOrderLineId: entry.line.id,
+              itemId: entry.line.itemId,
+              quantity: entry.qty,
+              // COGS the bucket shipped out at (posted.value is signed -ve OUT).
+              unitCost: posted[i]!.unitCost,
+              value: new Decimal(posted[i]!.value).abs().toString(),
+            })),
+          },
+        },
       });
 
       const refreshed = await tx.salesOrderLine.findMany({
@@ -255,10 +305,44 @@ export class SalesOrderService {
         entityType: "SalesOrder",
         entityId: id,
         action: "UPDATE",
-        after: { shipped: input.lines, status },
+        after: { shipmentNumber, shipped: input.lines, status },
       });
     });
     return this.getById(user.tenantId, id);
+  }
+
+  /** Edit a shipment's carrier / tracking / notes after it has been posted. */
+  async updateShipment(
+    user: AuthenticatedUser,
+    salesOrderId: string,
+    shipmentId: string,
+    input: UpdateShipment,
+  ): Promise<SalesOrder> {
+    await this.prisma.$transaction(async (tx) => {
+      const shipment = await tx.shipment.findFirst({
+        where: { id: shipmentId, salesOrderId, tenantId: user.tenantId },
+      });
+      if (!shipment) throw new NotFoundException("Shipment not found");
+      await tx.shipment.update({
+        where: { id: shipmentId },
+        data: {
+          ...(input.carrier === undefined ? {} : { carrier: input.carrier ?? null }),
+          ...(input.trackingNumber === undefined
+            ? {}
+            : { trackingNumber: input.trackingNumber ?? null }),
+          ...(input.notes === undefined ? {} : { notes: input.notes ?? null }),
+        },
+      });
+      await this.audit.record(tx, {
+        tenantId: user.tenantId,
+        actorId: user.id,
+        entityType: "Shipment",
+        entityId: shipmentId,
+        action: "UPDATE",
+        after: input,
+      });
+    });
+    return this.getById(user.tenantId, salesOrderId);
   }
 
   private async loadOrder(
@@ -271,6 +355,10 @@ export class SalesOrderService {
       include: {
         customer: true,
         lines: { include: { item: true }, orderBy: { sortOrder: "asc" } },
+        shipments: {
+          include: { lines: { include: { item: true } }, shippedBy: true },
+          orderBy: { shippedAt: "asc" },
+        },
       },
     });
     if (!order) throw new NotFoundException("Sales order not found");
@@ -317,6 +405,33 @@ export class SalesOrderService {
     const totalRevenue = lines
       .reduce((sum, l) => sum.plus(l.lineRevenue), new Decimal(0))
       .toString();
+    const shipments = order.shipments.map((s) => {
+      const sLines = s.lines.map((sl) => ({
+        id: sl.id,
+        salesOrderLineId: sl.salesOrderLineId,
+        itemId: sl.itemId,
+        itemSku: sl.item.sku,
+        itemName: sl.item.name,
+        quantity: sl.quantity.toString(),
+        unitCost: sl.unitCost.toString(),
+        value: sl.value.toString(),
+      }));
+      const totalValue = sLines
+        .reduce((sum, l) => sum.plus(l.value), new Decimal(0))
+        .toString();
+      return {
+        id: s.id,
+        salesOrderId: s.salesOrderId,
+        shipmentNumber: s.shipmentNumber,
+        carrier: s.carrier,
+        trackingNumber: s.trackingNumber,
+        notes: s.notes,
+        shippedByName: s.shippedBy?.displayName ?? null,
+        shippedAt: s.shippedAt.toISOString(),
+        lines: sLines,
+        totalValue,
+      };
+    });
     return {
       id: order.id,
       tenantId: order.tenantId,
@@ -328,6 +443,7 @@ export class SalesOrderService {
       notes: order.notes,
       totalRevenue,
       lines,
+      shipments,
       createdAt: order.createdAt.toISOString(),
       updatedAt: order.updatedAt.toISOString(),
     };
