@@ -55,12 +55,23 @@ const positiveQty = quantityString.refine(
   "must be greater than 0",
 );
 
-export const poLineInputSchema = z.object({
-  itemId: z.string().uuid(),
-  quantityOrdered: positiveQty,
-  unitCost: moneyString,
-  sortOrder: z.number().int().min(0).default(0),
-});
+/** A PO line buys either an inventory item or a container — exactly one. */
+export const PO_LINE_TYPES = ["ITEM", "CONTAINER"] as const;
+export const poLineTypeSchema = z.enum(PO_LINE_TYPES);
+export type PoLineType = (typeof PO_LINE_TYPES)[number];
+
+export const poLineInputSchema = z
+  .object({
+    itemId: z.string().uuid().nullish(),
+    containerId: z.string().uuid().nullish(),
+    quantityOrdered: positiveQty,
+    unitCost: moneyString,
+    sortOrder: z.number().int().min(0).default(0),
+  })
+  .refine(
+    (l) => (l.itemId ? 1 : 0) + (l.containerId ? 1 : 0) === 1,
+    "a line must reference exactly one item or container",
+  );
 
 export const createPurchaseOrderSchema = z.object({
   vendorId: z.string().uuid(),
@@ -99,11 +110,14 @@ export const receivePurchaseOrderSchema = z.object({
 
 export const poLineSchema = z.object({
   id: z.string().uuid(),
-  itemId: z.string().uuid(),
-  itemSku: z.string(),
-  itemName: z.string(),
-  /** The item's handling unit. KG lines are entered in kg and stored as lb. */
-  handlingUnit: unitOfMeasureSchema,
+  lineType: poLineTypeSchema,
+  itemId: z.string().uuid().nullable(),
+  containerId: z.string().uuid().nullable(),
+  /** SKU / name of the line's subject (item or container). */
+  sku: z.string(),
+  name: z.string(),
+  /** Item handling unit (KG lines are entered in kg, stored as lb); null for containers (counted each). */
+  handlingUnit: unitOfMeasureSchema.nullable(),
   quantityOrdered: z.string(),
   unitCost: z.string(),
   quantityReceived: z.string(),
@@ -118,15 +132,18 @@ export const poLineSchema = z.object({
  */
 export const poReceiptSchema = z.object({
   id: z.string().uuid(),
+  lineType: poLineTypeSchema,
   purchaseOrderLineId: z.string().uuid().nullable(),
-  itemId: z.string().uuid(),
-  itemSku: z.string(),
-  itemName: z.string(),
+  /** The received subject (item or container). */
+  subjectId: z.string().uuid(),
+  sku: z.string(),
+  name: z.string(),
   quantity: z.string(),
   unitCost: z.string(),
-  lotNumber: z.string(),
+  /** Supplier lot / QC only apply to item receipts; null for containers. */
+  lotNumber: z.string().nullable(),
   locationCode: z.string().nullable(),
-  qcStatus: z.string(),
+  qcStatus: z.string().nullable(),
   receivedAt: z.string().datetime(),
 });
 

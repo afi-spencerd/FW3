@@ -221,6 +221,30 @@ export class ContainerService {
     }
   }
 
+  /**
+   * Receive containers (IN, re-averaging cost) within an existing transaction —
+   * used when receiving a purchase order. Recorded as an ADJUSTMENT tied to the
+   * PO via docType/docId (no QC/quarantine — containers are supplies).
+   */
+  async receiveInTx(
+    tx: Prisma.TransactionClient,
+    user: AuthenticatedUser,
+    entries: { containerId: string; quantity: string; unitCost: string }[],
+    doc: { docType: string; docId: string; note?: string },
+  ): Promise<void> {
+    for (const entry of entries) {
+      await this.postTxn(tx, user, entry.containerId, {
+        type: "ADJUSTMENT",
+        direction: "IN",
+        quantity: entry.quantity,
+        unitCost: entry.unitCost,
+        docType: doc.docType,
+        docId: doc.docId,
+        note: doc.note ?? null,
+      });
+    }
+  }
+
   /** Post one container movement: write the ledger row + update the position. */
   private async postTxn(
     tx: Prisma.TransactionClient,

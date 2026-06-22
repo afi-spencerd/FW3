@@ -500,17 +500,21 @@ model PurchaseOrder {
 model PurchaseOrderLine {
   id               String  @id @default(uuid()) @db.Char(36)
   purchaseOrderId  String  @db.Char(36)
-  itemId           String  @db.Char(36)
+  // A line buys either an inventory item or a container (exactly one; CHECK).
+  itemId           String? @db.Char(36)
+  containerId      String? @db.Char(36)
   quantityOrdered  Decimal @db.Decimal(18, 4)
   unitCost         Decimal @db.Decimal(19, 4)
   quantityReceived Decimal @default(0) @db.Decimal(18, 4)
   sortOrder        Int     @default(0)
 
-  purchaseOrder PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  item          InventoryItem @relation("ItemPurchaseOrderLines", fields: [itemId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  purchaseOrder PurchaseOrder  @relation(fields: [purchaseOrderId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  item          InventoryItem? @relation("ItemPurchaseOrderLines", fields: [itemId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  container     Container?     @relation(fields: [containerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([purchaseOrderId])
   @@index([itemId])
+  @@index([containerId])
 }
 
 model Customer {
@@ -638,10 +642,11 @@ model Container {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  tenant          Tenant           @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  stock           ContainerStock?
-  txns            ContainerTxn[]
-  salesOrderLines SalesOrderLine[]
+  tenant             Tenant              @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  stock              ContainerStock?
+  txns               ContainerTxn[]
+  salesOrderLines    SalesOrderLine[]
+  purchaseOrderLines PurchaseOrderLine[]
 
   @@unique([tenantId, sku])
   @@index([tenantId])

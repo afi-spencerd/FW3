@@ -144,7 +144,10 @@ onMounted(load);
         </thead>
         <tbody>
           <tr v-for="line in po.lines" :key="line.id">
-            <td>{{ line.itemName }} <span class="inactive">({{ line.itemSku }})</span></td>
+            <td>
+              {{ line.name }} <span class="inactive">({{ line.sku }})</span>
+              <span v-if="line.lineType === 'CONTAINER'" class="inactive"> · container</span>
+            </td>
             <td class="num">{{ line.quantityOrdered }}</td>
             <td class="num">{{ line.quantityReceived }}</td>
             <td class="num">{{ remaining(line.quantityOrdered, line.quantityReceived) }}</td>
@@ -160,6 +163,7 @@ onMounted(load);
                 <template v-if="line.handlingUnit === 'KG'">
                   kg → stores {{ poundsPreview(receiveQty[line.id] ?? '0') }} lb
                 </template>
+                <template v-else-if="line.lineType === 'CONTAINER'">each</template>
                 <template v-else>lb</template>
               </div>
             </td>
@@ -197,25 +201,29 @@ onMounted(load);
 
       <h3 style="margin-top: 1.5rem">Receipts</h3>
       <p class="inactive" style="font-size: 0.85rem">
-        Every posted receipt against this PO, including partials — each is its own
-        quarantine lot with a timestamp and QC status.
+        Every posted receipt against this PO, including partials. Material
+        receipts open a quarantine lot pending QC; container receipts go straight
+        to container stock.
       </p>
       <table>
         <thead>
           <tr>
-            <th>When</th><th>Item</th><th class="num">Qty (lb)</th>
+            <th>When</th><th>Subject</th><th class="num">Qty</th>
             <th class="num">Unit cost</th><th>Lot #</th><th>Location</th><th>QC</th>
           </tr>
         </thead>
         <tbody>
           <tr v-for="r in po.receipts" :key="r.id">
             <td>{{ new Date(r.receivedAt).toLocaleString() }}</td>
-            <td>{{ r.itemName }} <span class="inactive">({{ r.itemSku }})</span></td>
+            <td>
+              {{ r.name }} <span class="inactive">({{ r.sku }})</span>
+              <span v-if="r.lineType === 'CONTAINER'" class="inactive"> · container</span>
+            </td>
             <td class="num">{{ r.quantity }}</td>
             <td class="num">{{ r.unitCost }}</td>
-            <td>{{ r.lotNumber }}</td>
+            <td>{{ r.lotNumber ?? "—" }}</td>
             <td>{{ r.locationCode ?? "—" }}</td>
-            <td>{{ r.qcStatus }}</td>
+            <td>{{ r.qcStatus ?? "—" }}</td>
           </tr>
           <tr v-if="po.receipts.length === 0">
             <td colspan="7" class="inactive">No receipts posted yet.</td>

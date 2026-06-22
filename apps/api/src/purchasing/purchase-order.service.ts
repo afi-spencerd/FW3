@@ -18,6 +18,7 @@ import {
   type UpdatePurchaseOrder,
 } from "@fw3/shared-types";
 import { AuditService } from "../audit/audit.service";
+import { ContainerService } from "../container/container.service";
 import { PrismaService } from "../database/prisma.service";
 import { Prisma } from "../generated/prisma/client";
 import { extendedValue } from "../inventory/valuation";
@@ -26,7 +27,7 @@ import { type Movement, StockService } from "../stock/stock.service";
 import { poStatusFromLines } from "./po-status";
 
 type PoWithRelations = Prisma.PurchaseOrderGetPayload<{
-  include: { vendor: true; lines: { include: { item: true } } };
+  include: { vendor: true; lines: { include: { item: true; container: true } } };
 }>;
 
 @Injectable()
@@ -35,12 +36,13 @@ export class PurchaseOrderService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly stock: StockService,
+    private readonly containers: ContainerService,
   ) {}
 
   async list(tenantId: string): Promise<PurchaseOrderSummary[]> {
     const orders = await this.prisma.purchaseOrder.findMany({
       where: { tenantId },
-      include: { vendor: true, lines: { include: { item: true } } },
+      include: { vendor: true, lines: { include: { item: true, container: true } } },
       orderBy: { orderDate: "desc" },
     });
     return orders.map((o) => {
@@ -59,7 +61,13 @@ export class PurchaseOrderService {
       include: { item: true, location: true },
       orderBy: { receivedAt: "asc" },
     });
-    return this.toDto(order, receipts);
+    // Container receipts are container-ledger entries tied to this PO (no lot/QC).
+    const containerReceipts = await this.prisma.containerTxn.findMany({
+      where: { tenantId, docType: "PURCHASE_ORDER", docId: id, type: "ADJUSTMENT" },
+      include: { container: true },
+      orderBy: { occurredAt: "asc" },
+    });
+    return this.toDto(order, receipts, containerReceipts);
   }
 
   async create(
@@ -84,7 +92,8 @@ export class PurchaseOrderService {
             notes: input.notes ?? null,
             lines: {
               create: input.lines.map((line) => ({
-                itemId: line.itemId,
+                itemId: line.itemId ?? null,
+                containerId: line.containerId ?? null,
                 quantityOrdered: line.quantityOrdered,
                 unitCost: line.unitCost,
                 sortOrder: line.sortOrder,
@@ -136,7 +145,8 @@ export class PurchaseOrderService {
                   lines: {
                     deleteMany: {},
                     create: input.lines.map((line) => ({
-                      itemId: line.itemId,
+                      itemId: line.itemId ?? null,
+                      containerId: line.containerId ?? null,
                       quantityOrdered: line.quantityOrdered,
                       unitCost: line.unitCost,
                       sortOrder: line.sortOrder,
@@ -221,6 +231,11 @@ export class PurchaseOrderService {
 
       const linesById = new Map(order.lines.map((l) => [l.id, l]));
       const movements: Movement[] = [];
+      const containerEntries: {
+        containerId: string;
+        quantity: string;
+        unitCost: string;
+      }[] = [];
 
       for (const recv of input.lines) {
         const line = linesById.get(recv.purchaseOrderLineId);
@@ -229,66 +244,88 @@ export class PurchaseOrderService {
             `Line ${recv.purchaseOrderLineId} is not on this purchase order`,
           );
         }
-        // Ordering is in the item's handling unit (kg for kg materials); the
-        // remaining check stays in that unit.
+        const subjectSku = line.item?.sku ?? line.container?.sku ?? "line";
+        // Ordering is in the subject's own unit (kg for kg materials, each for
+        // containers); the remaining check stays in that unit.
         const remaining = line.quantityOrdered.minus(line.quantityReceived);
         const qty = new Decimal(recv.quantity);
         if (qty.greaterThan(remaining)) {
           throw new BadRequestException(
-            `Cannot receive ${qty} of ${line.item.sku}: only ${remaining} remaining`,
+            `Cannot receive ${qty} of ${subjectSku}: only ${remaining} remaining`,
           );
         }
-        // Convert to canonical pounds before it touches stock: a KG material's
-        // quantity scales up and its unit cost scales down (total value is kept).
-        const handlingUnit = line.item.unitOfMeasure as UnitOfMeasure;
-        const qtyLb = toPounds(recv.quantity, handlingUnit);
-        const unitCostLb = unitCostToPounds(line.unitCost.toString(), handlingUnit);
-        // Received goods land in QUARANTINE at the receiving dock pending QC.
-        movements.push({
-          itemId: line.itemId,
-          type: "RECEIPT",
-          direction: "IN",
-          quantity: qtyLb,
-          unitCost: unitCostLb,
-          status: "QUARANTINE",
-          ...(receivingLocationId ? { locationId: receivingLocationId } : {}),
-        });
+
+        if (line.containerId) {
+          // Containers are supplies: received straight into container stock at
+          // the PO unit cost (re-averaging), no quarantine or QC.
+          containerEntries.push({
+            containerId: line.containerId,
+            quantity: recv.quantity,
+            unitCost: line.unitCost.toString(),
+          });
+        } else {
+          const item = line.item!;
+          // Convert to canonical pounds before it touches stock: a KG material's
+          // quantity scales up and its unit cost scales down (value is kept).
+          const handlingUnit = item.unitOfMeasure as UnitOfMeasure;
+          const qtyLb = toPounds(recv.quantity, handlingUnit);
+          const unitCostLb = unitCostToPounds(line.unitCost.toString(), handlingUnit);
+          // Received goods land in QUARANTINE at the receiving dock pending QC.
+          movements.push({
+            itemId: item.id,
+            type: "RECEIPT",
+            direction: "IN",
+            quantity: qtyLb,
+            unitCost: unitCostLb,
+            status: "QUARANTINE",
+            ...(receivingLocationId ? { locationId: receivingLocationId } : {}),
+          });
+          // One quarantined lot per received line, with an empty QC test suite.
+          const supplierLotNumber =
+            recv.supplierLotNumber?.trim() ||
+            `${order.poNumber}-${item.sku}-${Date.now().toString(36)}`;
+          await tx.receivedLot.create({
+            data: {
+              tenantId: user.tenantId,
+              itemId: item.id,
+              purchaseOrderId: id,
+              purchaseOrderLineId: line.id,
+              purchaseOrderNumber: order.poNumber,
+              vendorName: order.vendor.name,
+              supplierLotNumber,
+              locationId: receivingLocationId,
+              quantity: qtyLb,
+              unitCost: unitCostLb,
+              qcStatus: "PENDING",
+              results: {
+                create: QC_SUITE_BY_FORM[item.physicalForm as PhysicalForm].map(
+                  (testType) => ({ testType }),
+                ),
+              },
+            },
+          });
+        }
+
         await tx.purchaseOrderLine.update({
           where: { id: line.id },
           data: { quantityReceived: line.quantityReceived.plus(qty) },
         });
-
-        // One quarantined lot per received line, with an empty QC test suite.
-        const supplierLotNumber =
-          recv.supplierLotNumber?.trim() ||
-          `${order.poNumber}-${line.item.sku}-${Date.now().toString(36)}`;
-        await tx.receivedLot.create({
-          data: {
-            tenantId: user.tenantId,
-            itemId: line.itemId,
-            purchaseOrderId: id,
-            purchaseOrderLineId: line.id,
-            purchaseOrderNumber: order.poNumber,
-            vendorName: order.vendor.name,
-            supplierLotNumber,
-            locationId: receivingLocationId,
-            quantity: qtyLb,
-            unitCost: unitCostLb,
-            qcStatus: "PENDING",
-            results: {
-              create: QC_SUITE_BY_FORM[line.item.physicalForm as PhysicalForm].map(
-                (testType) => ({ testType }),
-              ),
-            },
-          },
-        });
       }
 
-      await this.stock.post(tx, user.tenantId, movements, {
-        docType: "PURCHASE_ORDER",
-        docId: id,
-        note: `PO ${order.poNumber} receipt to quarantine`,
-      });
+      if (movements.length) {
+        await this.stock.post(tx, user.tenantId, movements, {
+          docType: "PURCHASE_ORDER",
+          docId: id,
+          note: `PO ${order.poNumber} receipt to quarantine`,
+        });
+      }
+      if (containerEntries.length) {
+        await this.containers.receiveInTx(tx, user, containerEntries, {
+          docType: "PURCHASE_ORDER",
+          docId: id,
+          note: `PO ${order.poNumber} container receipt`,
+        });
+      }
 
       const refreshed = await tx.purchaseOrderLine.findMany({
         where: { purchaseOrderId: id },
@@ -322,31 +359,53 @@ export class PurchaseOrderService {
       where: { id, tenantId },
       include: {
         vendor: true,
-        lines: { include: { item: true }, orderBy: { sortOrder: "asc" } },
+        lines: {
+          include: { item: true, container: true },
+          orderBy: { sortOrder: "asc" },
+        },
       },
     });
     if (!order) throw new NotFoundException("Purchase order not found");
     return order;
   }
 
-  /** PO lines must reference procurable items (raw materials or bases). */
+  /**
+   * PO lines must reference procurable subjects: items that aren't finished
+   * goods (raw materials or bases), or active containers. Each line is one or
+   * the other (the schema enforces exactly one).
+   */
   private async assertProcurable(
     tx: Prisma.TransactionClient,
     tenantId: string,
-    lines: { itemId: string }[],
+    lines: { itemId?: string | null; containerId?: string | null }[],
   ): Promise<void> {
-    const ids = lines.map((l) => l.itemId);
-    const items = await tx.inventoryItem.findMany({
-      where: { id: { in: ids }, tenantId },
-    });
-    const byId = new Map(items.map((i) => [i.id, i]));
-    for (const id of ids) {
-      const item = byId.get(id);
-      if (!item) throw new BadRequestException(`Item ${id} not found`);
-      if (item.itemType === "FINISHED_GOOD") {
-        throw new BadRequestException(
-          `${item.sku} is a finished good and cannot be purchased`,
-        );
+    const itemIds = lines.map((l) => l.itemId).filter((v): v is string => !!v);
+    if (itemIds.length) {
+      const items = await tx.inventoryItem.findMany({
+        where: { id: { in: itemIds }, tenantId },
+      });
+      const byId = new Map(items.map((i) => [i.id, i]));
+      for (const id of itemIds) {
+        const item = byId.get(id);
+        if (!item) throw new BadRequestException(`Item ${id} not found`);
+        if (item.itemType === "FINISHED_GOOD") {
+          throw new BadRequestException(
+            `${item.sku} is a finished good and cannot be purchased`,
+          );
+        }
+      }
+    }
+
+    const containerIds = lines
+      .map((l) => l.containerId)
+      .filter((v): v is string => !!v);
+    if (containerIds.length) {
+      const found = await tx.container.findMany({
+        where: { id: { in: containerIds }, tenantId },
+      });
+      const byId = new Map(found.map((c) => [c.id, c]));
+      for (const id of containerIds) {
+        if (!byId.has(id)) throw new BadRequestException(`Container ${id} not found`);
       }
     }
   }
@@ -356,31 +415,42 @@ export class PurchaseOrderService {
     receiptRows: Prisma.ReceivedLotGetPayload<{
       include: { item: true; location: true };
     }>[] = [],
+    containerReceiptRows: Prisma.ContainerTxnGetPayload<{
+      include: { container: true };
+    }>[] = [],
   ): PurchaseOrder {
-    const lines = order.lines.map((line) => ({
-      id: line.id,
-      itemId: line.itemId,
-      itemSku: line.item.sku,
-      itemName: line.item.name,
-      handlingUnit: line.item.unitOfMeasure as UnitOfMeasure,
-      quantityOrdered: line.quantityOrdered.toString(),
-      unitCost: line.unitCost.toString(),
-      quantityReceived: line.quantityReceived.toString(),
-      lineValue: extendedValue(
-        line.quantityOrdered.toString(),
-        line.unitCost.toString(),
-      ),
-      sortOrder: line.sortOrder,
-    }));
+    const lines = order.lines.map((line) => {
+      const isContainer = line.containerId !== null;
+      return {
+        id: line.id,
+        lineType: (isContainer ? "CONTAINER" : "ITEM") as "ITEM" | "CONTAINER",
+        itemId: line.itemId,
+        containerId: line.containerId,
+        sku: line.item?.sku ?? line.container?.sku ?? "",
+        name: line.item?.name ?? line.container?.name ?? "",
+        handlingUnit: isContainer
+          ? null
+          : (line.item!.unitOfMeasure as UnitOfMeasure),
+        quantityOrdered: line.quantityOrdered.toString(),
+        unitCost: line.unitCost.toString(),
+        quantityReceived: line.quantityReceived.toString(),
+        lineValue: extendedValue(
+          line.quantityOrdered.toString(),
+          line.unitCost.toString(),
+        ),
+        sortOrder: line.sortOrder,
+      };
+    });
     const totalValue = lines
       .reduce((sum, l) => sum.plus(l.lineValue), new Decimal(0))
       .toString();
-    const receipts = receiptRows.map((r) => ({
+    const itemReceipts = receiptRows.map((r) => ({
       id: r.id,
+      lineType: "ITEM" as const,
       purchaseOrderLineId: r.purchaseOrderLineId,
-      itemId: r.itemId,
-      itemSku: r.item.sku,
-      itemName: r.item.name,
+      subjectId: r.itemId as string,
+      sku: r.item.sku,
+      name: r.item.name,
       quantity: r.quantity.toString(),
       unitCost: r.unitCost.toString(),
       lotNumber: r.supplierLotNumber,
@@ -388,6 +458,23 @@ export class PurchaseOrderService {
       qcStatus: r.qcStatus,
       receivedAt: r.receivedAt.toISOString(),
     }));
+    const containerReceipts = containerReceiptRows.map((t) => ({
+      id: t.id,
+      lineType: "CONTAINER" as const,
+      purchaseOrderLineId: null,
+      subjectId: t.containerId,
+      sku: t.container.sku,
+      name: t.container.name,
+      quantity: t.quantity.toString(),
+      unitCost: t.unitCost.toString(),
+      lotNumber: null,
+      locationCode: null,
+      qcStatus: null,
+      receivedAt: t.occurredAt.toISOString(),
+    }));
+    const receipts = [...itemReceipts, ...containerReceipts].sort((a, b) =>
+      a.receivedAt.localeCompare(b.receivedAt),
+    );
     return {
       id: order.id,
       tenantId: order.tenantId,

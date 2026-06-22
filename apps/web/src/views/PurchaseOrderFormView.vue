@@ -2,8 +2,10 @@
 import { computed, onMounted, reactive, ref } from "vue";
 import { useRouter } from "vue-router";
 import {
+  type Container,
   createPurchaseOrderSchema,
   type InventoryItem,
+  type PoLineType,
   type Vendor,
 } from "@fw3/shared-types";
 import { api, ApiError } from "../lib/api";
@@ -11,14 +13,21 @@ import { api, ApiError } from "../lib/api";
 const router = useRouter();
 const vendors = ref<Vendor[]>([]);
 const items = ref<InventoryItem[]>([]);
+const containers = ref<Container[]>([]);
 const issues = ref<string[]>([]);
 const busy = ref(false);
 
+interface PoLine {
+  kind: PoLineType;
+  subjectId: string;
+  quantityOrdered: string;
+  unitCost: string;
+}
 const form = reactive({
   vendorId: "",
   poNumber: "",
   notes: "",
-  lines: [] as { itemId: string; quantityOrdered: string; unitCost: string }[],
+  lines: [] as PoLine[],
 });
 
 const total = computed(() =>
@@ -28,21 +37,27 @@ const total = computed(() =>
 );
 
 function addLine(): void {
-  form.lines.push({ itemId: "", quantityOrdered: "0", unitCost: "0" });
+  form.lines.push({ kind: "ITEM", subjectId: "", quantityOrdered: "0", unitCost: "0" });
 }
 function removeLine(i: number): void {
   form.lines.splice(i, 1);
 }
+// Reset the chosen subject when switching a line between item and container.
+function onKindChange(line: PoLine): void {
+  line.subjectId = "";
+}
 
 onMounted(async () => {
   try {
-    const [v, inv] = await Promise.all([
+    const [v, inv, cont] = await Promise.all([
       api.listVendors(),
       api.listInventory({ pageSize: 200 }),
+      api.listContainers(),
     ]);
     vendors.value = v.filter((x) => x.isActive);
     // Procurable: raw materials and bases (not finished goods).
     items.value = inv.items.filter((i) => i.itemType !== "FINISHED_GOOD");
+    containers.value = cont.filter((c) => c.active);
     addLine();
   } catch (err) {
     issues.value = [err instanceof ApiError ? err.message : "Failed to load"];
@@ -58,7 +73,8 @@ async function submit(): Promise<void> {
       poNumber: form.poNumber,
       notes: form.notes || undefined,
       lines: form.lines.map((l, i) => ({
-        itemId: l.itemId,
+        itemId: l.kind === "ITEM" ? l.subjectId : undefined,
+        containerId: l.kind === "CONTAINER" ? l.subjectId : undefined,
         quantityOrdered: l.quantityOrdered,
         unitCost: l.unitCost,
         sortOrder: i,
@@ -114,22 +130,39 @@ async function submit(): Promise<void> {
       </div>
 
       <h3>Lines</h3>
+      <p class="inactive" style="font-size: 0.8rem">
+        A line can buy a material/base or a container (packaging). Container
+        receipts go straight to container stock — no QC/quarantine.
+      </p>
       <table>
         <thead>
           <tr>
-            <th>Item</th>
-            <th class="num" style="width: 120px">Qty</th>
-            <th class="num" style="width: 120px">Unit cost</th>
+            <th style="width: 110px">Kind</th>
+            <th>Subject</th>
+            <th class="num" style="width: 100px">Qty</th>
+            <th class="num" style="width: 110px">Unit cost</th>
             <th style="width: 40px"></th>
           </tr>
         </thead>
         <tbody>
           <tr v-for="(line, index) in form.lines" :key="index">
             <td>
-              <select v-model="line.itemId">
+              <select v-model="line.kind" @change="onKindChange(line)">
+                <option value="ITEM">Material</option>
+                <option value="CONTAINER">Container</option>
+              </select>
+            </td>
+            <td>
+              <select v-if="line.kind === 'ITEM'" v-model="line.subjectId">
                 <option value="" disabled>Select an item…</option>
                 <option v-for="it in items" :key="it.id" :value="it.id">
                   {{ it.name }} ({{ it.sku }}) · {{ it.unitOfMeasure }}
+                </option>
+              </select>
+              <select v-else v-model="line.subjectId">
+                <option value="" disabled>Select a container…</option>
+                <option v-for="c in containers" :key="c.id" :value="c.id">
+                  {{ c.name }} ({{ c.sku }}) · each
                 </option>
               </select>
             </td>
@@ -140,7 +173,7 @@ async function submit(): Promise<void> {
         </tbody>
         <tfoot>
           <tr>
-            <td><button @click="addLine">+ Add line</button></td>
+            <td colspan="2"><button @click="addLine">+ Add line</button></td>
             <td></td>
             <td class="num"><strong>${{ total }}</strong></td>
             <td></td>
