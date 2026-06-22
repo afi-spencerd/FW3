@@ -235,6 +235,7 @@ export const api = {
     }),
 
   listVendors: () => request<Vendor[]>("/vendors"),
+  getVendor: (id: string) => request<Vendor>(`/vendors/${id}`),
   createVendor: (data: CreateVendor) =>
     request<Vendor>("/vendors", { method: "POST", body: JSON.stringify(data) }),
   updateVendor: (id: string, data: UpdateVendor) =>
