@@ -79,12 +79,17 @@ export class FormulaService {
           finishedGoodId,
           input.lines,
         );
+        // Default to the next available version for this target (smooth
+        // revisions); an explicit version is still honoured if supplied.
+        const version =
+          input.version ??
+          (await this.nextVersion(tx, user.tenantId, finishedGoodId));
         const formula = await tx.formula.create({
           data: {
             tenantId: user.tenantId,
             finishedGoodId,
             name: input.name,
-            version: input.version,
+            version,
             notes: input.notes ?? null,
             isActive: input.isActive,
             lines: {
@@ -138,7 +143,7 @@ export class FormulaService {
           where: { id },
           data: {
             name: input.name,
-            version: input.version,
+            ...(input.version === undefined ? {} : { version: input.version }),
             notes: input.notes ?? null,
             isActive: input.isActive,
             lines: {
@@ -262,6 +267,19 @@ export class FormulaService {
       after: { sku: item.sku, name: item.name, itemType: item.itemType, via: "formula" },
     });
     return item.id;
+  }
+
+  /** The next free version number for a target (max existing + 1, else 1). */
+  private async nextVersion(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    finishedGoodId: string,
+  ): Promise<number> {
+    const agg = await tx.formula.aggregate({
+      where: { tenantId, finishedGoodId },
+      _max: { version: true },
+    });
+    return (agg._max.version ?? 0) + 1;
   }
 
   /** Enforce domain integrity that the DB can't: item types + tenant ownership. */

@@ -61,7 +61,8 @@ const formulaCreateObject = z.object({
   /** Create the target item inline; mutually exclusive with finishedGoodId. */
   newTarget: formulaNewTargetSchema.optional(),
   name: z.string().trim().min(1).max(200),
-  version: z.number().int().min(1).default(1),
+  /** Omit to auto-assign the next available version for the target. */
+  version: z.number().int().min(1).optional(),
   notes: z.string().trim().max(2000).optional(),
   isActive: z.boolean().default(true),
   lines: z.array(formulaLineInputSchema).min(1),

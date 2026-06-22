@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from "vue";
+import { computed, onMounted, reactive, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import {
   type BatchRequirements,
   createFormulaSchema,
+  type FormulaSummary,
   type InventoryItem,
   kgEquivalent,
   updateFormulaSchema,
@@ -20,6 +21,8 @@ const isEdit = computed(() => Boolean(props.id));
 // (raw materials + bases). A base can be either.
 const targets = ref<InventoryItem[]>([]);
 const components = ref<InventoryItem[]>([]);
+// Existing formulas, to suggest the next version when revising a target.
+const existingFormulas = ref<FormulaSummary[]>([]);
 
 const form = reactive({
   finishedGoodId: "",
@@ -37,6 +40,29 @@ const newTarget = reactive({
   name: "",
   itemType: "FINISHED_GOOD" as "FINISHED_GOOD" | "SEMI_FINISHED",
 });
+
+// Versions already on the selected existing target, ascending.
+const priorVersions = computed(() =>
+  existingFormulas.value
+    .filter((f) => f.finishedGoodId === form.finishedGoodId)
+    .map((f) => f.version)
+    .sort((a, b) => a - b),
+);
+function nextVersion(): number {
+  return priorVersions.value.length
+    ? Math.max(...priorVersions.value) + 1
+    : 1;
+}
+// In create mode, keep the version pinned to the next available for the target
+// (a new inline product always starts at v1). The field stays editable.
+watch(
+  [() => form.finishedGoodId, targetMode],
+  () => {
+    if (isEdit.value) return;
+    form.version = targetMode.value === "new" ? 1 : nextVersion();
+  },
+  { immediate: true },
+);
 
 const issues = ref<string[]>([]);
 const busy = ref(false);
@@ -56,9 +82,13 @@ function removeLine(index: number): void {
 
 onMounted(async () => {
   try {
-    const all = await api.listInventory({ pageSize: 200 });
+    const [all, formulas] = await Promise.all([
+      api.listInventory({ pageSize: 200 }),
+      api.listFormulas(),
+    ]);
     targets.value = all.items.filter((i) => i.itemType !== "RAW_MATERIAL");
     components.value = all.items.filter((i) => i.itemType !== "FINISHED_GOOD");
+    existingFormulas.value = formulas;
 
     if (props.id) {
       const formula = await api.getFormula(props.id);
@@ -233,6 +263,13 @@ async function calculate(): Promise<void> {
         <div class="field">
           <label for="version">Version</label>
           <input id="version" v-model.number="form.version" type="number" min="1" />
+          <div
+            v-if="!isEdit && targetMode === 'existing' && priorVersions.length"
+            class="inactive"
+            style="font-size: 0.8rem"
+          >
+            Existing: v{{ priorVersions.join(", v") }} — defaulting to next (v{{ nextVersion() }}).
+          </div>
         </div>
       </div>
 
