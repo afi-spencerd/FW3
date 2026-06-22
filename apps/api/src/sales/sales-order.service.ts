@@ -50,6 +50,23 @@ export class SalesOrderService {
     return this.toDto(await this.loadOrder(this.prisma, tenantId, id));
   }
 
+  /**
+   * Orders awaiting fulfillment — OPEN or PARTIAL, oldest first (ship-first).
+   * Returns full orders (with lines) so the shipping desk can act on them
+   * directly. SHIPPED and CANCELLED orders have nothing left to ship.
+   */
+  async listPending(tenantId: string): Promise<SalesOrder[]> {
+    const orders = await this.prisma.salesOrder.findMany({
+      where: { tenantId, status: { in: ["OPEN", "PARTIAL"] } },
+      include: {
+        customer: true,
+        lines: { include: { item: true }, orderBy: { sortOrder: "asc" } },
+      },
+      orderBy: { orderDate: "asc" },
+    });
+    return orders.map((o) => this.toDto(o));
+  }
+
   async create(
     user: AuthenticatedUser,
     input: CreateSalesOrder,

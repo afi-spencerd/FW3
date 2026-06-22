@@ -174,6 +174,12 @@ export const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
+      path: "/shipping",
+      name: "shipping",
+      component: () => import("./views/ShippingView.vue"),
+      meta: { requiresAuth: true },
+    },
+    {
       path: "/sales-orders/new",
       name: "sales-order-new",
       component: () => import("./views/SalesOrderFormView.vue"),

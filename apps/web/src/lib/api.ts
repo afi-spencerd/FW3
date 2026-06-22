@@ -271,6 +271,7 @@ export const api = {
     }),
 
   listSalesOrders: () => request<SalesOrderSummary[]>("/sales-orders"),
+  pendingShipments: () => request<SalesOrder[]>("/sales-orders/pending"),
   getSalesOrder: (id: string) => request<SalesOrder>(`/sales-orders/${id}`),
   createSalesOrder: (data: CreateSalesOrder) =>
     request<SalesOrder>("/sales-orders", {

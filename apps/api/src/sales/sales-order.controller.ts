@@ -35,6 +35,13 @@ export class SalesOrderController {
     return this.orders.list(user.tenantId);
   }
 
+  // Declared before ":id" so the static path wins.
+  @Get("pending")
+  @RequirePermissions(PERMISSIONS.SO_READ)
+  pending(@CurrentUser() user: AuthenticatedUser) {
+    return this.orders.listPending(user.tenantId);
+  }
+
   @Get(":id")
   @RequirePermissions(PERMISSIONS.SO_READ)
   getById(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string) {
