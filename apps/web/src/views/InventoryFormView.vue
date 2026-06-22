@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from "vue";
-import { useRouter } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import {
   createInventoryItemSchema,
   type IfraCategory,
@@ -54,13 +54,25 @@ const PHYSICAL_FORM_LABELS: Record<PhysicalForm, string> = {
 
 const props = defineProps<{ id?: string }>();
 const router = useRouter();
+const route = useRoute();
 const isEdit = Boolean(props.id);
+
+// Where to go after save / cancel — callers (e.g. the raw-material list) can pass
+// ?return=<routeName> to come back to where they launched the form from.
+const returnRoute =
+  typeof route.query.return === "string" ? route.query.return : "inventory";
+// Optional ?type= preselects the item tier when creating (e.g. RAW_MATERIAL).
+const initialType =
+  typeof route.query.type === "string" &&
+  (ITEM_TYPES as readonly string[]).includes(route.query.type)
+    ? (route.query.type as ItemType)
+    : "RAW_MATERIAL";
 
 const form = reactive({
   sku: "",
   name: "",
   description: "",
-  itemType: "RAW_MATERIAL" as ItemType,
+  itemType: initialType,
   physicalForm: "LIQUID" as PhysicalForm,
   unitOfMeasure: "LB",
   salesPrice: "0",
@@ -400,7 +412,7 @@ async function submit(): Promise<void> {
       }
       await api.createInventory(parsed.data);
     }
-    await router.push({ name: "inventory" });
+    await router.push({ name: returnRoute });
   } catch (err) {
     if (err instanceof ApiError) {
       formError.value = err.message;
@@ -580,7 +592,7 @@ async function submit(): Promise<void> {
         <button class="primary" :disabled="busy" @click="submit">
           {{ busy ? "Saving…" : "Save" }}
         </button>
-        <button @click="router.push({ name: 'inventory' })">Cancel</button>
+        <button @click="router.push({ name: returnRoute })">Cancel</button>
       </div>
     </div>
 

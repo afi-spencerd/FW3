@@ -84,6 +84,13 @@ onMounted(load);
         <option value="rnd">R&amp;D / lab only</option>
       </select>
       <button @click="load">Search</button>
+      <RouterLink
+        v-if="auth.hasPermission(PERMISSIONS.INVENTORY_CREATE)"
+        class="btn primary"
+        :to="{ name: 'inventory-new', query: { type: 'RAW_MATERIAL', return: 'raw-materials' } }"
+      >
+        New raw material
+      </RouterLink>
     </div>
 
     <p class="inactive" style="font-size: 0.85rem">
@@ -134,7 +141,7 @@ onMounted(load);
             <td>
               <RouterLink
                 v-if="auth.hasPermission(PERMISSIONS.INVENTORY_READ)"
-                :to="{ name: 'inventory-edit', params: { id: item.id } }"
+                :to="{ name: 'inventory-edit', params: { id: item.id }, query: { return: 'raw-materials' } }"
               >
                 Details
               </RouterLink>
