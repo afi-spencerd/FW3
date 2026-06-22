@@ -2,6 +2,7 @@
 import { computed, onMounted, reactive, ref } from "vue";
 import { RouterLink } from "vue-router";
 import {
+  type Container,
   ITEM_TYPES,
   type ItemType,
   kgEquivalent,
@@ -12,6 +13,9 @@ import {
 } from "@fw3/shared-types";
 import { api, ApiError, type ValuationSummary } from "../lib/api";
 import { useAuthStore } from "../stores/auth";
+
+// The type filter also offers containers (a separate stock kind, counted each).
+type TypeFilter = ItemType | "CONTAINER" | "";
 
 const auth = useAuthStore();
 
@@ -27,6 +31,7 @@ const STATUS_LABELS: Record<StockStatus, string> = {
 };
 
 const items = ref<InventoryItem[]>([]);
+const containers = ref<Container[]>([]);
 const valuation = ref<ValuationSummary | null>(null);
 // itemId -> position per status (from the stock ledger, not the item master)
 const inv = reactive<Record<string, { quantity: string; value: string; avgCost: string }>>({});
@@ -36,7 +41,7 @@ const wipTotal = ref("0");
 const quarantineTotal = ref("0");
 
 const search = ref("");
-const itemType = ref<ItemType | "">("");
+const itemType = ref<TypeFilter>("");
 const statusFilter = ref<StockStatus | "">("");
 const loading = ref(false);
 const error = ref<string | null>(null);
@@ -64,29 +69,56 @@ function totalValue(item: InventoryItem): string {
   ).toFixed(2);
 }
 
-const filteredItems = computed(() =>
-  items.value.filter((i) => {
+const filteredItems = computed(() => {
+  // Hide items entirely when the user filters to containers only.
+  if (itemType.value === "CONTAINER") return [];
+  return items.value.filter((i) => {
     if (statusFilter.value === "WIP") return Number(wipQty(i)) > 0;
     if (statusFilter.value === "QUARANTINE") return Number(quarantineQty(i)) > 0;
     if (statusFilter.value === "INV") return Number(invQty(i)) > 0;
     return true;
-  }),
+  });
+});
+
+// Containers show under "All" or "Container"; they have no WIP/quarantine, so a
+// WIP/quarantine status filter excludes them.
+const filteredContainers = computed(() => {
+  if (itemType.value !== "" && itemType.value !== "CONTAINER") return [];
+  if (statusFilter.value === "WIP" || statusFilter.value === "QUARANTINE") return [];
+  const q = search.value.trim().toLowerCase();
+  return containers.value.filter(
+    (c) =>
+      !q ||
+      c.sku.toLowerCase().includes(q) ||
+      c.name.toLowerCase().includes(q) ||
+      c.containerType.toLowerCase().includes(q),
+  );
+});
+
+const containerValueTotal = computed(() =>
+  containers.value.reduce((sum, c) => sum + Number(c.totalValue), 0).toFixed(2),
 );
 
 async function load(): Promise<void> {
   loading.value = true;
   error.value = null;
   try {
-    const [page, positions, val] = await Promise.all([
+    const [page, positions, val, conts] = await Promise.all([
       api.listInventory({
         search: search.value || undefined,
-        itemType: itemType.value || undefined,
+        // "CONTAINER" isn't an item type — never send it to the items query.
+        itemType:
+          itemType.value && itemType.value !== "CONTAINER"
+            ? itemType.value
+            : undefined,
         pageSize: 200,
       }),
       api.stockPositions(),
       api.valuation(),
+      api.listContainers(),
     ]);
     items.value = page.items;
+    containers.value = conts;
     valuation.value = val;
     for (const key of Object.keys(inv)) delete inv[key];
     for (const key of Object.keys(wip)) delete wip[key];
@@ -167,6 +199,10 @@ onMounted(load);
         <div class="label">Quarantine value</div>
         <div class="value">${{ quarantineTotal }}</div>
       </div>
+      <div class="metric">
+        <div class="label">Containers value</div>
+        <div class="value">${{ containerValueTotal }}</div>
+      </div>
     </div>
 
     <div class="toolbar">
@@ -179,6 +215,7 @@ onMounted(load);
       <select v-model="itemType" style="max-width: 170px" @change="load">
         <option value="">All types</option>
         <option v-for="t in ITEM_TYPES" :key="t" :value="t">{{ ITEM_TYPE_LABELS[t] }}</option>
+        <option value="CONTAINER">Container</option>
       </select>
       <select v-model="statusFilter" style="max-width: 150px">
         <option value="">All status</option>
@@ -251,7 +288,33 @@ onMounted(load);
               </template>
             </td>
           </tr>
-          <tr v-if="!loading && filteredItems.length === 0">
+          <tr
+            v-for="c in filteredContainers"
+            :key="c.id"
+            :class="{ inactive: !c.active }"
+          >
+            <td>{{ c.sku }}</td>
+            <td>{{ c.name }}</td>
+            <td>Container</td>
+            <td>each</td>
+            <td class="num">
+              {{ c.quantityOnHand }}
+              <div class="inactive" style="font-size: 0.75rem">ea</div>
+            </td>
+            <td class="num inactive">—</td>
+            <td class="num inactive">—</td>
+            <td class="num">{{ c.avgCost }}</td>
+            <td class="num">${{ c.totalValue }}</td>
+            <td>
+              <RouterLink
+                v-if="auth.hasPermission(PERMISSIONS.INVENTORY_READ)"
+                :to="{ name: 'container-detail', params: { id: c.id } }"
+              >
+                Open
+              </RouterLink>
+            </td>
+          </tr>
+          <tr v-if="!loading && filteredItems.length === 0 && filteredContainers.length === 0">
             <td colspan="10" class="inactive">No items.</td>
           </tr>
         </tbody>
