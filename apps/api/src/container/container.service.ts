@@ -84,9 +84,21 @@ export class ContainerService {
           action: "CREATE",
           after: this.toDto(row),
         });
+        // Optional opening balance: post an IN adjustment in the same transaction
+        // (unit cost defaults to the standard cost) — no dummy PO needed.
+        if (input.openingQuantity) {
+          await this.postTxn(tx, user, row.id, {
+            type: "ADJUSTMENT",
+            direction: "IN",
+            quantity: input.openingQuantity,
+            unitCost: input.openingUnitCost ?? input.standardCost,
+            note: "Opening balance",
+          });
+        }
         return row;
       });
-      return this.toDto(created);
+      // Re-read so the opening balance (if any) is reflected in the position.
+      return this.getById(user.tenantId, created.id);
     } catch (err) {
       throw this.mapWriteError(err, input.sku);
     }

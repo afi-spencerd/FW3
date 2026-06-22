@@ -40,9 +40,18 @@ export const createContainerSchema = z.object({
   /** Standard/purchase cost per container (the moving average lives in the ledger). */
   standardCost: moneyString.default("0"),
   active: z.boolean().default(true),
+  /**
+   * Optional opening stock — quantity already on hand that never came through a
+   * PO. When set, the container is created and an opening IN adjustment is posted
+   * in one step (unit cost defaults to standardCost).
+   */
+  openingQuantity: containerCount.optional(),
+  openingUnitCost: moneyString.optional(),
 });
 
-export const updateContainerSchema = createContainerSchema.omit({ sku: true }).partial();
+export const updateContainerSchema = createContainerSchema
+  .omit({ sku: true, openingQuantity: true, openingUnitCost: true })
+  .partial();
 
 export const containerSchema = z.object({
   id: z.string().uuid(),
