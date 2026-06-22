@@ -1,12 +1,17 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, reactive, ref } from "vue";
 import { RouterLink } from "vue-router";
-import { PERMISSIONS, type Vendor } from "@fw3/shared-types";
+import {
+  PERMISSIONS,
+  type Vendor,
+  type VendorSupplySummary,
+} from "@fw3/shared-types";
 import { api, ApiError } from "../lib/api";
 import { useAuthStore } from "../stores/auth";
 
 const auth = useAuthStore();
 const vendors = ref<Vendor[]>([]);
+const summary = reactive<Record<string, VendorSupplySummary>>({});
 const error = ref<string | null>(null);
 const search = ref("");
 const canManage = auth.hasPermission(PERMISSIONS.VENDOR_MANAGE);
@@ -22,10 +27,23 @@ const filtered = computed(() => {
   );
 });
 
+function supplies(v: Vendor): string {
+  const parts: string[] = [];
+  if (v.suppliesMaterials) parts.push("Materials");
+  if (v.suppliesContainers) parts.push("Containers");
+  return parts.join(" + ") || "—";
+}
+
 async function load(): Promise<void> {
   error.value = null;
   try {
-    vendors.value = await api.listVendors();
+    const [vs, sum] = await Promise.all([
+      api.listVendors(),
+      api.vendorSupplySummary(),
+    ]);
+    vendors.value = vs;
+    for (const key of Object.keys(summary)) delete summary[key];
+    for (const s of sum) summary[s.vendorId] = s;
   } catch (err) {
     error.value = err instanceof ApiError ? err.message : "Failed to load";
   }
@@ -54,7 +72,7 @@ onMounted(load);
     <div class="panel">
       <table>
         <thead>
-          <tr><th>Name</th><th>Code</th><th>Email</th><th>Phone</th><th>Terms</th><th class="num">Addr</th><th class="num">Contacts</th><th>Active</th></tr>
+          <tr><th>Name</th><th>Code</th><th>Email</th><th>Supplies</th><th>Terms</th><th class="num">Orders</th><th>Last ordered</th><th>Active</th></tr>
         </thead>
         <tbody>
           <tr v-for="v in filtered" :key="v.id" :class="{ inactive: !v.isActive }">
@@ -63,10 +81,15 @@ onMounted(load);
             </td>
             <td>{{ v.code }}</td>
             <td>{{ v.email }}</td>
-            <td>{{ v.phone }}</td>
+            <td>{{ supplies(v) }}</td>
             <td>{{ v.paymentTerms ? v.paymentTerms.replace(/_/g, " ") : "" }}</td>
-            <td class="num">{{ v.addresses.length }}</td>
-            <td class="num">{{ v.contacts.length }}</td>
+            <td class="num">{{ summary[v.id]?.poCount ?? 0 }}</td>
+            <td>
+              <span v-if="summary[v.id]?.lastOrderAt">
+                {{ new Date(summary[v.id]!.lastOrderAt!).toLocaleDateString() }}
+              </span>
+              <span v-else class="inactive">never</span>
+            </td>
             <td>{{ v.isActive ? "Yes" : "No" }}</td>
           </tr>
           <tr v-if="filtered.length === 0"><td colspan="8" class="inactive">No vendors.</td></tr>

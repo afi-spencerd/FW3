@@ -22,6 +22,12 @@ export const createVendorSchema = z.object({
   paymentTerms: paymentTermsSchema.optional(),
   notes: z.string().trim().max(2000).optional(),
   isActive: z.boolean().default(true),
+  /**
+   * What the vendor supplies — most provide raw materials/bases OR containers
+   * (some both). Drives which line subjects the PO page offers for this vendor.
+   */
+  suppliesMaterials: z.boolean().default(true),
+  suppliesContainers: z.boolean().default(false),
   /** Full set of addresses / contacts; on update these replace the existing set. */
   addresses: z.array(addressInputSchema).default([]),
   contacts: z.array(contactInputSchema).default([]),
@@ -40,10 +46,26 @@ export const vendorSchema = z.object({
   paymentTerms: paymentTermsSchema.nullable(),
   notes: z.string().nullable(),
   isActive: z.boolean(),
+  suppliesMaterials: z.boolean(),
+  suppliesContainers: z.boolean(),
   addresses: z.array(addressSchema),
   contacts: z.array(contactSchema),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
+});
+
+/**
+ * Per-vendor purchase history, derived from prior (non-cancelled) POs — what
+ * we've actually bought from each vendor. Drives "purchased before" tracking and
+ * emphasizing vendors who've fulfilled similar orders.
+ */
+export const vendorSupplySummarySchema = z.object({
+  vendorId: z.string().uuid(),
+  poCount: z.number().int(),
+  lastOrderAt: z.string().datetime().nullable(),
+  /** Distinct item / container ids this vendor has supplied before. */
+  itemIds: z.array(z.string().uuid()),
+  containerIds: z.array(z.string().uuid()),
 });
 
 // ---- Purchase order ----
@@ -170,6 +192,7 @@ export const purchaseOrderSummarySchema = purchaseOrderSchema
 export type CreateVendor = z.infer<typeof createVendorSchema>;
 export type UpdateVendor = z.infer<typeof updateVendorSchema>;
 export type Vendor = z.infer<typeof vendorSchema>;
+export type VendorSupplySummary = z.infer<typeof vendorSupplySummarySchema>;
 export type PurchaseOrderLineInput = z.infer<typeof poLineInputSchema>;
 export type CreatePurchaseOrder = z.infer<typeof createPurchaseOrderSchema>;
 export type UpdatePurchaseOrder = z.infer<typeof updatePurchaseOrderSchema>;

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from "vue";
+import { computed, onMounted, reactive, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import {
   type Container,
@@ -7,6 +7,7 @@ import {
   type InventoryItem,
   type PoLineType,
   type Vendor,
+  type VendorSupplySummary,
 } from "@fw3/shared-types";
 import { api, ApiError } from "../lib/api";
 
@@ -14,6 +15,7 @@ const router = useRouter();
 const vendors = ref<Vendor[]>([]);
 const items = ref<InventoryItem[]>([]);
 const containers = ref<Container[]>([]);
+const summary = reactive<Record<string, VendorSupplySummary>>({});
 const issues = ref<string[]>([]);
 const busy = ref(false);
 
@@ -36,8 +38,69 @@ const total = computed(() =>
     .toFixed(2),
 );
 
+const selectedVendor = computed(() =>
+  vendors.value.find((v) => v.id === form.vendorId) ?? null,
+);
+
+// Which line kinds a vendor can supply. No vendor (or one with neither flag set,
+// i.e. unconfigured) allows both, so lines can be built before picking a vendor.
+function allowedKinds(v: Vendor | null): PoLineType[] {
+  if (!v || (!v.suppliesMaterials && !v.suppliesContainers)) {
+    return ["ITEM", "CONTAINER"];
+  }
+  const kinds: PoLineType[] = [];
+  if (v.suppliesMaterials) kinds.push("ITEM");
+  if (v.suppliesContainers) kinds.push("CONTAINER");
+  return kinds;
+}
+const allowed = computed(() => allowedKinds(selectedVendor.value));
+
+// The subject ids currently on the lines — used to find vendors who've supplied
+// similar orders before.
+const lineSubjectIds = computed(
+  () => new Set(form.lines.map((l) => l.subjectId).filter(Boolean)),
+);
+function priorMatches(vendorId: string): number {
+  const s = summary[vendorId];
+  if (!s) return 0;
+  const supplied = new Set([...s.itemIds, ...s.containerIds]);
+  let n = 0;
+  for (const id of lineSubjectIds.value) if (supplied.has(id)) n++;
+  return n;
+}
+// Vendors ordered for the dropdown: when lines reference known subjects, the
+// vendors who've supplied the most of them float to the top.
+const rankedVendors = computed(() => {
+  const list = [...vendors.value];
+  if (lineSubjectIds.value.size === 0) return list;
+  return list.sort((a, b) => {
+    const d = priorMatches(b.id) - priorMatches(a.id);
+    return d !== 0 ? d : a.name.localeCompare(b.name);
+  });
+});
+function vendorLabel(v: Vendor): string {
+  const matches = priorMatches(v.id);
+  if (matches > 0) return `${v.name} — ★ supplied ${matches} of these before`;
+  const poCount = summary[v.id]?.poCount ?? 0;
+  return poCount > 0 ? `${v.name} — ${poCount} prior order(s)` : v.name;
+}
+// Top suggestions to nudge the user when they've added lines but no vendor yet.
+const suggestedVendors = computed(() =>
+  lineSubjectIds.value.size === 0 || form.vendorId
+    ? []
+    : vendors.value
+        .filter((v) => priorMatches(v.id) > 0)
+        .sort((a, b) => priorMatches(b.id) - priorMatches(a.id))
+        .slice(0, 3),
+);
+
 function addLine(): void {
-  form.lines.push({ kind: "ITEM", subjectId: "", quantityOrdered: "0", unitCost: "0" });
+  form.lines.push({
+    kind: allowed.value[0] ?? "ITEM",
+    subjectId: "",
+    quantityOrdered: "0",
+    unitCost: "0",
+  });
 }
 function removeLine(i: number): void {
   form.lines.splice(i, 1);
@@ -47,17 +110,34 @@ function onKindChange(line: PoLine): void {
   line.subjectId = "";
 }
 
+// When the vendor changes, drop any line whose kind the vendor doesn't supply
+// back to an allowed kind (and clear its subject) so the form stays consistent.
+watch(
+  () => form.vendorId,
+  () => {
+    const kinds = allowed.value;
+    for (const line of form.lines) {
+      if (!kinds.includes(line.kind)) {
+        line.kind = kinds[0] ?? "ITEM";
+        line.subjectId = "";
+      }
+    }
+  },
+);
+
 onMounted(async () => {
   try {
-    const [v, inv, cont] = await Promise.all([
+    const [v, inv, cont, sum] = await Promise.all([
       api.listVendors(),
       api.listInventory({ pageSize: 200 }),
       api.listContainers(),
+      api.vendorSupplySummary(),
     ]);
     vendors.value = v.filter((x) => x.isActive);
     // Procurable: raw materials and bases (not finished goods).
     items.value = inv.items.filter((i) => i.itemType !== "FINISHED_GOOD");
     containers.value = cont.filter((c) => c.active);
+    for (const s of sum) summary[s.vendorId] = s;
     addLine();
   } catch (err) {
     issues.value = [err instanceof ApiError ? err.message : "Failed to load"];
@@ -116,8 +196,14 @@ async function submit(): Promise<void> {
           <label>Vendor</label>
           <select v-model="form.vendorId">
             <option value="" disabled>Select a vendor…</option>
-            <option v-for="v in vendors" :key="v.id" :value="v.id">{{ v.name }}</option>
+            <option v-for="v in rankedVendors" :key="v.id" :value="v.id">
+              {{ vendorLabel(v) }}
+            </option>
           </select>
+          <div v-if="suggestedVendors.length" class="inactive" style="font-size: 0.8rem">
+            Suggested (supplied these before):
+            {{ suggestedVendors.map((v) => v.name).join(", ") }}
+          </div>
         </div>
         <div class="field">
           <label>PO number</label>
@@ -148,8 +234,8 @@ async function submit(): Promise<void> {
           <tr v-for="(line, index) in form.lines" :key="index">
             <td>
               <select v-model="line.kind" @change="onKindChange(line)">
-                <option value="ITEM">Material</option>
-                <option value="CONTAINER">Container</option>
+                <option v-if="allowed.includes('ITEM')" value="ITEM">Material</option>
+                <option v-if="allowed.includes('CONTAINER')" value="CONTAINER">Container</option>
               </select>
             </td>
             <td>

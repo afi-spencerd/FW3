@@ -428,6 +428,9 @@ model Vendor {
   paymentTerms String? @db.NVarChar(20) // DUE_ON_RECEIPT | NET_15 | NET_30 | ... (CHECK in migration)
   notes     String?  @db.NVarChar(2000)
   isActive  Boolean  @default(true)
+  // What the vendor supplies — drives which subjects the PO page offers.
+  suppliesMaterials  Boolean @default(true)
+  suppliesContainers Boolean @default(false)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

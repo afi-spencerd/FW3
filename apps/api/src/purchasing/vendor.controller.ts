@@ -33,6 +33,13 @@ export class VendorController {
     return this.vendors.list(user.tenantId);
   }
 
+  // Declared before ":id" so the static path wins.
+  @Get("supply-summary")
+  @RequirePermissions(PERMISSIONS.VENDOR_READ)
+  supplySummary(@CurrentUser() user: AuthenticatedUser) {
+    return this.vendors.supplySummary(user.tenantId);
+  }
+
   @Get(":id")
   @RequirePermissions(PERMISSIONS.VENDOR_READ)
   getById(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string) {

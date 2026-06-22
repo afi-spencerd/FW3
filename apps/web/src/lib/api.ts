@@ -60,6 +60,7 @@ import type {
   UpdateShipment,
   UpdateVendor,
   Vendor,
+  VendorSupplySummary,
   ScrapContainer,
 } from "@fw3/shared-types";
 
@@ -242,6 +243,8 @@ export const api = {
     }),
 
   listVendors: () => request<Vendor[]>("/vendors"),
+  vendorSupplySummary: () =>
+    request<VendorSupplySummary[]>("/vendors/supply-summary"),
   getVendor: (id: string) => request<Vendor>(`/vendors/${id}`),
   createVendor: (data: CreateVendor) =>
     request<Vendor>("/vendors", { method: "POST", body: JSON.stringify(data) }),

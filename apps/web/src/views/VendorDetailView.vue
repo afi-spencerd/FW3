@@ -70,6 +70,8 @@ const form = reactive({
   paymentTerms: "" as PaymentTerms | "",
   notes: "",
   isActive: true,
+  suppliesMaterials: true,
+  suppliesContainers: false,
   addresses: [] as AddressRow[],
   contacts: [] as ContactRow[],
 });
@@ -84,6 +86,8 @@ function apply(v: Vendor): void {
   form.paymentTerms = v.paymentTerms ?? "";
   form.notes = v.notes ?? "";
   form.isActive = v.isActive;
+  form.suppliesMaterials = v.suppliesMaterials;
+  form.suppliesContainers = v.suppliesContainers;
   form.addresses = v.addresses.map((a) => ({
     kind: a.kind,
     label: a.label ?? "",
@@ -128,6 +132,8 @@ async function save(): Promise<void> {
       paymentTerms: form.paymentTerms || undefined,
       notes: form.notes || undefined,
       isActive: form.isActive,
+      suppliesMaterials: form.suppliesMaterials,
+      suppliesContainers: form.suppliesContainers,
       addresses: form.addresses
         .filter((a) => a.line1.trim() !== "")
         .map((a) => ({
@@ -193,6 +199,24 @@ async function save(): Promise<void> {
             <label><input type="checkbox" v-model="form.isActive" style="width: auto" /> Active</label>
           </div>
         </div>
+
+        <div class="field">
+          <label>Supplies</label>
+          <div class="toolbar" style="gap: 1.2rem">
+            <label style="font-weight: normal">
+              <input type="checkbox" v-model="form.suppliesMaterials" style="width: auto" />
+              Raw materials / bases
+            </label>
+            <label style="font-weight: normal">
+              <input type="checkbox" v-model="form.suppliesContainers" style="width: auto" />
+              Containers
+            </label>
+          </div>
+          <div class="inactive" style="font-size: 0.8rem">
+            Controls which line subjects the PO page offers for this vendor.
+          </div>
+        </div>
+
         <div class="field"><label>Notes</label><input v-model="form.notes" /></div>
 
         <h4>Addresses</h4>

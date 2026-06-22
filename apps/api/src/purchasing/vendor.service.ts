@@ -12,6 +12,7 @@ import type {
   PaymentTerms,
   UpdateVendor,
   Vendor,
+  VendorSupplySummary,
 } from "@fw3/shared-types";
 import { AuditService } from "../audit/audit.service";
 import { PrismaService } from "../database/prisma.service";
@@ -70,6 +71,46 @@ export class VendorService {
     return vendors.map((v) => this.toDto(v));
   }
 
+  /**
+   * Per-vendor purchase history derived from non-cancelled POs: how many orders,
+   * when we last ordered, and the distinct items / containers each has supplied.
+   * Powers "purchased before" and emphasizing vendors for the current lines.
+   */
+  async supplySummary(tenantId: string): Promise<VendorSupplySummary[]> {
+    const orders = await this.prisma.purchaseOrder.findMany({
+      where: { tenantId, status: { not: "CANCELLED" } },
+      select: {
+        vendorId: true,
+        orderDate: true,
+        lines: { select: { itemId: true, containerId: true } },
+      },
+    });
+    const byVendor = new Map<
+      string,
+      { poCount: number; lastOrderAt: Date | null; items: Set<string>; containers: Set<string> }
+    >();
+    for (const o of orders) {
+      let agg = byVendor.get(o.vendorId);
+      if (!agg) {
+        agg = { poCount: 0, lastOrderAt: null, items: new Set(), containers: new Set() };
+        byVendor.set(o.vendorId, agg);
+      }
+      agg.poCount += 1;
+      if (!agg.lastOrderAt || o.orderDate > agg.lastOrderAt) agg.lastOrderAt = o.orderDate;
+      for (const l of o.lines) {
+        if (l.itemId) agg.items.add(l.itemId);
+        if (l.containerId) agg.containers.add(l.containerId);
+      }
+    }
+    return [...byVendor.entries()].map(([vendorId, agg]) => ({
+      vendorId,
+      poCount: agg.poCount,
+      lastOrderAt: agg.lastOrderAt?.toISOString() ?? null,
+      itemIds: [...agg.items],
+      containerIds: [...agg.containers],
+    }));
+  }
+
   async getById(tenantId: string, id: string): Promise<Vendor> {
     const vendor = await this.prisma.vendor.findFirst({
       where: { id, tenantId },
@@ -94,6 +135,8 @@ export class VendorService {
             paymentTerms: input.paymentTerms ?? null,
             notes: input.notes ?? null,
             isActive: input.isActive,
+            suppliesMaterials: input.suppliesMaterials,
+            suppliesContainers: input.suppliesContainers,
             addresses: { create: input.addresses.map(addressData) },
             contacts: { create: input.contacts.map(contactData) },
           },
@@ -137,6 +180,12 @@ export class VendorService {
             ...(input.paymentTerms === undefined ? {} : { paymentTerms: input.paymentTerms ?? null }),
             ...(input.notes === undefined ? {} : { notes: input.notes ?? null }),
             ...(input.isActive === undefined ? {} : { isActive: input.isActive }),
+            ...(input.suppliesMaterials === undefined
+              ? {}
+              : { suppliesMaterials: input.suppliesMaterials }),
+            ...(input.suppliesContainers === undefined
+              ? {}
+              : { suppliesContainers: input.suppliesContainers }),
             // Addresses / contacts, when supplied, replace the whole set.
             ...(input.addresses === undefined
               ? {}
@@ -174,6 +223,8 @@ export class VendorService {
       paymentTerms: v.paymentTerms as PaymentTerms | null,
       notes: v.notes,
       isActive: v.isActive,
+      suppliesMaterials: v.suppliesMaterials,
+      suppliesContainers: v.suppliesContainers,
       addresses: v.addresses.map((a) => ({
         id: a.id,
         kind: a.kind as AddressKind,
