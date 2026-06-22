@@ -18,7 +18,9 @@
       "Bash(jj commit *)",
       "Bash(curl -s -o /dev/null -w \"api=%{http_code}\\\\n\" http://localhost:3002/auth/me)",
       "Bash(curl -s http://localhost:3002/compounder/openapi.json)",
-      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('openapi', d['openapi'], '| title:', d['info']['title']\\); print\\('paths:', list\\(d['paths'].keys\\(\\)\\)\\); print\\('schemas:', list\\(d['components']['schemas'].keys\\(\\)\\)\\)\")"
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('openapi', d['openapi'], '| title:', d['info']['title']\\); print\\('paths:', list\\(d['paths'].keys\\(\\)\\)\\); print\\('schemas:', list\\(d['components']['schemas'].keys\\(\\)\\)\\)\")",
+      "Bash(pnpm --filter @fw3/api build)",
+      "Bash(pnpm --filter @fw3/api test)"
     ]
   }
 }
