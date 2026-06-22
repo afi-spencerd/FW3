@@ -2,6 +2,8 @@
 import { computed, onMounted, reactive, ref } from "vue";
 import { useRouter } from "vue-router";
 import {
+  type Container,
+  containersForWeight,
   createSalesOrderSchema,
   type Customer,
   type InventoryItem,
@@ -11,15 +13,32 @@ import { api, ApiError } from "../lib/api";
 const router = useRouter();
 const customers = ref<Customer[]>([]);
 const items = ref<InventoryItem[]>([]);
+const containers = ref<Container[]>([]);
 const issues = ref<string[]>([]);
 const busy = ref(false);
 
+interface SoLine {
+  itemId: string;
+  quantityOrdered: string;
+  unitPrice: string;
+  containerId: string;
+  containerQuantity: string;
+}
 const form = reactive({
   customerId: "",
   soNumber: "",
   notes: "",
-  lines: [] as { itemId: string; quantityOrdered: string; unitPrice: string }[],
+  lines: [] as SoLine[],
 });
+
+// Default the container count from fill capacity (overridable). Recomputed when
+// the line's quantity or chosen container changes.
+function recalcContainers(line: SoLine): void {
+  const c = containers.value.find((x) => x.id === line.containerId);
+  if (!c) return;
+  const suggested = containersForWeight(line.quantityOrdered, c.capacityLb);
+  if (suggested > 0) line.containerQuantity = String(suggested);
+}
 
 const total = computed(() =>
   form.lines
@@ -28,7 +47,13 @@ const total = computed(() =>
 );
 
 function addLine(): void {
-  form.lines.push({ itemId: "", quantityOrdered: "0", unitPrice: "0" });
+  form.lines.push({
+    itemId: "",
+    quantityOrdered: "0",
+    unitPrice: "0",
+    containerId: "",
+    containerQuantity: "",
+  });
 }
 function removeLine(i: number): void {
   form.lines.splice(i, 1);
@@ -36,13 +61,15 @@ function removeLine(i: number): void {
 
 onMounted(async () => {
   try {
-    const [c, inv] = await Promise.all([
+    const [c, inv, cont] = await Promise.all([
       api.listCustomers(),
       api.listInventory({ pageSize: 200 }),
+      api.listContainers(),
     ]);
     customers.value = c.filter((x) => x.isActive);
     // Sellable: finished goods and bases (not raw materials).
     items.value = inv.items.filter((i) => i.itemType !== "RAW_MATERIAL");
+    containers.value = cont.filter((x) => x.active);
     addLine();
   } catch (err) {
     issues.value = [err instanceof ApiError ? err.message : "Failed to load"];
@@ -62,6 +89,8 @@ async function submit(): Promise<void> {
         quantityOrdered: l.quantityOrdered,
         unitPrice: l.unitPrice,
         sortOrder: i,
+        containerId: l.containerId || undefined,
+        containerQuantity: l.containerId ? l.containerQuantity || undefined : undefined,
       })),
     };
     const parsed = createSalesOrderSchema.safeParse(payload);
@@ -114,12 +143,19 @@ async function submit(): Promise<void> {
       </div>
 
       <h3>Lines</h3>
+      <p class="inactive" style="font-size: 0.8rem">
+        Optionally choose the container the goods will be packed in. The count
+        defaults from the container's fill capacity but can be overridden (e.g. a
+        customer's size limit may require more, smaller containers).
+      </p>
       <table>
         <thead>
           <tr>
             <th>Item</th>
-            <th class="num" style="width: 120px">Qty</th>
-            <th class="num" style="width: 120px">Unit price</th>
+            <th class="num" style="width: 90px">Qty</th>
+            <th class="num" style="width: 100px">Unit price</th>
+            <th style="width: 200px">Container</th>
+            <th class="num" style="width: 90px">Containers</th>
             <th style="width: 40px"></th>
           </tr>
         </thead>
@@ -133,8 +169,32 @@ async function submit(): Promise<void> {
                 </option>
               </select>
             </td>
-            <td class="num"><input v-model="line.quantityOrdered" inputmode="decimal" style="text-align: right" /></td>
+            <td class="num">
+              <input
+                v-model="line.quantityOrdered"
+                inputmode="decimal"
+                style="text-align: right"
+                @change="recalcContainers(line)"
+              />
+            </td>
             <td class="num"><input v-model="line.unitPrice" inputmode="decimal" style="text-align: right" /></td>
+            <td>
+              <select v-model="line.containerId" @change="recalcContainers(line)">
+                <option value="">— none —</option>
+                <option v-for="c in containers" :key="c.id" :value="c.id">
+                  {{ c.name }} ({{ c.sku }})<template v-if="c.capacityLb"> · {{ c.capacityLb }} lb</template>
+                </option>
+              </select>
+            </td>
+            <td class="num">
+              <input
+                v-model="line.containerQuantity"
+                inputmode="numeric"
+                style="text-align: right"
+                :disabled="!line.containerId"
+                placeholder="—"
+              />
+            </td>
             <td><button class="danger" @click="removeLine(index)">✕</button></td>
           </tr>
         </tbody>
@@ -143,6 +203,8 @@ async function submit(): Promise<void> {
             <td><button @click="addLine">+ Add line</button></td>
             <td></td>
             <td class="num"><strong>${{ total }}</strong></td>
+            <td></td>
+            <td></td>
             <td></td>
           </tr>
         </tfoot>

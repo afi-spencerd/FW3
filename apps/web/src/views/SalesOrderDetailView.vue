@@ -36,6 +36,38 @@ const canCancel = computed(
     so.value.lines.every((l) => Number(l.quantityShipped) === 0) &&
     auth.hasPermission(PERMISSIONS.SO_UPDATE),
 );
+// Packing consumes the containers on the lines; only once, and only if some
+// line specifies a container.
+const hasContainers = computed(
+  () => so.value?.lines.some((l) => l.containerId) ?? false,
+);
+const canPack = computed(
+  () =>
+    so.value !== null &&
+    so.value.status !== "CANCELLED" &&
+    !so.value.packedAt &&
+    hasContainers.value &&
+    auth.hasPermission(PERMISSIONS.SO_SHIP),
+);
+const packBusy = ref(false);
+
+async function pack(): Promise<void> {
+  if (!so.value) return;
+  if (!confirm("Pack this order? This consumes the selected containers from inventory and can't be undone.")) {
+    return;
+  }
+  error.value = null;
+  notice.value = null;
+  packBusy.value = true;
+  try {
+    so.value = await api.packSalesOrder(so.value.id);
+    notice.value = "Order packed — containers deducted from inventory.";
+  } catch (err) {
+    error.value = err instanceof ApiError ? err.message : "Pack failed";
+  } finally {
+    packBusy.value = false;
+  }
+}
 
 function remaining(ordered: string, shipped: string): number {
   return Number(ordered) - Number(shipped);
@@ -148,6 +180,12 @@ onMounted(load);
         <div class="metric"><div class="label">Customer</div><div class="value" style="font-size: 1rem">{{ so.customerName }}</div></div>
         <div class="metric"><div class="label">Status</div><div class="value" style="font-size: 1rem">{{ so.status }}</div></div>
         <div class="metric"><div class="label">Revenue</div><div class="value">${{ so.totalRevenue }}</div></div>
+        <div class="metric">
+          <div class="label">Packed</div>
+          <div class="value" style="font-size: 1rem">
+            {{ so.packedAt ? new Date(so.packedAt).toLocaleDateString() : "—" }}
+          </div>
+        </div>
       </div>
 
       <table>
@@ -158,6 +196,7 @@ onMounted(load);
             <th class="num">Shipped</th>
             <th class="num">Remaining</th>
             <th class="num">Unit price</th>
+            <th>Container</th>
             <th v-if="canShip" class="num">Ship now</th>
           </tr>
         </thead>
@@ -168,6 +207,13 @@ onMounted(load);
             <td class="num">{{ line.quantityShipped }}</td>
             <td class="num">{{ remaining(line.quantityOrdered, line.quantityShipped) }}</td>
             <td class="num">{{ line.unitPrice }}</td>
+            <td>
+              <template v-if="line.containerId">
+                {{ line.containerQuantity }} × {{ line.containerName }}
+                <span class="inactive">({{ line.containerSku }})</span>
+              </template>
+              <span v-else class="inactive">—</span>
+            </td>
             <td v-if="canShip" class="num">
               <input
                 v-model="shipQty[line.id]"
@@ -179,6 +225,19 @@ onMounted(load);
           </tr>
         </tbody>
       </table>
+
+      <div v-if="hasContainers" class="toolbar" style="align-items: center">
+        <span v-if="so.packedAt" class="inactive">
+          Packed {{ new Date(so.packedAt).toLocaleString() }} — containers deducted.
+        </span>
+        <span v-else class="inactive">
+          Packing consumes the selected containers from inventory.
+        </span>
+        <span class="spacer" />
+        <button v-if="canPack" class="primary" :disabled="packBusy" @click="pack">
+          {{ packBusy ? "Packing…" : "Package order" }}
+        </button>
+      </div>
 
       <div v-if="canShip" class="toolbar" style="flex-wrap: wrap; align-items: center">
         <input v-model="shipMeta.carrier" placeholder="Carrier (e.g. UPS)" style="max-width: 160px" />

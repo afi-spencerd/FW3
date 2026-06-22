@@ -49,6 +49,9 @@ model Tenant {
   ifraCategoryLimits  IfraCategoryLimit[]
   shipments           Shipment[]
   shipmentLines       ShipmentLine[]
+  containers          Container[]
+  containerStocks     ContainerStock[]
+  containerTxns       ContainerTxn[]
 }
 
 model User {
@@ -586,6 +589,9 @@ model SalesOrder {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
+  // When the order's containers were consumed (packed). Null until packed.
+  packedAt   DateTime?
+
   tenant    Tenant           @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   customer  Customer         @relation(fields: [customerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   lines     SalesOrderLine[]
@@ -604,13 +610,82 @@ model SalesOrderLine {
   unitPrice       Decimal @db.Decimal(19, 4)
   quantityShipped Decimal @default(0) @db.Decimal(18, 4)
   sortOrder       Int     @default(0)
+  // Packing plan: which container the goods go in and how many.
+  containerId       String?  @db.Char(36)
+  containerQuantity Decimal? @db.Decimal(18, 4)
 
   salesOrder SalesOrder    @relation(fields: [salesOrderId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   item       InventoryItem @relation("ItemSalesOrderLines", fields: [itemId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  container  Container?    @relation(fields: [containerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   shipmentLines ShipmentLine[]
 
   @@index([salesOrderId])
   @@index([itemId])
+}
+
+// Container (packaging) inventory: drums, cans, jugs, bottles the fragrance is
+// packed into. Counted in whole units; position + moving-average cost live in
+// ContainerStock and the ContainerTxn ledger (mirrors the item/stock split).
+model Container {
+  id            String   @id @default(uuid()) @db.Char(36)
+  tenantId      String   @db.Char(36)
+  sku           String   @db.NVarChar(64)
+  name          String   @db.NVarChar(200)
+  containerType String   @db.NVarChar(20) // DRUM | PAIL | JUG | CAN | BOTTLE | TOTE | OTHER (CHECK)
+  capacityLb    Decimal? @db.Decimal(18, 4) // nominal fill weight, to default counts
+  standardCost  Decimal  @default(0) @db.Decimal(19, 4)
+  active        Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  tenant          Tenant           @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  stock           ContainerStock?
+  txns            ContainerTxn[]
+  salesOrderLines SalesOrderLine[]
+
+  @@unique([tenantId, sku])
+  @@index([tenantId])
+}
+
+// On-hand position for a container (single bucket; containers have no WIP/QC
+// staging). Quantity is a whole count; avgCost is the moving average.
+model ContainerStock {
+  id          String   @id @default(uuid()) @db.Char(36)
+  tenantId    String   @db.Char(36)
+  containerId String   @unique @db.Char(36)
+  quantity    Decimal  @default(0) @db.Decimal(18, 4)
+  avgCost     Decimal  @default(0) @db.Decimal(19, 4)
+  updatedAt   DateTime @updatedAt
+
+  tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  container Container @relation(fields: [containerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([tenantId])
+}
+
+// Container ledger: ADJUSTMENT (receive/correct), CONSUME (packing an order),
+// SCRAP (damaged). Each row snapshots the running balance, mirroring InventoryTxn.
+model ContainerTxn {
+  id             String   @id @default(uuid()) @db.Char(36)
+  tenantId       String   @db.Char(36)
+  containerId    String   @db.Char(36)
+  type           String   @db.NVarChar(20) // ADJUSTMENT | CONSUME | SCRAP (CHECK)
+  quantity       Decimal  @db.Decimal(18, 4) // signed: + in, - out
+  unitCost       Decimal  @db.Decimal(19, 4)
+  value          Decimal  @db.Decimal(38, 4)
+  balanceQty     Decimal  @db.Decimal(18, 4)
+  balanceAvgCost Decimal  @db.Decimal(19, 4)
+  reason         String?  @db.NVarChar(20) // scrap reason when type = SCRAP
+  note           String?  @db.NVarChar(500)
+  docType        String?  @db.NVarChar(30)
+  docId          String?  @db.Char(36)
+  operatorId     String?  @db.Char(36)
+  occurredAt     DateTime @default(now())
+
+  tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  container Container @relation(fields: [containerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([tenantId, containerId, occurredAt])
 }
 
 // A first-class shipment against a sales order: one physical despatch with its

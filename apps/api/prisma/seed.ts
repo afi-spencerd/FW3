@@ -377,6 +377,34 @@ async function main(): Promise<void> {
       });
     }
 
+    // 10. Demo containers (packaging) with opening stock. Two share a capacity
+    // (red vs white jug) to mirror "customer requests a specific container".
+    const DEMO_CONTAINERS = [
+      { sku: "CT-DRUM-55", name: "55 gal steel drum", type: "DRUM", cap: "450.0000", cost: "48.0000", qty: "20" },
+      { sku: "CT-JUG-RED", name: "5 gal plastic jug (red)", type: "JUG", cap: "40.0000", cost: "6.5000", qty: "150" },
+      { sku: "CT-JUG-WHITE", name: "5 gal plastic jug (white)", type: "JUG", cap: "40.0000", cost: "6.5000", qty: "150" },
+      { sku: "CT-BOTTLE-1L", name: "1 L glass bottle", type: "BOTTLE", cap: "2.2000", cost: "1.2000", qty: "500" },
+    ] as const;
+    for (const ct of DEMO_CONTAINERS) {
+      const container = await prisma.container.upsert({
+        where: { tenantId_sku: { tenantId: tenant.id, sku: ct.sku } },
+        create: {
+          tenantId: tenant.id,
+          sku: ct.sku,
+          name: ct.name,
+          containerType: ct.type,
+          capacityLb: ct.cap,
+          standardCost: ct.cost,
+        },
+        update: { capacityLb: ct.cap, standardCost: ct.cost },
+      });
+      await prisma.containerStock.upsert({
+        where: { containerId: container.id },
+        create: { tenantId: tenant.id, containerId: container.id, quantity: ct.qty, avgCost: ct.cost },
+        update: { quantity: ct.qty, avgCost: ct.cost },
+      });
+    }
+
     console.log(`Seed complete. Tenant=${tenant.id} (slug=demo), admin user=${admin.id}`);
   } finally {
     await prisma.$disconnect();

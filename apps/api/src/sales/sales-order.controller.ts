@@ -75,6 +75,12 @@ export class SalesOrderController {
     return this.orders.cancel(user, id);
   }
 
+  @Post(":id/pack")
+  @RequirePermissions(PERMISSIONS.SO_SHIP)
+  pack(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string) {
+    return this.orders.pack(user, id);
+  }
+
   @Post(":id/ship")
   @RequirePermissions(PERMISSIONS.SO_SHIP)
   ship(

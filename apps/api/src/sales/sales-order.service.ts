@@ -16,6 +16,7 @@ import type {
   UpdateShipment,
 } from "@fw3/shared-types";
 import { AuditService } from "../audit/audit.service";
+import { ContainerService } from "../container/container.service";
 import { PrismaService } from "../database/prisma.service";
 import { Prisma } from "../generated/prisma/client";
 import { extendedValue } from "../inventory/valuation";
@@ -25,7 +26,7 @@ import { type Movement, StockService } from "../stock/stock.service";
 type SoWithRelations = Prisma.SalesOrderGetPayload<{
   include: {
     customer: true;
-    lines: { include: { item: true } };
+    lines: { include: { item: true; container: true } };
     shipments: {
       include: { lines: { include: { item: true } }; shippedBy: true };
     };
@@ -38,6 +39,7 @@ export class SalesOrderService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly stock: StockService,
+    private readonly containers: ContainerService,
   ) {}
 
   async list(tenantId: string): Promise<SalesOrderSummary[]> {
@@ -45,7 +47,7 @@ export class SalesOrderService {
       where: { tenantId },
       include: {
         customer: true,
-        lines: { include: { item: true } },
+        lines: { include: { item: true, container: true } },
         shipments: {
           include: { lines: { include: { item: true } }, shippedBy: true },
         },
@@ -73,7 +75,10 @@ export class SalesOrderService {
       where: { tenantId, status: { in: ["OPEN", "PARTIAL"] } },
       include: {
         customer: true,
-        lines: { include: { item: true }, orderBy: { sortOrder: "asc" } },
+        lines: {
+          include: { item: true, container: true },
+          orderBy: { sortOrder: "asc" },
+        },
         shipments: {
           include: { lines: { include: { item: true } }, shippedBy: true },
           orderBy: { shippedAt: "asc" },
@@ -110,6 +115,8 @@ export class SalesOrderService {
                 quantityOrdered: line.quantityOrdered,
                 unitPrice: line.unitPrice,
                 sortOrder: line.sortOrder,
+                containerId: line.containerId ?? null,
+                containerQuantity: line.containerQuantity ?? null,
               })),
             },
           },
@@ -159,6 +166,8 @@ export class SalesOrderService {
                       quantityOrdered: line.quantityOrdered,
                       unitPrice: line.unitPrice,
                       sortOrder: line.sortOrder,
+                      containerId: line.containerId ?? null,
+                      containerQuantity: line.containerQuantity ?? null,
                     })),
                   },
                 }
@@ -345,6 +354,56 @@ export class SalesOrderService {
     return this.getById(user.tenantId, salesOrderId);
   }
 
+  /**
+   * Pack the order: consume the containers planned on its lines from container
+   * inventory (a CONSUME transaction each) and stamp packedAt. Once packing
+   * starts the containers are committed (a started container can't be reused),
+   * so this is a one-time action — it refuses to run twice or on a cancelled
+   * order, and requires at least one line to specify a container.
+   */
+  async pack(user: AuthenticatedUser, id: string): Promise<SalesOrder> {
+    await this.prisma.$transaction(async (tx) => {
+      const order = await this.loadOrder(tx, user.tenantId, id);
+      if (order.status === "CANCELLED") {
+        throw new BadRequestException("Cannot pack a cancelled sales order");
+      }
+      if (order.packedAt) {
+        throw new BadRequestException("This order has already been packed");
+      }
+      const entries = order.lines
+        .filter((l) => l.containerId && l.containerQuantity)
+        .map((l) => ({
+          containerId: l.containerId as string,
+          quantity: (l.containerQuantity as Prisma.Decimal).toString(),
+        }));
+      if (entries.length === 0) {
+        throw new BadRequestException(
+          "No containers selected on this order's lines to pack",
+        );
+      }
+
+      await this.containers.consumeInTx(tx, user, entries, {
+        docType: "SALES_ORDER",
+        docId: id,
+        note: `Packed SO ${order.soNumber}`,
+      });
+
+      await tx.salesOrder.update({
+        where: { id },
+        data: { packedAt: new Date() },
+      });
+      await this.audit.record(tx, {
+        tenantId: user.tenantId,
+        actorId: user.id,
+        entityType: "SalesOrder",
+        entityId: id,
+        action: "UPDATE",
+        after: { packed: entries },
+      });
+    });
+    return this.getById(user.tenantId, id);
+  }
+
   private async loadOrder(
     db: PrismaService | Prisma.TransactionClient,
     tenantId: string,
@@ -354,7 +413,10 @@ export class SalesOrderService {
       where: { id, tenantId },
       include: {
         customer: true,
-        lines: { include: { item: true }, orderBy: { sortOrder: "asc" } },
+        lines: {
+          include: { item: true, container: true },
+          orderBy: { sortOrder: "asc" },
+        },
         shipments: {
           include: { lines: { include: { item: true } }, shippedBy: true },
           orderBy: { shippedAt: "asc" },
@@ -401,6 +463,11 @@ export class SalesOrderService {
         line.unitPrice.toString(),
       ),
       sortOrder: line.sortOrder,
+      containerId: line.containerId,
+      containerSku: line.container?.sku ?? null,
+      containerName: line.container?.name ?? null,
+      containerQuantity:
+        line.containerQuantity === null ? null : line.containerQuantity.toString(),
     }));
     const totalRevenue = lines
       .reduce((sum, l) => sum.plus(l.lineRevenue), new Decimal(0))
@@ -442,6 +509,7 @@ export class SalesOrderService {
       orderDate: order.orderDate.toISOString(),
       notes: order.notes,
       totalRevenue,
+      packedAt: order.packedAt?.toISOString() ?? null,
       lines,
       shipments,
       createdAt: order.createdAt.toISOString(),

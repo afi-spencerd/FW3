@@ -1,8 +1,12 @@
 import type {
+  AdjustContainer,
   AdjustStock,
   AuthenticatedUser,
   BatchRequirements,
   BatchRequirementsRequest,
+  Container,
+  ContainerTxn,
+  CreateContainer,
   CreateFormula,
   CreateInventoryItem,
   CreatePurchaseOrder,
@@ -51,10 +55,12 @@ import type {
   UpdateCustomer,
   UpdateFormula,
   UpdateInventoryItem,
+  UpdateContainer,
   UpdateLocation,
   UpdateShipment,
   UpdateVendor,
   Vendor,
+  ScrapContainer,
 } from "@fw3/shared-types";
 
 const BASE = "/api";
@@ -281,6 +287,8 @@ export const api = {
     }),
   cancelSalesOrder: (id: string) =>
     request<SalesOrder>(`/sales-orders/${id}/cancel`, { method: "POST" }),
+  packSalesOrder: (id: string) =>
+    request<SalesOrder>(`/sales-orders/${id}/pack`, { method: "POST" }),
   shipSalesOrder: (id: string, data: ShipSalesOrder) =>
     request<SalesOrder>(`/sales-orders/${id}/ship`, {
       method: "POST",
@@ -291,6 +299,28 @@ export const api = {
       method: "PUT",
       body: JSON.stringify(data),
     }),
+
+  listContainers: () => request<Container[]>("/containers"),
+  getContainer: (id: string) => request<Container>(`/containers/${id}`),
+  createContainer: (data: CreateContainer) =>
+    request<Container>("/containers", { method: "POST", body: JSON.stringify(data) }),
+  updateContainer: (id: string, data: UpdateContainer) =>
+    request<Container>(`/containers/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    }),
+  adjustContainer: (id: string, data: AdjustContainer) =>
+    request<Container>(`/containers/${id}/adjust`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  scrapContainer: (id: string, data: ScrapContainer) =>
+    request<Container>(`/containers/${id}/scrap`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  containerTransactions: (id: string) =>
+    request<ContainerTxn[]>(`/containers/${id}/transactions`),
 
   listCycleCounts: (status?: CycleCountStatus) =>
     request<CycleCountSummary[]>(

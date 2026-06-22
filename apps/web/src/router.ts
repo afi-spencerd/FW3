@@ -180,6 +180,25 @@ export const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
+      path: "/containers",
+      name: "containers",
+      component: () => import("./views/ContainersView.vue"),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: "/containers/new",
+      name: "container-new",
+      component: () => import("./views/ContainerFormView.vue"),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: "/containers/:id",
+      name: "container-detail",
+      component: () => import("./views/ContainerFormView.vue"),
+      meta: { requiresAuth: true },
+      props: true,
+    },
+    {
       path: "/sales-orders/new",
       name: "sales-order-new",
       component: () => import("./views/SalesOrderFormView.vue"),

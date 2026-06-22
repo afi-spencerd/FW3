@@ -69,6 +69,10 @@ export const soLineInputSchema = z.object({
   quantityOrdered: positiveQty,
   unitPrice: moneyString,
   sortOrder: z.number().int().min(0).default(0),
+  /** Container the goods will be packed in (optional; customer-driven). */
+  containerId: z.string().uuid().nullish(),
+  /** How many of that container — defaults from capacity but is overridable. */
+  containerQuantity: positiveQty.nullish(),
 });
 
 export const createSalesOrderSchema = z.object({
@@ -121,6 +125,11 @@ export const soLineSchema = z.object({
   quantityShipped: z.string(),
   lineRevenue: z.string(),
   sortOrder: z.number().int(),
+  /** Packing plan: the chosen container and how many (null if not packed in a container). */
+  containerId: z.string().uuid().nullable(),
+  containerSku: z.string().nullable(),
+  containerName: z.string().nullable(),
+  containerQuantity: z.string().nullable(),
 });
 
 /** One line of a shipment — the quantity of an SO line despatched, at COGS. */
@@ -160,6 +169,8 @@ export const salesOrderSchema = z.object({
   orderDate: z.string().datetime(),
   notes: z.string().nullable(),
   totalRevenue: z.string(),
+  /** When the order's containers were consumed (packed); null until packed. */
+  packedAt: z.string().datetime().nullable(),
   lines: z.array(soLineSchema),
   shipments: z.array(shipmentSchema),
   createdAt: z.string().datetime(),
