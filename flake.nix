@@ -18,6 +18,7 @@
         {
           default = pkgs.mkShell {
             packages = [
+              pkgs.just      # task runner
               pkgs.nodejs_22 # current LTS — not Bun (locked decision)
               pkgs.pnpm # workspace package manager
               pkgs.openssl # Prisma + node tls
