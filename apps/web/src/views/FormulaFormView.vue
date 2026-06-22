@@ -30,6 +30,14 @@ const form = reactive({
   lines: [] as { rawMaterialId: string; percentage: string }[],
 });
 
+// On a new formula the target can be an existing item or created inline.
+const targetMode = ref<"existing" | "new">("existing");
+const newTarget = reactive({
+  sku: "",
+  name: "",
+  itemType: "FINISHED_GOOD" as "FINISHED_GOOD" | "SEMI_FINISHED",
+});
+
 const issues = ref<string[]>([]);
 const busy = ref(false);
 
@@ -98,9 +106,19 @@ async function submit(): Promise<void> {
       }
       await api.updateFormula(props.id, parsed.data);
     } else {
+      const targetFields =
+        targetMode.value === "new"
+          ? {
+              newTarget: {
+                sku: newTarget.sku.trim(),
+                name: newTarget.name.trim(),
+                itemType: newTarget.itemType,
+              },
+            }
+          : { finishedGoodId: form.finishedGoodId };
       const parsed = createFormulaSchema.safeParse({
         ...base,
-        finishedGoodId: form.finishedGoodId,
+        ...targetFields,
       });
       if (!parsed.success) {
         issues.value = parsed.error.issues.map(
@@ -153,13 +171,58 @@ async function calculate(): Promise<void> {
       </ul>
 
       <div class="field">
-        <label for="fg">Target (finished good or base)</label>
-        <select id="fg" v-model="form.finishedGoodId" :disabled="isEdit">
-          <option value="" disabled>Select a target…</option>
-          <option v-for="g in targets" :key="g.id" :value="g.id">
-            {{ g.name }} ({{ g.sku }})
-          </option>
-        </select>
+        <label>Target (finished good or base)</label>
+        <template v-if="isEdit">
+          <!-- Target is fixed once a formula exists; shown read-only. -->
+          <select :value="form.finishedGoodId" disabled>
+            <option v-for="g in targets" :key="g.id" :value="g.id">
+              {{ g.name }} ({{ g.sku }})
+            </option>
+          </select>
+        </template>
+        <template v-else>
+          <div class="toolbar" style="gap: 1rem; margin-bottom: 0.4rem">
+            <label style="font-weight: normal">
+              <input type="radio" value="existing" v-model="targetMode" style="width: auto" />
+              Existing item
+            </label>
+            <label style="font-weight: normal">
+              <input type="radio" value="new" v-model="targetMode" style="width: auto" />
+              New product
+            </label>
+          </div>
+
+          <select v-if="targetMode === 'existing'" v-model="form.finishedGoodId">
+            <option value="" disabled>Select a target…</option>
+            <option v-for="g in targets" :key="g.id" :value="g.id">
+              {{ g.name }} ({{ g.sku }})
+            </option>
+          </select>
+
+          <div v-else class="grid-2">
+            <div class="field">
+              <label for="ntType">Type</label>
+              <select id="ntType" v-model="newTarget.itemType">
+                <option value="FINISHED_GOOD">Finished good</option>
+                <option value="SEMI_FINISHED">Base</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="ntSku">SKU</label>
+              <input id="ntSku" v-model="newTarget.sku" placeholder="e.g. FG-NOIR-02" />
+            </div>
+            <div class="field">
+              <label for="ntName">Name</label>
+              <input id="ntName" v-model="newTarget.name" placeholder="e.g. Noir Extrait v2" />
+            </div>
+            <div class="field" style="align-self: end">
+              <span class="inactive" style="font-size: 0.8rem">
+                Created in pounds; price, accounts &amp; regulatory details are
+                set later on the item page.
+              </span>
+            </div>
+          </div>
+        </template>
       </div>
 
       <div class="grid-2">

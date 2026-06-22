@@ -9,6 +9,7 @@ import type {
   BatchRequirements,
   CreateFormula,
   Formula,
+  FormulaNewTarget,
   FormulaSummary,
   UnitOfMeasure,
   UpdateFormula,
@@ -66,16 +67,22 @@ export class FormulaService {
   async create(user: AuthenticatedUser, input: CreateFormula): Promise<Formula> {
     try {
       const id = await this.prisma.$transaction(async (tx) => {
+        // Resolve the target: an existing item, or create one inline (defaults
+        // to pounds; price/accounts/regulatory are completed later on the item).
+        const finishedGoodId = input.newTarget
+          ? await this.createTarget(tx, user, input.newTarget)
+          : input.finishedGoodId!;
+
         await this.validateComposition(
           tx,
           user.tenantId,
-          input.finishedGoodId,
+          finishedGoodId,
           input.lines,
         );
         const formula = await tx.formula.create({
           data: {
             tenantId: user.tenantId,
-            finishedGoodId: input.finishedGoodId,
+            finishedGoodId,
             name: input.name,
             version: input.version,
             notes: input.notes ?? null,
@@ -210,6 +217,51 @@ export class FormulaService {
     }));
 
     return { formulaId: id, batchSize, unit: "LB" as const, lines };
+  }
+
+  /**
+   * Create a formula's target item inline. Defaults to pounds; everything else
+   * (price, QB accounts, regulatory data) is filled in later on the item page.
+   * Mirrors InventoryService.create by opening the INV stock bucket at zero.
+   */
+  private async createTarget(
+    tx: Prisma.TransactionClient,
+    user: AuthenticatedUser,
+    target: FormulaNewTarget,
+  ): Promise<string> {
+    const dup = await tx.inventoryItem.findFirst({
+      where: { tenantId: user.tenantId, sku: target.sku },
+    });
+    if (dup) {
+      throw new ConflictException(`SKU "${target.sku}" already exists`);
+    }
+    const item = await tx.inventoryItem.create({
+      data: {
+        tenantId: user.tenantId,
+        sku: target.sku,
+        name: target.name,
+        itemType: target.itemType,
+        unitOfMeasure: "LB",
+      },
+    });
+    await tx.itemStock.create({
+      data: {
+        tenantId: user.tenantId,
+        itemId: item.id,
+        status: "INV",
+        quantity: "0",
+        avgCost: "0",
+      },
+    });
+    await this.audit.record(tx, {
+      tenantId: user.tenantId,
+      actorId: user.id,
+      entityType: "InventoryItem",
+      entityId: item.id,
+      action: "CREATE",
+      after: { sku: item.sku, name: item.name, itemType: item.itemType, via: "formula" },
+    });
+    return item.id;
   }
 
   /** Enforce domain integrity that the DB can't: item types + tenant ownership. */

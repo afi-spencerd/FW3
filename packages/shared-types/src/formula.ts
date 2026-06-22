@@ -43,8 +43,23 @@ const sumsTo100 = (lines: { percentage: string }[]) =>
 const noDuplicateMaterials = (lines: { rawMaterialId: string }[]) =>
   new Set(lines.map((l) => l.rawMaterialId)).size === lines.length;
 
+/**
+ * A target may be created inline with the formula instead of selecting an
+ * existing item — only manufactured tiers (finished good or base) are valid,
+ * and the item defaults to pounds; price / accounts / regulatory data are filled
+ * in later on the item page.
+ */
+export const formulaNewTargetSchema = z.object({
+  sku: z.string().trim().min(1).max(64),
+  name: z.string().trim().min(1).max(200),
+  itemType: z.enum(["FINISHED_GOOD", "SEMI_FINISHED"]),
+});
+
 const formulaCreateObject = z.object({
-  finishedGoodId: z.string().uuid(),
+  /** Existing target item; mutually exclusive with newTarget. */
+  finishedGoodId: z.string().uuid().optional(),
+  /** Create the target item inline; mutually exclusive with finishedGoodId. */
+  newTarget: formulaNewTargetSchema.optional(),
   name: z.string().trim().min(1).max(200),
   version: z.number().int().min(1).default(1),
   notes: z.string().trim().max(2000).optional(),
@@ -52,9 +67,19 @@ const formulaCreateObject = z.object({
   lines: z.array(formulaLineInputSchema).min(1),
 });
 
-const formulaUpdateObject = formulaCreateObject.omit({ finishedGoodId: true });
+const formulaUpdateObject = formulaCreateObject.omit({
+  finishedGoodId: true,
+  newTarget: true,
+});
+
+const exactlyOneTarget = (v: { finishedGoodId?: string; newTarget?: unknown }) =>
+  (v.finishedGoodId ? 1 : 0) + (v.newTarget ? 1 : 0) === 1;
 
 export const createFormulaSchema = formulaCreateObject
+  .refine(exactlyOneTarget, {
+    message: "select an existing target or define a new one (exactly one)",
+    path: ["finishedGoodId"],
+  })
   .refine(({ lines }) => sumsTo100(lines), {
     message: "line percentages must sum to exactly 100",
     path: ["lines"],
@@ -128,6 +153,7 @@ export const batchRequirementsSchema = z.object({
 });
 
 export type FormulaLineInput = z.infer<typeof formulaLineInputSchema>;
+export type FormulaNewTarget = z.infer<typeof formulaNewTargetSchema>;
 export type CreateFormula = z.infer<typeof createFormulaSchema>;
 export type UpdateFormula = z.infer<typeof updateFormulaSchema>;
 export type FormulaLine = z.infer<typeof formulaLineSchema>;
