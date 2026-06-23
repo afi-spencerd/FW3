@@ -29,6 +29,23 @@ function available(itemId: string): number {
   return Number(onHand[itemId] ?? "0");
 }
 
+// The production work order backing a line (prefer an unfinished one), if any.
+function lineWorkOrder(o: SalesOrder, lineId: string) {
+  const wos = o.workOrders.filter((w) => w.salesOrderLineId === lineId);
+  if (wos.length === 0) return null;
+  return (
+    wos.find((w) => w.status !== "COMPLETED" && w.status !== "CANCELLED") ?? wos[0]
+  );
+}
+// A line is flagged when its production WO isn't finished — those goods can't ship yet.
+function productionPending(o: SalesOrder, lineId: string): boolean {
+  const wo = lineWorkOrder(o, lineId);
+  return !!wo && wo.status !== "COMPLETED" && wo.status !== "CANCELLED";
+}
+function orderHasPending(o: SalesOrder): boolean {
+  return o.lines.some((l) => productionPending(o, l.id));
+}
+
 async function load(): Promise<void> {
   loading.value = true;
   error.value = null;
@@ -128,6 +145,11 @@ const totalRemaining = computed(() =>
         <span class="inactive">· ordered {{ new Date(o.orderDate).toLocaleDateString() }}</span>
       </div>
 
+      <div v-if="orderHasPending(o)" class="banner warn">
+        Some lines' production isn't complete (see the Production column). Ship the
+        ready lines now; the rest follow once produced.
+      </div>
+
       <table>
         <thead>
           <tr>
@@ -136,6 +158,7 @@ const totalRemaining = computed(() =>
             <th class="num">Shipped</th>
             <th class="num">Remaining</th>
             <th class="num">Available</th>
+            <th>Production</th>
             <th v-if="canShip" class="num">Ship now</th>
           </tr>
         </thead>
@@ -154,6 +177,13 @@ const totalRemaining = computed(() =>
               :class="{ short: available(line.itemId) < remaining(line.quantityOrdered, line.quantityShipped) }"
             >
               {{ available(line.itemId) }}
+            </td>
+            <td :class="{ pending: productionPending(o, line.id) }">
+              <template v-if="lineWorkOrder(o, line.id)">
+                {{ lineWorkOrder(o, line.id)!.workOrderNumber }}
+                <span class="inactive">({{ lineWorkOrder(o, line.id)!.status }})</span>
+              </template>
+              <span v-else class="inactive">—</span>
             </td>
             <td v-if="canShip" class="num">
               <input
@@ -218,6 +248,16 @@ const totalRemaining = computed(() =>
 .short {
   color: #b45309;
   font-weight: 600;
+}
+.pending {
+  color: #b45309;
+  font-weight: 600;
+}
+.banner.warn {
+  background: #fffbeb;
+  color: #92400e;
+  border: 1px solid #fde68a;
+  margin: 0.5rem 0;
 }
 .ship-controls {
   display: flex;

@@ -179,6 +179,20 @@ export class SchedulerService {
     return this.board(user.tenantId);
   }
 
+  /** Release the entire queue to the floor at once (each QUEUED → PLANNED). */
+  async releaseAll(user: AuthenticatedUser): Promise<SchedulerBoard> {
+    await this.prisma.$transaction(async (tx) => {
+      const ids = await this.loadQueueIds(tx, user.tenantId);
+      if (ids.length === 0) return;
+      await tx.productionWorkOrder.updateMany({
+        where: { id: { in: ids }, tenantId: user.tenantId },
+        data: { status: "PLANNED", queuePosition: null },
+      });
+      await this.auditQueue(tx, user, null, { releasedAll: ids });
+    });
+    return this.board(user.tenantId);
+  }
+
   // ---- helpers ----
 
   private async loadBoardOrders(

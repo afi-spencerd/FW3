@@ -57,4 +57,9 @@ export class SchedulerController {
   release(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string) {
     return this.scheduler.release(user, id);
   }
+
+  @Post("release-all")
+  releaseAll(@CurrentUser() user: AuthenticatedUser) {
+    return this.scheduler.releaseAll(user);
+  }
 }

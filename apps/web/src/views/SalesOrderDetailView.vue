@@ -155,6 +155,19 @@ function remaining(ordered: string, shipped: string): number {
   return Number(ordered) - Number(shipped);
 }
 
+// The production work order backing a line (prefer an unfinished one), if any.
+function lineWorkOrder(lineId: string) {
+  const wos = so.value?.workOrders.filter((w) => w.salesOrderLineId === lineId) ?? [];
+  if (wos.length === 0) return null;
+  return (
+    wos.find((w) => w.status !== "COMPLETED" && w.status !== "CANCELLED") ?? wos[0]
+  );
+}
+function productionPending(lineId: string): boolean {
+  const wo = lineWorkOrder(lineId);
+  return !!wo && wo.status !== "COMPLETED" && wo.status !== "CANCELLED";
+}
+
 function syncTrackEdits(order: SalesOrder): void {
   for (const key of Object.keys(trackEdits)) delete trackEdits[key];
   for (const s of order.shipments) {
@@ -333,6 +346,7 @@ onMounted(load);
             <th class="num">Remaining</th>
             <th class="num">Unit price</th>
             <th>Container</th>
+            <th>Production</th>
             <th v-if="canShip" class="num">Ship now</th>
           </tr>
         </thead>
@@ -347,6 +361,12 @@ onMounted(load);
               <template v-if="line.containerId">
                 {{ line.containerQuantity }} × {{ line.containerName }}
                 <span class="inactive">({{ line.containerSku }})</span>
+              </template>
+              <span v-else class="inactive">—</span>
+            </td>
+            <td :class="{ pending: productionPending(line.id) }">
+              <template v-if="lineWorkOrder(line.id)">
+                {{ lineWorkOrder(line.id)!.status }}
               </template>
               <span v-else class="inactive">—</span>
             </td>
@@ -430,3 +450,10 @@ onMounted(load);
     </div>
   </div>
 </template>
+
+<style scoped>
+.pending {
+  color: #b45309;
+  font-weight: 600;
+}
+</style>

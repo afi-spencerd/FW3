@@ -294,6 +294,8 @@ export const api = {
     request<SchedulerBoard>(`/scheduler/work-orders/${id}/release`, {
       method: "POST",
     }),
+  releaseAllWorkOrders: () =>
+    request<SchedulerBoard>("/scheduler/release-all", { method: "POST" }),
 
   // ---- Purchasing alerts ----
   listPurchasingAlerts: (status?: PurchasingAlertStatus) =>
