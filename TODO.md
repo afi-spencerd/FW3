@@ -15,20 +15,33 @@
 - [x] container inventory
 - [x] regulatory details for rm
 - [x] regulatory details for fg
-- [ ] erp business variables (e.g. working hours, pours per hour per workstation (floor vs 2lb), production efficiency, etc)
+- [x] erp business variables
+  - working hours
+  - default profit margin
+  - pph per workstation
+  - production efficiency
+  - company holidays
+  - production cost factor (currently 80% RMC)
 - [ ] complete QB sync
-- [ ] show cost when generating SO
-  - [ ] prevent "losing our shirt"
-  - [ ] factor in production costs to SO (use 80% RMC)
-  - [ ] set default profit margin
-  - [ ] customer purchase & cost history
-- [ ] location rules. (i.e. no move back to receiving dock after moved to warehouse)
+- [ ] location rules (i.e. no move back to receiving dock after moved to warehouse)
+- [ ] profit margin per customer ranking
+- [ ] partial payments
+  - [ ] mark "paid" when `sum(partial_payment.amount) == due`
+- [ ] issue refunds
+  - overpayment
+  - approved cancellation
+- [ ] separate floor from 2lb pours
+- [ ] query robot RMs
 
 ### Tools
 
 - [ ] scheduling
+  - [x] init
 - [ ] customer service
   - [ ] make SO "confirmed" or "requested" when customer pays
+  - [ ] customer purchase & cost history
+  - [ ] merge customer entries (link ids? allow unmerge)
+    - [ ] sync history, contacts, addresses
 - [ ] sales
 
 ### Reports
@@ -59,8 +72,14 @@
 - [x] containers not showing in inventory
 - [x] remove `new item` button (should be managed as adjustments or POs)
   - [x] all "opening stock" on inventory page
+- [x] show cost when generating SO
+  - [x] prevent "losing our shirt"
+  - [x] unit cost per line
+  - [x] default to business-wide profit margin
 - [ ] schema still showing (itemstock, itemstocklocation) & (inventorytx, locationmove). interrigate agent
 - [ ] allow packing before QC
+- [ ] sell RM to customer
+- [ ] order FG from vendor
 
 ## Designer
 
