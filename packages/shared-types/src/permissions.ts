@@ -36,6 +36,8 @@ export const PERMISSIONS = {
   SO_CREATE: "so:create",
   SO_UPDATE: "so:update",
   SO_SHIP: "so:ship",
+  // Override the can't-sell-below-cost guard on a sales order.
+  SO_PRICE_OVERRIDE: "so:price-override",
   PRODUCTION_READ: "production:read",
   PRODUCTION_CREATE: "production:create",
   PRODUCTION_EXECUTE: "production:execute",

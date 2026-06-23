@@ -7,13 +7,21 @@ import {
   createSalesOrderSchema,
   type Customer,
   type InventoryItem,
+  type ItemCost,
+  PERMISSIONS,
 } from "@fw3/shared-types";
 import { api, ApiError } from "../lib/api";
+import { useAuthStore } from "../stores/auth";
 
 const router = useRouter();
+const auth = useAuthStore();
+const canOverride = auth.hasPermission(PERMISSIONS.SO_PRICE_OVERRIDE);
 const customers = ref<Customer[]>([]);
 const items = ref<InventoryItem[]>([]);
 const containers = ref<Container[]>([]);
+// Per-item cost basis (per lb), fetched on demand and cached by item id.
+const itemCosts = reactive<Record<string, ItemCost>>({});
+const allowBelowCost = ref(false);
 const issues = ref<string[]>([]);
 const busy = ref(false);
 
@@ -30,6 +38,56 @@ const form = reactive({
   notes: "",
   lines: [] as SoLine[],
 });
+
+async function fetchCost(itemId: string): Promise<void> {
+  if (!itemId || itemCosts[itemId]) return;
+  try {
+    itemCosts[itemId] = await api.getItemCost(itemId);
+  } catch {
+    /* leave uncosted; server still enforces on save */
+  }
+}
+function onItemChange(line: SoLine): void {
+  recalcContainers(line);
+  void fetchCost(line.itemId);
+}
+
+function containerAvg(line: SoLine): number {
+  const c = containers.value.find((x) => x.id === line.containerId);
+  return c ? Number(c.avgCost) : 0;
+}
+/** Full computed cost of a line (production + container), or null if uncosted. */
+function lineCost(line: SoLine): number | null {
+  const c = itemCosts[line.itemId];
+  if (!c) return null;
+  const qty = Number(line.quantityOrdered) || 0;
+  let cost = qty * Number(c.productionUnitCost);
+  if (line.containerId && line.containerQuantity) {
+    cost += (Number(line.containerQuantity) || 0) * containerAvg(line);
+  }
+  return cost;
+}
+function lineRevenue(line: SoLine): number {
+  return (Number(line.quantityOrdered) || 0) * (Number(line.unitPrice) || 0);
+}
+function lineMargin(line: SoLine): number | null {
+  const cost = lineCost(line);
+  const rev = lineRevenue(line);
+  if (cost === null || rev <= 0) return null;
+  return ((rev - cost) / rev) * 100;
+}
+function belowCost(line: SoLine): boolean {
+  const cost = lineCost(line);
+  return cost !== null && cost > 0 && lineRevenue(line) < cost;
+}
+const totalCost = computed(() =>
+  form.lines.reduce((sum, l) => sum + (lineCost(l) ?? 0), 0).toFixed(2),
+);
+const anyBelowCost = computed(() => form.lines.some((l) => belowCost(l)));
+// Below-cost lines block saving unless an authorized user opts to override.
+const blockedByCost = computed(
+  () => anyBelowCost.value && !(canOverride && allowBelowCost.value),
+);
 
 // Default the container count from fill capacity (overridable). Recomputed when
 // the line's quantity or chosen container changes.
@@ -84,6 +142,7 @@ async function submit(): Promise<void> {
       customerId: form.customerId,
       soNumber: form.soNumber,
       notes: form.notes || undefined,
+      allowBelowCost: allowBelowCost.value || undefined,
       lines: form.lines.map((l, i) => ({
         itemId: l.itemId,
         quantityOrdered: l.quantityOrdered,
@@ -154,15 +213,17 @@ async function submit(): Promise<void> {
             <th>Item</th>
             <th class="num" style="width: 90px">Qty</th>
             <th class="num" style="width: 100px">Unit price</th>
-            <th style="width: 200px">Container</th>
-            <th class="num" style="width: 90px">Containers</th>
+            <th style="width: 180px">Container</th>
+            <th class="num" style="width: 80px">Containers</th>
+            <th class="num" style="width: 90px">Cost</th>
+            <th class="num" style="width: 70px">Margin</th>
             <th style="width: 40px"></th>
           </tr>
         </thead>
         <tbody>
           <tr v-for="(line, index) in form.lines" :key="index">
             <td>
-              <select v-model="line.itemId">
+              <select v-model="line.itemId" @change="onItemChange(line)">
                 <option value="" disabled>Select an item…</option>
                 <option v-for="it in items" :key="it.id" :value="it.id">
                   {{ it.name }} ({{ it.sku }}) · {{ it.unitOfMeasure }}
@@ -195,6 +256,14 @@ async function submit(): Promise<void> {
                 placeholder="—"
               />
             </td>
+            <td class="num" :class="{ below: belowCost(line) }">
+              <template v-if="lineCost(line) !== null">${{ lineCost(line)!.toFixed(2) }}</template>
+              <span v-else class="inactive">—</span>
+            </td>
+            <td class="num" :class="{ below: belowCost(line) }">
+              <template v-if="lineMargin(line) !== null">{{ lineMargin(line)!.toFixed(1) }}%</template>
+              <span v-else class="inactive">—</span>
+            </td>
             <td><button class="danger" @click="removeLine(index)">✕</button></td>
           </tr>
         </tbody>
@@ -202,16 +271,27 @@ async function submit(): Promise<void> {
           <tr>
             <td><button @click="addLine">+ Add line</button></td>
             <td></td>
-            <td class="num"><strong>${{ total }}</strong></td>
+            <td class="num">Rev <strong>${{ total }}</strong></td>
             <td></td>
+            <td></td>
+            <td class="num">Cost <strong>${{ totalCost }}</strong></td>
             <td></td>
             <td></td>
           </tr>
         </tfoot>
       </table>
 
+      <div v-if="anyBelowCost" class="banner error" style="margin-top: 1rem">
+        One or more lines are priced below cost.
+        <label v-if="canOverride" style="display: block; margin-top: 0.4rem; font-weight: normal">
+          <input type="checkbox" v-model="allowBelowCost" style="width: auto" />
+          Override and sell below cost (recorded in the audit trail)
+        </label>
+        <span v-else> You are not permitted to sell below cost — raise the price to continue.</span>
+      </div>
+
       <div class="toolbar">
-        <button class="primary" :disabled="busy" @click="submit">
+        <button class="primary" :disabled="busy || blockedByCost" @click="submit">
           {{ busy ? "Saving…" : "Create SO" }}
         </button>
         <button @click="router.push({ name: 'sales-orders' })">Cancel</button>
@@ -219,3 +299,10 @@ async function submit(): Promise<void> {
     </div>
   </div>
 </template>
+
+<style scoped>
+.below {
+  color: #b91c1c;
+  font-weight: 600;
+}
+</style>

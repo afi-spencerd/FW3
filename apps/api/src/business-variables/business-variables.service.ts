@@ -26,6 +26,27 @@ export class BusinessVariablesService {
     private readonly audit: AuditService,
   ) {}
 
+  /**
+   * Resolve a single variable's value for a tenant (override, else catalog
+   * default), as a string. Returns null only for an unknown key.
+   */
+  async getValue(
+    tenantId: string,
+    key: string,
+    operatorRole: OperatorRole | null = null,
+  ): Promise<string | null> {
+    const def = findBusinessVariable(key);
+    if (!def) return null;
+    const row = await this.prisma.businessVariableValue.findFirst({
+      where: { tenantId, key, operatorRole },
+    });
+    if (row) return row.value;
+    if (def.roleScoped && operatorRole) {
+      return def.roleDefaults?.[operatorRole] ?? def.defaultValue;
+    }
+    return def.defaultValue;
+  }
+
   /** The catalog resolved against this tenant's stored overrides (defaults fill gaps). */
   async list(tenantId: string): Promise<BusinessVariable[]> {
     const rows = await this.prisma.businessVariableValue.findMany({

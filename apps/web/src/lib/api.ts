@@ -57,6 +57,7 @@ import type {
   PurchaseOrder,
   PurchaseOrderSummary,
   ReceivePurchaseOrder,
+  ItemCost,
   SalesOrder,
   SalesOrderSummary,
   ShipSalesOrder,
@@ -321,6 +322,7 @@ export const api = {
       body: JSON.stringify(data),
     }),
 
+  getItemCost: (id: string) => request<ItemCost>(`/inventory/${id}/cost`),
   listSalesOrders: () => request<SalesOrderSummary[]>("/sales-orders"),
   pendingShipments: () => request<SalesOrder[]>("/sales-orders/pending"),
   getSalesOrder: (id: string) => request<SalesOrder>(`/sales-orders/${id}`),

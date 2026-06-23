@@ -15,8 +15,10 @@ import type {
   UpdateSalesOrder,
   UpdateShipment,
 } from "@fw3/shared-types";
+import { PERMISSIONS } from "@fw3/shared-types";
 import { AuditService } from "../audit/audit.service";
 import { ContainerService } from "../container/container.service";
+import { CostService } from "../cost/cost.service";
 import { PrismaService } from "../database/prisma.service";
 import { Prisma } from "../generated/prisma/client";
 import { extendedValue } from "../inventory/valuation";
@@ -40,7 +42,51 @@ export class SalesOrderService {
     private readonly audit: AuditService,
     private readonly stock: StockService,
     private readonly containers: ContainerService,
+    private readonly costs: CostService,
   ) {}
+
+  /**
+   * Block lines priced below cost (qty×price < computed line cost). A user with
+   * the price-override permission who opts in (allowBelowCost) may proceed; the
+   * override is returned so the caller can audit it. Reads cost live.
+   */
+  private async assertPricing(
+    user: AuthenticatedUser,
+    lines: { itemId: string; quantityOrdered: string; unitPrice: string; containerId?: string | null; containerQuantity?: string | null }[],
+    allowBelowCost: boolean | undefined,
+  ): Promise<{ itemId: string; unitPrice: string; lineCost: string }[]> {
+    const violations: { itemId: string; unitPrice: string; lineCost: string }[] = [];
+    for (const line of lines) {
+      const { lineCost } = await this.costs.lineCost(user.tenantId, {
+        itemId: line.itemId,
+        quantity: line.quantityOrdered,
+        containerId: line.containerId ?? null,
+        containerQuantity: line.containerQuantity ?? null,
+      });
+      const revenue = new Decimal(line.quantityOrdered).times(line.unitPrice);
+      if (revenue.lessThan(lineCost)) {
+        violations.push({ itemId: line.itemId, unitPrice: line.unitPrice, lineCost });
+      }
+    }
+    if (violations.length === 0) return [];
+
+    const canOverride = user.permissions.includes(PERMISSIONS.SO_PRICE_OVERRIDE);
+    if (canOverride && allowBelowCost) return violations; // proceed; caller audits
+
+    const items = await this.prisma.inventoryItem.findMany({
+      where: { id: { in: violations.map((v) => v.itemId) } },
+      select: { id: true, sku: true },
+    });
+    const sku = new Map(items.map((i) => [i.id, i.sku]));
+    const detail = violations
+      .map((v) => `${sku.get(v.itemId) ?? v.itemId} (cost ${v.lineCost})`)
+      .join(", ");
+    throw new BadRequestException(
+      canOverride
+        ? `Lines priced below cost: ${detail}. Set allowBelowCost to override.`
+        : `Lines priced below cost: ${detail}. You are not permitted to sell below cost.`,
+    );
+  }
 
   async list(tenantId: string): Promise<SalesOrderSummary[]> {
     const orders = await this.prisma.salesOrder.findMany({
@@ -100,6 +146,7 @@ export class SalesOrderService {
         });
         if (!customer) throw new BadRequestException("Customer not found");
         await this.assertSellable(tx, user.tenantId, input.lines);
+        const belowCost = await this.assertPricing(user, input.lines, input.allowBelowCost);
 
         const order = await tx.salesOrder.create({
           data: {
@@ -127,7 +174,7 @@ export class SalesOrderService {
           entityType: "SalesOrder",
           entityId: order.id,
           action: "CREATE",
-          after: input,
+          after: belowCost.length ? { ...input, belowCostOverride: belowCost } : input,
         });
         return order.id;
       });
@@ -150,7 +197,10 @@ export class SalesOrderService {
             "Only an open sales order with no shipments can be edited",
           );
         }
-        if (input.lines) await this.assertSellable(tx, user.tenantId, input.lines);
+        if (input.lines) {
+          await this.assertSellable(tx, user.tenantId, input.lines);
+          await this.assertPricing(user, input.lines, input.allowBelowCost);
+        }
         await tx.salesOrder.update({
           where: { id },
           data: {

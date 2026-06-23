@@ -81,6 +81,8 @@ export const createSalesOrderSchema = z.object({
   orderDate: z.string().datetime().optional(),
   notes: z.string().trim().max(2000).optional(),
   lines: z.array(soLineInputSchema).min(1),
+  /** Permit lines priced below cost (requires the so:price-override permission). */
+  allowBelowCost: z.boolean().optional(),
 });
 
 export const updateSalesOrderSchema = z.object({
@@ -88,6 +90,18 @@ export const updateSalesOrderSchema = z.object({
   soNumber: z.string().trim().min(1).max(50).optional(),
   notes: z.string().trim().max(2000).optional(),
   lines: z.array(soLineInputSchema).min(1).optional(),
+  allowBelowCost: z.boolean().optional(),
+});
+
+/** Computed cost basis for an item (per lb): material roll-up × production factor. */
+export const itemCostSchema = z.object({
+  itemId: z.string().uuid(),
+  /** Σ(effective RM fraction × RM unit cost), per lb. */
+  materialUnitCost: z.string(),
+  /** The productionCostFactor business variable applied. */
+  productionCostFactor: z.string(),
+  /** materialUnitCost × productionCostFactor, per lb (excludes container). */
+  productionUnitCost: z.string(),
 });
 
 /**
@@ -187,6 +201,7 @@ export type Customer = z.infer<typeof customerSchema>;
 export type SalesOrderLineInput = z.infer<typeof soLineInputSchema>;
 export type CreateSalesOrder = z.infer<typeof createSalesOrderSchema>;
 export type UpdateSalesOrder = z.infer<typeof updateSalesOrderSchema>;
+export type ItemCost = z.infer<typeof itemCostSchema>;
 export type ShipSalesOrder = z.infer<typeof shipSalesOrderSchema>;
 export type UpdateShipment = z.infer<typeof updateShipmentSchema>;
 export type SalesOrderLine = z.infer<typeof soLineSchema>;

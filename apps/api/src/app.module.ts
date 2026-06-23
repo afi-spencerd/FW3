@@ -16,6 +16,7 @@ import { ContainerModule } from "./container/container.module";
 import { RegulatoryModule } from "./regulatory/regulatory.module";
 import { BusinessVariablesModule } from "./business-variables/business-variables.module";
 import { CompanyHolidaysModule } from "./company-holidays/company-holidays.module";
+import { CostModule } from "./cost/cost.module";
 import { ProductionModule } from "./production/production.module";
 import { CompounderModule } from "./compounder/compounder.module";
 import { QualityModule } from "./quality/quality.module";
@@ -45,6 +46,7 @@ import { JobsModule } from "./jobs/jobs.module";
     RegulatoryModule,
     BusinessVariablesModule,
     CompanyHolidaysModule,
+    CostModule,
     ProductionModule,
     CompounderModule,
     QualityModule,
