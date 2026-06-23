@@ -56,6 +56,7 @@ model Tenant {
   fgIfraLevels        FgIfraLevel[]
   businessVariables   BusinessVariableValue[]
   companyHolidays     CompanyHoliday[]
+  purchasingAlerts    PurchasingAlert[]
 }
 
 model User {
@@ -77,6 +78,7 @@ model User {
   scrapRecords         ScrapRecord[]
   vendorReturns        VendorReturn[]
   shipments            Shipment[]
+  purchasingAlerts     PurchasingAlert[] @relation("PurchasingAlertRaisedBy")
 
   @@unique([tenantId, idpSub])
   @@unique([tenantId, email])
@@ -186,6 +188,7 @@ model InventoryItem {
   vendorReturns           VendorReturn[]
   ifraLimits              IfraCategoryLimit[]
   shipmentLines           ShipmentLine[]
+  purchasingAlerts        PurchasingAlert[]
   regulatoryProfile       FgRegulatoryProfile?
 
   @@unique([tenantId, sku])
@@ -679,6 +682,10 @@ model SalesOrder {
   soNumber   String   @db.NVarChar(50)
   status     String   @default("OPEN") @db.NVarChar(20) // OPEN | PARTIAL | SHIPPED | CANCELLED
   orderDate  DateTime @default(now())
+  // Sales' committed ship-by date; drives scheduler RUSH / sequencing. Null if unset.
+  requestedShipDate DateTime?
+  // When payment was recorded (net-terms customers may request production unpaid).
+  paidAt     DateTime?
   notes      String?  @db.NVarChar(2000)
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
@@ -686,10 +693,11 @@ model SalesOrder {
   // When the order's containers were consumed (packed). Null until packed.
   packedAt   DateTime?
 
-  tenant    Tenant           @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  customer  Customer         @relation(fields: [customerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  tenant    Tenant                @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  customer  Customer              @relation(fields: [customerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   lines     SalesOrderLine[]
   shipments Shipment[]
+  workOrders ProductionWorkOrder[]
 
   @@unique([tenantId, soNumber])
   @@index([tenantId])
@@ -712,6 +720,7 @@ model SalesOrderLine {
   item       InventoryItem @relation("ItemSalesOrderLines", fields: [itemId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   container  Container?    @relation(fields: [containerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   shipmentLines ShipmentLine[]
+  workOrders ProductionWorkOrder[]
 
   @@index([salesOrderId])
   @@index([itemId])
@@ -844,19 +853,29 @@ model ProductionWorkOrder {
   batchSize       Decimal  @db.Decimal(18, 4) // total batch weight in batchUnit
   batchUnit       String   @db.NVarChar(16) // LB | KG (formula scaling unit)
   outputQty       Decimal  @db.Decimal(18, 4) // produced qty of target (target's UoM)
-  status          String   @default("PLANNED") @db.NVarChar(20) // PLANNED | STAGED | IN_PROGRESS | ON_HOLD | COMPLETED | CANCELLED
+  status          String   @default("PLANNED") @db.NVarChar(20) // REQUESTED | QUEUED | PLANNED | STAGED | IN_PROGRESS | ON_HOLD | COMPLETED | CANCELLED
   notes           String?  @db.NVarChar(2000)
+  // Scheduler linkage: the sales order / line this batch fulfils (null for ad-hoc
+  // work orders created directly). queuePosition orders the run queue (QUEUED only).
+  salesOrderId     String?  @db.Char(36)
+  salesOrderLineId String?  @db.Char(36)
+  queuePosition    Int?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
   tenant  Tenant                    @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   target  InventoryItem             @relation("TargetProductionRuns", fields: [targetItemId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   formula Formula                   @relation(fields: [formulaId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  salesOrder     SalesOrder?     @relation(fields: [salesOrderId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  salesOrderLine SalesOrderLine? @relation(fields: [salesOrderLineId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   lines   ProductionWorkOrderLine[]
   pours   CompounderPour[]
+  purchasingAlerts PurchasingAlert[]
 
   @@unique([tenantId, workOrderNumber])
   @@index([tenantId])
+  @@index([tenantId, status])
+  @@index([salesOrderId])
   @@map("ProductionRun")
 }
 
@@ -876,6 +895,30 @@ model ProductionWorkOrderLine {
   @@index([productionWorkOrderId])
   @@index([componentId])
   @@map("ProductionRunLine")
+}
+
+// A shortage flag raised by the scheduler when a work order can't be made for
+// lack of a raw material, so purchasing can act on it. Lightweight to-do (not a
+// PO); purchasing resolves it (e.g. after raising a PO). Append-only-ish.
+model PurchasingAlert {
+  id          String    @id @default(uuid()) @db.Char(36)
+  tenantId    String    @db.Char(36)
+  itemId      String    @db.Char(36)
+  workOrderId String?   @db.Char(36)
+  shortQty    Decimal   @db.Decimal(18, 4)
+  note        String?   @db.NVarChar(500)
+  status      String    @default("OPEN") @db.NVarChar(20) // OPEN | RESOLVED
+  raisedById  String    @db.Char(36)
+  createdAt   DateTime  @default(now())
+  resolvedAt  DateTime?
+
+  tenant    Tenant               @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  item      InventoryItem        @relation(fields: [itemId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  workOrder ProductionWorkOrder? @relation(fields: [workOrderId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  raisedBy  User                 @relation("PurchasingAlertRaisedBy", fields: [raisedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([tenantId, status])
+  @@index([itemId])
 }
 
 // One pour reported by the compounder dosing tool: an operator dosed `quantity`

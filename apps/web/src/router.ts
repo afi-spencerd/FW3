@@ -91,9 +91,21 @@ export const router = createRouter({
       props: true,
     },
     {
+      path: "/scheduler",
+      name: "scheduler",
+      component: () => import("./views/SchedulerView.vue"),
+      meta: { requiresAuth: true },
+    },
+    {
       path: "/production",
       name: "production",
       component: () => import("./views/ProductionListView.vue"),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: "/production/queue",
+      name: "production-queue",
+      component: () => import("./views/ProductionQueueView.vue"),
       meta: { requiresAuth: true },
     },
     {

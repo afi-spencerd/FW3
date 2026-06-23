@@ -79,6 +79,8 @@ export const createSalesOrderSchema = z.object({
   customerId: z.string().uuid(),
   soNumber: z.string().trim().min(1).max(50),
   orderDate: z.string().datetime().optional(),
+  /** When sales has committed to ship by; drives scheduler RUSH/sequencing. */
+  requestedShipDate: z.string().datetime().optional(),
   notes: z.string().trim().max(2000).optional(),
   lines: z.array(soLineInputSchema).min(1),
   /** Permit lines priced below cost (requires the so:price-override permission). */
@@ -88,6 +90,7 @@ export const createSalesOrderSchema = z.object({
 export const updateSalesOrderSchema = z.object({
   customerId: z.string().uuid().optional(),
   soNumber: z.string().trim().min(1).max(50).optional(),
+  requestedShipDate: z.string().datetime().nullish(),
   notes: z.string().trim().max(2000).optional(),
   lines: z.array(soLineInputSchema).min(1).optional(),
   allowBelowCost: z.boolean().optional(),
@@ -186,6 +189,15 @@ export const shipmentSchema = z.object({
   totalValue: z.string(),
 });
 
+/** A production work order spawned from this sales order (shown on the SO detail). */
+export const salesOrderWorkOrderSchema = z.object({
+  id: z.string().uuid(),
+  workOrderNumber: z.string(),
+  status: z.string(),
+  targetName: z.string(),
+  salesOrderLineId: z.string().uuid().nullable(),
+});
+
 export const salesOrderSchema = z.object({
   id: z.string().uuid(),
   tenantId: z.string().uuid(),
@@ -194,18 +206,24 @@ export const salesOrderSchema = z.object({
   soNumber: z.string(),
   status: z.enum(SO_STATUSES),
   orderDate: z.string().datetime(),
+  /** Sales' committed ship-by date (drives scheduler RUSH/sequencing); null if unset. */
+  requestedShipDate: z.string().datetime().nullable(),
+  /** When payment was recorded; null until paid (net-terms customers may skip). */
+  paidAt: z.string().datetime().nullable(),
   notes: z.string().nullable(),
   totalRevenue: z.string(),
   /** When the order's containers were consumed (packed); null until packed. */
   packedAt: z.string().datetime().nullable(),
   lines: z.array(soLineSchema),
   shipments: z.array(shipmentSchema),
+  /** Production work orders requested from this order (empty until requested). */
+  workOrders: z.array(salesOrderWorkOrderSchema),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 });
 
 export const salesOrderSummarySchema = salesOrderSchema
-  .omit({ lines: true, shipments: true })
+  .omit({ lines: true, shipments: true, workOrders: true })
   .extend({ lineCount: z.number().int() });
 
 export type CreateCustomer = z.infer<typeof createCustomerSchema>;
@@ -221,5 +239,6 @@ export type UpdateShipment = z.infer<typeof updateShipmentSchema>;
 export type SalesOrderLine = z.infer<typeof soLineSchema>;
 export type ShipmentLine = z.infer<typeof shipmentLineSchema>;
 export type Shipment = z.infer<typeof shipmentSchema>;
+export type SalesOrderWorkOrder = z.infer<typeof salesOrderWorkOrderSchema>;
 export type SalesOrder = z.infer<typeof salesOrderSchema>;
 export type SalesOrderSummary = z.infer<typeof salesOrderSummarySchema>;

@@ -38,9 +38,13 @@ export const PERMISSIONS = {
   SO_SHIP: "so:ship",
   // Override the can't-sell-below-cost guard on a sales order.
   SO_PRICE_OVERRIDE: "so:price-override",
+  // Customer service: turn a (paid / net-terms) sales order into work orders.
+  SO_REQUEST_PRODUCTION: "so:request-production",
   PRODUCTION_READ: "production:read",
   PRODUCTION_CREATE: "production:create",
   PRODUCTION_EXECUTE: "production:execute",
+  // Scheduler: prioritize the run queue and release work orders to the floor.
+  PRODUCTION_SCHEDULE: "production:schedule",
   QC_READ: "qc:read",
   QC_REVIEW: "qc:review",
   QC_SPEC_MANAGE: "qc:spec:manage",
@@ -90,9 +94,11 @@ export const BUILTIN_ROLES = {
     PERMISSIONS.SO_CREATE,
     PERMISSIONS.SO_UPDATE,
     PERMISSIONS.SO_SHIP,
+    PERMISSIONS.SO_REQUEST_PRODUCTION,
     PERMISSIONS.PRODUCTION_READ,
     PERMISSIONS.PRODUCTION_CREATE,
     PERMISSIONS.PRODUCTION_EXECUTE,
+    PERMISSIONS.PRODUCTION_SCHEDULE,
     PERMISSIONS.QC_READ,
     PERMISSIONS.QC_REVIEW,
     PERMISSIONS.QC_SPEC_MANAGE,

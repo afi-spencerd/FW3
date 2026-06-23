@@ -50,6 +50,51 @@ const canPack = computed(
     auth.hasPermission(PERMISSIONS.SO_SHIP),
 );
 const packBusy = ref(false);
+const prodBusy = ref(false);
+
+const canMarkPaid = computed(
+  () =>
+    so.value !== null &&
+    so.value.status !== "CANCELLED" &&
+    !so.value.paidAt &&
+    auth.hasPermission(PERMISSIONS.SO_UPDATE),
+);
+const canRequestProduction = computed(
+  () =>
+    so.value !== null &&
+    so.value.status !== "CANCELLED" &&
+    auth.hasPermission(PERMISSIONS.SO_REQUEST_PRODUCTION),
+);
+
+async function markPaid(): Promise<void> {
+  if (!so.value) return;
+  error.value = null;
+  notice.value = null;
+  prodBusy.value = true;
+  try {
+    so.value = await api.markSalesOrderPaid(so.value.id);
+    notice.value = "Payment recorded.";
+  } catch (err) {
+    error.value = err instanceof ApiError ? err.message : "Failed";
+  } finally {
+    prodBusy.value = false;
+  }
+}
+
+async function requestProduction(): Promise<void> {
+  if (!so.value) return;
+  error.value = null;
+  notice.value = null;
+  prodBusy.value = true;
+  try {
+    so.value = await api.requestProduction(so.value.id);
+    notice.value = "Production requested — work orders created for the scheduler.";
+  } catch (err) {
+    error.value = err instanceof ApiError ? err.message : "Failed to request production";
+  } finally {
+    prodBusy.value = false;
+  }
+}
 
 async function pack(): Promise<void> {
   if (!so.value) return;
@@ -174,6 +219,15 @@ onMounted(load);
         <h2 style="margin: 0">{{ so.soNumber }}</h2>
         <span class="spacer" />
         <button @click="router.push({ name: 'sales-orders' })">Back</button>
+        <button v-if="canMarkPaid" :disabled="prodBusy" @click="markPaid">Mark paid</button>
+        <button
+          v-if="canRequestProduction"
+          class="primary"
+          :disabled="prodBusy"
+          @click="requestProduction"
+        >
+          Request production
+        </button>
         <button v-if="canCancel" class="danger" @click="cancel">Cancel SO</button>
       </div>
       <div class="summary" style="margin-bottom: 1rem">
@@ -181,11 +235,34 @@ onMounted(load);
         <div class="metric"><div class="label">Status</div><div class="value" style="font-size: 1rem">{{ so.status }}</div></div>
         <div class="metric"><div class="label">Revenue</div><div class="value">${{ so.totalRevenue }}</div></div>
         <div class="metric">
+          <div class="label">Ship by</div>
+          <div class="value" style="font-size: 1rem">
+            {{ so.requestedShipDate ? new Date(so.requestedShipDate).toLocaleDateString() : "—" }}
+          </div>
+        </div>
+        <div class="metric">
+          <div class="label">Paid</div>
+          <div class="value" style="font-size: 1rem">
+            {{ so.paidAt ? new Date(so.paidAt).toLocaleDateString() : "—" }}
+          </div>
+        </div>
+        <div class="metric">
           <div class="label">Packed</div>
           <div class="value" style="font-size: 1rem">
             {{ so.packedAt ? new Date(so.packedAt).toLocaleDateString() : "—" }}
           </div>
         </div>
+      </div>
+
+      <div v-if="so.workOrders.length" class="banner" style="margin-bottom: 1rem">
+        <strong>Production work orders:</strong>
+        <span v-for="(w, i) in so.workOrders" :key="w.id">
+          <template v-if="i > 0">, </template>
+          <RouterLink :to="{ name: 'production-detail', params: { id: w.id } }">
+            {{ w.workOrderNumber }}
+          </RouterLink>
+          ({{ w.status }})
+        </span>
       </div>
 
       <table>

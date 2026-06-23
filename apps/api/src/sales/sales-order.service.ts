@@ -21,6 +21,7 @@ import { AuditService } from "../audit/audit.service";
 import { ContainerService } from "../container/container.service";
 import { CostService } from "../cost/cost.service";
 import { PrismaService } from "../database/prisma.service";
+import { FormulaService } from "../formula/formula.service";
 import { Prisma } from "../generated/prisma/client";
 import { extendedValue } from "../inventory/valuation";
 import { poStatusFromLines } from "../purchasing/po-status";
@@ -33,8 +34,12 @@ type SoWithRelations = Prisma.SalesOrderGetPayload<{
     shipments: {
       include: { lines: { include: { item: true } }; shippedBy: true };
     };
+    workOrders: { include: { target: true } };
   };
 }>;
+
+/** Customers on these terms may request production before payment is recorded. */
+const NET_TERMS = new Set(["NET_15", "NET_30", "NET_45", "NET_60", "NET_90"]);
 
 @Injectable()
 export class SalesOrderService {
@@ -44,6 +49,7 @@ export class SalesOrderService {
     private readonly stock: StockService,
     private readonly containers: ContainerService,
     private readonly costs: CostService,
+    private readonly formulas: FormulaService,
   ) {}
 
   /**
@@ -98,12 +104,13 @@ export class SalesOrderService {
         shipments: {
           include: { lines: { include: { item: true } }, shippedBy: true },
         },
+        workOrders: { include: { target: true } },
       },
       orderBy: { orderDate: "desc" },
     });
     return orders.map((o) => {
       const dto = this.toDto(o);
-      const { lines, shipments, ...summary } = dto;
+      const { lines, shipments, workOrders, ...summary } = dto;
       return { ...summary, lineCount: lines.length };
     });
   }
@@ -130,6 +137,7 @@ export class SalesOrderService {
           include: { lines: { include: { item: true } }, shippedBy: true },
           orderBy: { shippedAt: "asc" },
         },
+        workOrders: { include: { target: true }, orderBy: { createdAt: "asc" } },
       },
       orderBy: { orderDate: "asc" },
     });
@@ -217,6 +225,9 @@ export class SalesOrderService {
             soNumber: input.soNumber,
             status: "OPEN",
             ...(input.orderDate ? { orderDate: new Date(input.orderDate) } : {}),
+            ...(input.requestedShipDate
+              ? { requestedShipDate: new Date(input.requestedShipDate) }
+              : {}),
             notes: input.notes ?? null,
             lines: {
               create: input.lines.map((line) => ({
@@ -268,6 +279,13 @@ export class SalesOrderService {
           data: {
             ...(input.customerId === undefined ? {} : { customerId: input.customerId }),
             ...(input.soNumber === undefined ? {} : { soNumber: input.soNumber }),
+            ...(input.requestedShipDate === undefined
+              ? {}
+              : {
+                  requestedShipDate: input.requestedShipDate
+                    ? new Date(input.requestedShipDate)
+                    : null,
+                }),
             ...(input.notes === undefined ? {} : { notes: input.notes ?? null }),
             ...(input.lines
               ? {
@@ -516,6 +534,111 @@ export class SalesOrderService {
     return this.getById(user.tenantId, id);
   }
 
+  /** Record payment on the order (unblocks requesting production). Idempotent. */
+  async markPaid(user: AuthenticatedUser, id: string): Promise<SalesOrder> {
+    await this.prisma.$transaction(async (tx) => {
+      const order = await this.loadOrder(tx, user.tenantId, id);
+      if (order.status === "CANCELLED") {
+        throw new BadRequestException("Cannot mark a cancelled order paid");
+      }
+      if (order.paidAt) return; // already paid
+      await tx.salesOrder.update({ where: { id }, data: { paidAt: new Date() } });
+      await this.audit.record(tx, {
+        tenantId: user.tenantId,
+        actorId: user.id,
+        entityType: "SalesOrder",
+        entityId: id,
+        action: "UPDATE",
+        after: { paidAt: new Date().toISOString() },
+      });
+    });
+    return this.getById(user.tenantId, id);
+  }
+
+  /**
+   * Customer-service hand-off to production: create one REQUESTED work order per
+   * producible finished-good line (an item with an active formula), linked back
+   * to the SO + line. Allowed once the order is paid, or the customer is on net
+   * terms. Idempotent — lines already turned into work orders are skipped.
+   */
+  async requestProduction(
+    user: AuthenticatedUser,
+    id: string,
+  ): Promise<SalesOrder> {
+    await this.prisma.$transaction(async (tx) => {
+      const order = await this.loadOrder(tx, user.tenantId, id);
+      if (order.status === "CANCELLED") {
+        throw new BadRequestException(
+          "Cannot request production for a cancelled order",
+        );
+      }
+      const onNetTerms =
+        !!order.customer.paymentTerms && NET_TERMS.has(order.customer.paymentTerms);
+      if (!order.paidAt && !onNetTerms) {
+        throw new BadRequestException(
+          "Order must be paid (or the customer on net terms) before requesting production",
+        );
+      }
+
+      const alreadyRequested = new Set(
+        order.workOrders.map((w) => w.salesOrderLineId).filter(Boolean),
+      );
+      const created: string[] = [];
+      for (const line of order.lines) {
+        if (alreadyRequested.has(line.id)) continue;
+        // Producible = has an active formula for this finished good.
+        const formula = await tx.formula.findFirst({
+          where: { tenantId: user.tenantId, finishedGoodId: line.itemId, isActive: true },
+          orderBy: { version: "desc" },
+        });
+        if (!formula) continue; // non-producible line (e.g. resold good) — skip
+        const batchSize = line.quantityOrdered.toString();
+        const requirements = await this.formulas.batchRequirements(
+          user.tenantId,
+          formula.id,
+          batchSize,
+          "LB",
+        );
+        const wo = await tx.productionWorkOrder.create({
+          data: {
+            tenantId: user.tenantId,
+            workOrderNumber: `WO-${order.soNumber}-L${line.sortOrder + 1}`,
+            targetItemId: line.itemId,
+            formulaId: formula.id,
+            batchSize,
+            batchUnit: "LB",
+            outputQty: batchSize,
+            status: "REQUESTED",
+            salesOrderId: order.id,
+            salesOrderLineId: line.id,
+            lines: {
+              create: requirements.lines.map((l, index) => ({
+                componentId: l.rawMaterialId,
+                requiredQty: l.requiredQuantity,
+                sortOrder: index,
+              })),
+            },
+          },
+        });
+        created.push(wo.id);
+      }
+      if (created.length === 0) {
+        throw new BadRequestException(
+          "No producible lines to request (already requested, or no active formula)",
+        );
+      }
+      await this.audit.record(tx, {
+        tenantId: user.tenantId,
+        actorId: user.id,
+        entityType: "SalesOrder",
+        entityId: id,
+        action: "UPDATE",
+        after: { requestedProduction: created },
+      });
+    });
+    return this.getById(user.tenantId, id);
+  }
+
   private async loadOrder(
     db: PrismaService | Prisma.TransactionClient,
     tenantId: string,
@@ -533,6 +656,7 @@ export class SalesOrderService {
           include: { lines: { include: { item: true } }, shippedBy: true },
           orderBy: { shippedAt: "asc" },
         },
+        workOrders: { include: { target: true }, orderBy: { createdAt: "asc" } },
       },
     });
     if (!order) throw new NotFoundException("Sales order not found");
@@ -619,11 +743,20 @@ export class SalesOrderService {
       soNumber: order.soNumber,
       status: order.status as SalesOrderStatus,
       orderDate: order.orderDate.toISOString(),
+      requestedShipDate: order.requestedShipDate?.toISOString() ?? null,
+      paidAt: order.paidAt?.toISOString() ?? null,
       notes: order.notes,
       totalRevenue,
       packedAt: order.packedAt?.toISOString() ?? null,
       lines,
       shipments,
+      workOrders: order.workOrders.map((w) => ({
+        id: w.id,
+        workOrderNumber: w.workOrderNumber,
+        status: w.status,
+        targetName: w.target.name,
+        salesOrderLineId: w.salesOrderLineId,
+      })),
       createdAt: order.createdAt.toISOString(),
       updatedAt: order.updatedAt.toISOString(),
     };

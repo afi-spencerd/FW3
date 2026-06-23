@@ -84,6 +84,21 @@ export class SalesOrderController {
     return this.orders.cancel(user, id);
   }
 
+  @Post(":id/mark-paid")
+  @RequirePermissions(PERMISSIONS.SO_UPDATE)
+  markPaid(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string) {
+    return this.orders.markPaid(user, id);
+  }
+
+  @Post(":id/request-production")
+  @RequirePermissions(PERMISSIONS.SO_REQUEST_PRODUCTION)
+  requestProduction(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param("id") id: string,
+  ) {
+    return this.orders.requestProduction(user, id);
+  }
+
   @Post(":id/pack")
   @RequirePermissions(PERMISSIONS.SO_SHIP)
   pack(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string) {

@@ -1,20 +1,37 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
 import { RouterLink } from "vue-router";
-import { PERMISSIONS, type PurchaseOrderSummary } from "@fw3/shared-types";
+import {
+  PERMISSIONS,
+  type PurchaseOrderSummary,
+  type PurchasingAlert,
+} from "@fw3/shared-types";
 import { api, ApiError } from "../lib/api";
 import { useAuthStore } from "../stores/auth";
 
 const auth = useAuthStore();
 const orders = ref<PurchaseOrderSummary[]>([]);
+const alerts = ref<PurchasingAlert[]>([]);
 const error = ref<string | null>(null);
 
 async function load(): Promise<void> {
   error.value = null;
   try {
-    orders.value = await api.listPurchaseOrders();
+    [orders.value, alerts.value] = await Promise.all([
+      api.listPurchaseOrders(),
+      api.listPurchasingAlerts("OPEN"),
+    ]);
   } catch (err) {
     error.value = err instanceof ApiError ? err.message : "Failed to load";
+  }
+}
+
+async function resolveAlert(id: string): Promise<void> {
+  try {
+    await api.resolvePurchasingAlert(id);
+    alerts.value = alerts.value.filter((a) => a.id !== id);
+  } catch (err) {
+    error.value = err instanceof ApiError ? err.message : "Failed to resolve";
   }
 }
 
@@ -35,6 +52,38 @@ onMounted(load);
         New PO
       </RouterLink>
     </div>
+
+    <div v-if="alerts.length" class="panel" style="border-left: 3px solid #b91c1c">
+      <h3 style="margin-top: 0">Shortage alerts ({{ alerts.length }})</h3>
+      <p class="inactive" style="font-size: 0.85rem">
+        Raised by the scheduler when a work order can't be made for lack of stock.
+      </p>
+      <table>
+        <thead>
+          <tr>
+            <th>Material</th>
+            <th class="num">Short by</th>
+            <th>Work order</th>
+            <th>Note</th>
+            <th>Raised by</th>
+            <th v-if="auth.hasPermission(PERMISSIONS.PO_UPDATE)"></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="a in alerts" :key="a.id">
+            <td>{{ a.itemName }} <span class="inactive">({{ a.itemSku }})</span></td>
+            <td class="num">{{ a.shortQty }}</td>
+            <td>{{ a.workOrderNumber ?? "—" }}</td>
+            <td>{{ a.note ?? "—" }}</td>
+            <td>{{ a.raisedByName ?? "—" }}</td>
+            <td v-if="auth.hasPermission(PERMISSIONS.PO_UPDATE)">
+              <button @click="resolveAlert(a.id)">Resolve</button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
     <div class="panel">
       <table>
         <thead>

@@ -201,6 +201,41 @@ export const purchaseOrderSummarySchema = purchaseOrderSchema
   .omit({ lines: true, receipts: true })
   .extend({ lineCount: z.number().int() });
 
+// ---- Purchasing alert ----
+/**
+ * A lightweight shortage flag raised by the scheduler when a work order can't be
+ * made for lack of a raw material, so purchasing can act on it. Not a PO — just a
+ * to-do that purchasing resolves (e.g. after raising a PO).
+ */
+export const PURCHASING_ALERT_STATUSES = ["OPEN", "RESOLVED"] as const;
+export const purchasingAlertStatusSchema = z.enum(PURCHASING_ALERT_STATUSES);
+export type PurchasingAlertStatus = (typeof PURCHASING_ALERT_STATUSES)[number];
+
+export const createPurchasingAlertSchema = z.object({
+  itemId: z.string().uuid(),
+  /** The work order whose shortage prompted the alert (optional context). */
+  workOrderId: z.string().uuid().nullish(),
+  /** How short we are, in pounds (informational). */
+  shortQty: positiveQty,
+  note: z.string().trim().max(500).optional(),
+});
+
+export const purchasingAlertSchema = z.object({
+  id: z.string().uuid(),
+  tenantId: z.string().uuid(),
+  itemId: z.string().uuid(),
+  itemSku: z.string(),
+  itemName: z.string(),
+  workOrderId: z.string().uuid().nullable(),
+  workOrderNumber: z.string().nullable(),
+  shortQty: z.string(),
+  note: z.string().nullable(),
+  status: purchasingAlertStatusSchema,
+  raisedByName: z.string().nullable(),
+  createdAt: z.string().datetime(),
+  resolvedAt: z.string().datetime().nullable(),
+});
+
 export type CreateVendor = z.infer<typeof createVendorSchema>;
 export type UpdateVendor = z.infer<typeof updateVendorSchema>;
 export type Vendor = z.infer<typeof vendorSchema>;
@@ -214,3 +249,5 @@ export type PurchaseOrderLine = z.infer<typeof poLineSchema>;
 export type PoReceipt = z.infer<typeof poReceiptSchema>;
 export type PurchaseOrder = z.infer<typeof purchaseOrderSchema>;
 export type PurchaseOrderSummary = z.infer<typeof purchaseOrderSummarySchema>;
+export type CreatePurchasingAlert = z.infer<typeof createPurchasingAlertSchema>;
+export type PurchasingAlert = z.infer<typeof purchasingAlertSchema>;

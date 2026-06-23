@@ -27,6 +27,7 @@ type WorkOrderWithRelations = Prisma.ProductionWorkOrderGetPayload<{
     target: true;
     formula: true;
     lines: { include: { component: true } };
+    salesOrder: true;
   };
 }>;
 
@@ -42,7 +43,12 @@ export class ProductionService {
   async list(tenantId: string): Promise<ProductionWorkOrderSummary[]> {
     const orders = await this.prisma.productionWorkOrder.findMany({
       where: { tenantId },
-      include: { target: true, formula: true, lines: { include: { component: true } } },
+      include: {
+        target: true,
+        formula: true,
+        lines: { include: { component: true } },
+        salesOrder: true,
+      },
       orderBy: { createdAt: "desc" },
     });
     return orders.map((o) => {
@@ -275,8 +281,11 @@ export class ProductionService {
   async cancel(user: AuthenticatedUser, id: string): Promise<ProductionWorkOrder> {
     await this.prisma.$transaction(async (tx) => {
       const workOrder = await this.loadWorkOrder(tx, user.tenantId, id);
-      if (workOrder.status !== "PLANNED") {
-        throw new BadRequestException("Only a planned work order can be cancelled");
+      const cancellable: ProductionStatus[] = ["REQUESTED", "QUEUED", "PLANNED"];
+      if (!cancellable.includes(workOrder.status as ProductionStatus)) {
+        throw new BadRequestException(
+          `Cannot cancel a ${workOrder.status} work order (only requested, queued, or planned)`,
+        );
       }
       await tx.productionWorkOrder.update({ where: { id }, data: { status: "CANCELLED" } });
       await this.audit.record(tx, {
@@ -302,6 +311,7 @@ export class ProductionService {
         target: true,
         formula: true,
         lines: { include: { component: true }, orderBy: { sortOrder: "asc" } },
+        salesOrder: true,
       },
     });
     if (!workOrder) throw new NotFoundException("Production work order not found");
@@ -323,6 +333,9 @@ export class ProductionService {
       outputQty: workOrder.outputQty.toString(),
       status: workOrder.status as ProductionStatus,
       notes: workOrder.notes,
+      queuePosition: workOrder.queuePosition,
+      salesOrderId: workOrder.salesOrderId,
+      soNumber: workOrder.salesOrder?.soNumber ?? null,
       lines: workOrder.lines.map((line) => ({
         id: line.id,
         componentId: line.componentId,

@@ -18,6 +18,7 @@ import { BusinessVariablesModule } from "./business-variables/business-variables
 import { CompanyHolidaysModule } from "./company-holidays/company-holidays.module";
 import { CostModule } from "./cost/cost.module";
 import { ProductionModule } from "./production/production.module";
+import { SchedulerModule } from "./scheduler/scheduler.module";
 import { CompounderModule } from "./compounder/compounder.module";
 import { QualityModule } from "./quality/quality.module";
 import { QbwcModule } from "./qbwc/qbwc.module";
@@ -48,6 +49,7 @@ import { JobsModule } from "./jobs/jobs.module";
     CompanyHolidaysModule,
     CostModule,
     ProductionModule,
+    SchedulerModule,
     CompounderModule,
     QualityModule,
     QbwcModule,

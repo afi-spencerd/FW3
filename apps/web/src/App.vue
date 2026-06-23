@@ -24,6 +24,13 @@ async function logout(): Promise<void> {
       <RouterLink :to="{ name: 'quality' }">Quality</RouterLink>
       <RouterLink :to="{ name: 'formulas' }">Formulas</RouterLink>
       <RouterLink :to="{ name: 'production' }">Work Orders</RouterLink>
+      <RouterLink
+        v-if="auth.hasPermission(PERMISSIONS.PRODUCTION_SCHEDULE)"
+        :to="{ name: 'scheduler' }"
+      >
+        Scheduler
+      </RouterLink>
+      <RouterLink :to="{ name: 'production-queue' }">Run Queue</RouterLink>
       <RouterLink :to="{ name: 'vendors' }">Vendors</RouterLink>
       <RouterLink :to="{ name: 'purchase-orders' }">Purchase Orders</RouterLink>
       <RouterLink :to="{ name: 'customers' }">Customers</RouterLink>

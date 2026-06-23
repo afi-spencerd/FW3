@@ -57,10 +57,14 @@ import type {
   PurchaseOrder,
   PurchaseOrderSummary,
   ReceivePurchaseOrder,
+  CreatePurchasingAlert,
+  PurchasingAlert,
+  PurchasingAlertStatus,
   CustomerItemPrice,
   ItemCost,
   SalesOrder,
   SalesOrderSummary,
+  SchedulerBoard,
   ShipSalesOrder,
   UpdateCustomer,
   UpdateFormula,
@@ -268,6 +272,43 @@ export const api = {
       method: "POST",
     }),
 
+  // ---- Scheduler ----
+  schedulerBoard: () => request<SchedulerBoard>("/scheduler/board"),
+  enqueueWorkOrder: (id: string, position?: number) =>
+    request<SchedulerBoard>(`/scheduler/work-orders/${id}/queue`, {
+      method: "POST",
+      body: JSON.stringify(position === undefined ? {} : { position }),
+    }),
+  queueByRules: (ids: string[]) =>
+    request<SchedulerBoard>("/scheduler/queue-by-rules", {
+      method: "POST",
+      body: JSON.stringify({ ids }),
+    }),
+  repositionWorkOrder: (id: string, position: number) =>
+    request<SchedulerBoard>(`/scheduler/work-orders/${id}/reposition`, {
+      method: "POST",
+      body: JSON.stringify({ position }),
+    }),
+  releaseWorkOrder: (id: string) =>
+    request<SchedulerBoard>(`/scheduler/work-orders/${id}/release`, {
+      method: "POST",
+    }),
+
+  // ---- Purchasing alerts ----
+  listPurchasingAlerts: (status?: PurchasingAlertStatus) =>
+    request<PurchasingAlert[]>(
+      `/purchasing/alerts${status ? `?status=${status}` : ""}`,
+    ),
+  createPurchasingAlert: (data: CreatePurchasingAlert) =>
+    request<PurchasingAlert>("/purchasing/alerts", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  resolvePurchasingAlert: (id: string) =>
+    request<PurchasingAlert>(`/purchasing/alerts/${id}/resolve`, {
+      method: "POST",
+    }),
+
   listFormulas: () => request<FormulaSummary[]>("/formulas"),
   getFormula: (id: string) => request<Formula>(`/formulas/${id}`),
   createFormula: (data: CreateFormula) =>
@@ -336,6 +377,12 @@ export const api = {
     }),
   cancelSalesOrder: (id: string) =>
     request<SalesOrder>(`/sales-orders/${id}/cancel`, { method: "POST" }),
+  markSalesOrderPaid: (id: string) =>
+    request<SalesOrder>(`/sales-orders/${id}/mark-paid`, { method: "POST" }),
+  requestProduction: (id: string) =>
+    request<SalesOrder>(`/sales-orders/${id}/request-production`, {
+      method: "POST",
+    }),
   packSalesOrder: (id: string) =>
     request<SalesOrder>(`/sales-orders/${id}/pack`, { method: "POST" }),
   shipSalesOrder: (id: string, data: ShipSalesOrder) =>
