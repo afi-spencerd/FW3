@@ -153,6 +153,9 @@ function removeLine(i: number): void {
 }
 
 onMounted(async () => {
+  // Default the requested ship date to 3 days out (sales can adjust it).
+  const ship = new Date(Date.now() + 3 * 86_400_000);
+  form.requestedShipDate = ship.toISOString().slice(0, 10);
   try {
     const [c, inv, cont, vars] = await Promise.all([
       api.listCustomers(),

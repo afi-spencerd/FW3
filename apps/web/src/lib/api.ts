@@ -66,6 +66,7 @@ import type {
   SalesOrderSummary,
   SchedulerBoard,
   ShipSalesOrder,
+  UpdateSalesOrder,
   UpdateCustomer,
   UpdateFormula,
   UpdateInventoryItem,
@@ -373,6 +374,11 @@ export const api = {
   createSalesOrder: (data: CreateSalesOrder) =>
     request<SalesOrder>("/sales-orders", {
       method: "POST",
+      body: JSON.stringify(data),
+    }),
+  updateSalesOrder: (id: string, data: UpdateSalesOrder) =>
+    request<SalesOrder>(`/sales-orders/${id}`, {
+      method: "PUT",
       body: JSON.stringify(data),
     }),
   cancelSalesOrder: (id: string) =>

@@ -9,6 +9,7 @@ import type {
   AuthenticatedUser,
   CreateSalesOrder,
   CustomerItemPrice,
+  PaymentTerms,
   SalesOrder,
   SalesOrderStatus,
   SalesOrderSummary,
@@ -16,7 +17,7 @@ import type {
   UpdateSalesOrder,
   UpdateShipment,
 } from "@fw3/shared-types";
-import { PERMISSIONS } from "@fw3/shared-types";
+import { NET_PAYMENT_TERMS, PERMISSIONS } from "@fw3/shared-types";
 import { AuditService } from "../audit/audit.service";
 import { ContainerService } from "../container/container.service";
 import { CostService } from "../cost/cost.service";
@@ -39,7 +40,10 @@ type SoWithRelations = Prisma.SalesOrderGetPayload<{
 }>;
 
 /** Customers on these terms may request production before payment is recorded. */
-const NET_TERMS = new Set(["NET_15", "NET_30", "NET_45", "NET_60", "NET_90"]);
+const NET_TERMS = new Set<string>(NET_PAYMENT_TERMS);
+
+/** Default ship-by lead time when sales doesn't specify one (calendar days). */
+const DEFAULT_SHIP_LEAD_DAYS = 3;
 
 @Injectable()
 export class SalesOrderService {
@@ -218,16 +222,21 @@ export class SalesOrderService {
         await this.assertSellable(tx, user.tenantId, input.lines);
         const belowCost = await this.assertPricing(user, input.lines, input.allowBelowCost);
 
+        // Default the ship-by to a few days after the order date when sales
+        // doesn't set one, so every order has a date the scheduler can sequence on.
+        const orderDate = input.orderDate ? new Date(input.orderDate) : new Date();
+        const requestedShipDate = input.requestedShipDate
+          ? new Date(input.requestedShipDate)
+          : new Date(orderDate.getTime() + DEFAULT_SHIP_LEAD_DAYS * 86_400_000);
+
         const order = await tx.salesOrder.create({
           data: {
             tenantId: user.tenantId,
             customerId: input.customerId,
             soNumber: input.soNumber,
             status: "OPEN",
-            ...(input.orderDate ? { orderDate: new Date(input.orderDate) } : {}),
-            ...(input.requestedShipDate
-              ? { requestedShipDate: new Date(input.requestedShipDate) }
-              : {}),
+            orderDate,
+            requestedShipDate,
             notes: input.notes ?? null,
             lines: {
               create: input.lines.map((line) => ({
@@ -740,6 +749,7 @@ export class SalesOrderService {
       tenantId: order.tenantId,
       customerId: order.customerId,
       customerName: order.customer.name,
+      customerPaymentTerms: order.customer.paymentTerms as PaymentTerms | null,
       soNumber: order.soNumber,
       status: order.status as SalesOrderStatus,
       orderDate: order.orderDate.toISOString(),

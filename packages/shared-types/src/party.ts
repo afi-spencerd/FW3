@@ -24,6 +24,18 @@ export const PAYMENT_TERMS = [
 export const paymentTermsSchema = z.enum(PAYMENT_TERMS);
 export type PaymentTerms = (typeof PAYMENT_TERMS)[number];
 
+/**
+ * Terms that let a customer receive goods before paying — used to decide whether
+ * a sales order can be sent to production without a recorded payment.
+ */
+export const NET_PAYMENT_TERMS = [
+  "NET_15",
+  "NET_30",
+  "NET_45",
+  "NET_60",
+  "NET_90",
+] as const satisfies readonly PaymentTerms[];
+
 export const addressInputSchema = z.object({
   kind: addressKindSchema.default("OTHER"),
   label: z.string().trim().max(100).optional(),

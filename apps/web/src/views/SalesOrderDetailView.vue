@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from "vue";
 import { useRouter } from "vue-router";
-import { PERMISSIONS, type SalesOrder } from "@fw3/shared-types";
+import { NET_PAYMENT_TERMS, PERMISSIONS, type SalesOrder } from "@fw3/shared-types";
 import { api, ApiError } from "../lib/api";
 import { useAuthStore } from "../stores/auth";
 
@@ -21,6 +21,9 @@ const trackEdits = reactive<
   Record<string, { carrier: string; trackingNumber: string; notes: string }>
 >({});
 const trackBusy = ref<string | null>(null);
+// Editable requested ship date (yyyy-mm-dd), seeded from the order.
+const shipDateEdit = ref("");
+const shipDateBusy = ref(false);
 
 const canShip = computed(
   () =>
@@ -65,6 +68,40 @@ const canRequestProduction = computed(
     so.value.status !== "CANCELLED" &&
     auth.hasPermission(PERMISSIONS.SO_REQUEST_PRODUCTION),
 );
+// Production can only be requested once the order is paid, or the customer is on
+// net terms (they receive goods before paying).
+const isRequestable = computed(
+  () =>
+    so.value !== null &&
+    (so.value.paidAt !== null ||
+      (so.value.customerPaymentTerms !== null &&
+        (NET_PAYMENT_TERMS as readonly string[]).includes(
+          so.value.customerPaymentTerms,
+        ))),
+);
+const canEditShipDate = computed(
+  () =>
+    so.value !== null &&
+    so.value.status === "OPEN" &&
+    auth.hasPermission(PERMISSIONS.SO_UPDATE),
+);
+
+async function saveShipDate(): Promise<void> {
+  if (!so.value || !shipDateEdit.value) return;
+  error.value = null;
+  notice.value = null;
+  shipDateBusy.value = true;
+  try {
+    so.value = await api.updateSalesOrder(so.value.id, {
+      requestedShipDate: new Date(shipDateEdit.value).toISOString(),
+    });
+    notice.value = "Ship date updated.";
+  } catch (err) {
+    error.value = err instanceof ApiError ? err.message : "Failed to update ship date";
+  } finally {
+    shipDateBusy.value = false;
+  }
+}
 
 async function markPaid(): Promise<void> {
   if (!so.value) return;
@@ -134,6 +171,9 @@ async function load(): Promise<void> {
   try {
     so.value = await api.getSalesOrder(props.id);
     for (const line of so.value.lines) shipQty[line.id] = "0";
+    shipDateEdit.value = so.value.requestedShipDate
+      ? so.value.requestedShipDate.slice(0, 10)
+      : "";
     syncTrackEdits(so.value);
   } catch (err) {
     error.value = err instanceof ApiError ? err.message : "Failed to load";
@@ -223,12 +263,25 @@ onMounted(load);
         <button
           v-if="canRequestProduction"
           class="primary"
-          :disabled="prodBusy"
+          :disabled="prodBusy || !isRequestable"
+          :title="
+            isRequestable
+              ? ''
+              : 'Mark the order paid, or set net terms on the customer, before requesting production.'
+          "
           @click="requestProduction"
         >
           Request production
         </button>
         <button v-if="canCancel" class="danger" @click="cancel">Cancel SO</button>
+      </div>
+      <div
+        v-if="canRequestProduction && !isRequestable"
+        class="banner"
+        style="margin-bottom: 1rem"
+      >
+        Mark the order paid, or set net terms on the customer, before requesting
+        production.
       </div>
       <div class="summary" style="margin-bottom: 1rem">
         <div class="metric"><div class="label">Customer</div><div class="value" style="font-size: 1rem">{{ so.customerName }}</div></div>
@@ -236,7 +289,13 @@ onMounted(load);
         <div class="metric"><div class="label">Revenue</div><div class="value">${{ so.totalRevenue }}</div></div>
         <div class="metric">
           <div class="label">Ship by</div>
-          <div class="value" style="font-size: 1rem">
+          <div v-if="canEditShipDate" class="value" style="font-size: 0.9rem; display: flex; gap: 0.3rem; align-items: center">
+            <input v-model="shipDateEdit" type="date" style="max-width: 150px" />
+            <button :disabled="shipDateBusy || !shipDateEdit" @click="saveShipDate">
+              {{ shipDateBusy ? "…" : "Save" }}
+            </button>
+          </div>
+          <div v-else class="value" style="font-size: 1rem">
             {{ so.requestedShipDate ? new Date(so.requestedShipDate).toLocaleDateString() : "—" }}
           </div>
         </div>

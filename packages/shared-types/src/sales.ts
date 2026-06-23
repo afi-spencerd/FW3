@@ -203,6 +203,8 @@ export const salesOrderSchema = z.object({
   tenantId: z.string().uuid(),
   customerId: z.string().uuid(),
   customerName: z.string(),
+  /** The customer's payment terms — lets the UI gate "request production". */
+  customerPaymentTerms: paymentTermsSchema.nullable(),
   soNumber: z.string(),
   status: z.enum(SO_STATUSES),
   orderDate: z.string().datetime(),
