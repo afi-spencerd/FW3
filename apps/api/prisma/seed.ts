@@ -405,6 +405,40 @@ async function main(): Promise<void> {
       });
     }
 
+    // 11. Demo company holidays (US). Recurring rules cover every year; Easter
+    // is a movable feast, seeded as a one-off explicit date.
+    const DEMO_HOLIDAYS = [
+      { name: "New Year's Day", ruleType: "FIXED", month: 1, day: 1 },
+      { name: "Martin Luther King Jr. Day", ruleType: "NTH_WEEKDAY", month: 1, weekday: 1, nth: 3 },
+      { name: "Presidents' Day", ruleType: "NTH_WEEKDAY", month: 2, weekday: 1, nth: 3 },
+      { name: "Easter", ruleType: "EXPLICIT", date: "2026-04-05" },
+      { name: "Memorial Day", ruleType: "NTH_WEEKDAY", month: 5, weekday: 1, nth: -1 },
+      { name: "Independence Day", ruleType: "FIXED", month: 7, day: 4 },
+      { name: "Labor Day", ruleType: "NTH_WEEKDAY", month: 9, weekday: 1, nth: 1 },
+      { name: "Thanksgiving", ruleType: "NTH_WEEKDAY", month: 11, weekday: 4, nth: 4 },
+      { name: "Christmas Eve", ruleType: "FIXED", month: 12, day: 24 },
+      { name: "Christmas Day", ruleType: "FIXED", month: 12, day: 25 },
+    ] as const;
+    for (const h of DEMO_HOLIDAYS) {
+      // No natural unique key (name isn't constrained) — guard to stay idempotent.
+      const existing = await prisma.companyHoliday.findFirst({
+        where: { tenantId: tenant.id, name: h.name },
+      });
+      if (existing) continue;
+      await prisma.companyHoliday.create({
+        data: {
+          tenantId: tenant.id,
+          name: h.name,
+          ruleType: h.ruleType,
+          month: "month" in h ? h.month : null,
+          day: "day" in h ? h.day : null,
+          weekday: "weekday" in h ? h.weekday : null,
+          nth: "nth" in h ? h.nth : null,
+          date: "date" in h ? new Date(`${h.date}T00:00:00.000Z`) : null,
+        },
+      });
+    }
+
     console.log(`Seed complete. Tenant=${tenant.id} (slug=demo), admin user=${admin.id}`);
   } finally {
     await prisma.$disconnect();
