@@ -44,6 +44,10 @@ export const PERMISSIONS = {
   QC_SPEC_MANAGE: "qc:spec:manage",
   QB_SYNC_RUN: "qb:sync:run",
   QB_SYNC_VIEW: "qb:sync:view",
+  // Tenant business variables (working hours, pours/hour, efficiency, …):
+  // everyone can read; only authorized users may change them.
+  BUSINESS_VAR_READ: "business_variables:read",
+  BUSINESS_VAR_MANAGE: "business_variables:manage",
 } as const;
 
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
@@ -91,6 +95,7 @@ export const BUILTIN_ROLES = {
     PERMISSIONS.QC_REVIEW,
     PERMISSIONS.QC_SPEC_MANAGE,
     PERMISSIONS.QB_SYNC_VIEW,
+    PERMISSIONS.BUSINESS_VAR_READ,
   ],
   viewer: [
     PERMISSIONS.INVENTORY_READ,
@@ -104,6 +109,7 @@ export const BUILTIN_ROLES = {
     PERMISSIONS.PRODUCTION_READ,
     PERMISSIONS.QC_READ,
     PERMISSIONS.QB_SYNC_VIEW,
+    PERMISSIONS.BUSINESS_VAR_READ,
   ],
 } as const satisfies Record<string, readonly Permission[]>;
 

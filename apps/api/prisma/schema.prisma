@@ -54,6 +54,7 @@ model Tenant {
   containerTxns       ContainerTxn[]
   fgRegulatoryProfiles FgRegulatoryProfile[]
   fgIfraLevels        FgIfraLevel[]
+  businessVariables   BusinessVariableValue[]
 }
 
 model User {
@@ -229,6 +230,25 @@ model FgRegulatoryProfile {
   item       InventoryItem  @relation(fields: [itemId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   ifraLevels FgIfraLevel[]
 
+  @@index([tenantId])
+}
+
+// A tenant's override for a business variable (a code-defined catalog entry).
+// Unset catalog entries fall back to their defaults — only overrides are stored.
+// operatorRole is null for non-role-scoped variables; for role-scoped ones there's
+// one row per role. SQL Server unique treats the single NULL role as one slot.
+model BusinessVariableValue {
+  id           String   @id @default(uuid()) @db.Char(36)
+  tenantId     String   @db.Char(36)
+  key          String   @db.NVarChar(80)
+  operatorRole String?  @db.NVarChar(20) // FLOOR | LAB (CHECK); null = not role-scoped
+  value        Decimal  @db.Decimal(19, 4)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([tenantId, key, operatorRole])
   @@index([tenantId])
 }
 

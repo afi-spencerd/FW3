@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { RouterLink, RouterView, useRouter } from "vue-router";
+import { PERMISSIONS } from "@fw3/shared-types";
 import { useAuthStore } from "./stores/auth";
 
 const auth = useAuthStore();
@@ -29,6 +30,12 @@ async function logout(): Promise<void> {
       <RouterLink :to="{ name: 'sales-orders' }">Sales Orders</RouterLink>
       <RouterLink :to="{ name: 'shipping' }">Shipping</RouterLink>
       <RouterLink :to="{ name: 'containers' }">Containers</RouterLink>
+      <RouterLink
+        v-if="auth.hasPermission(PERMISSIONS.BUSINESS_VAR_READ)"
+        :to="{ name: 'business-variables' }"
+      >
+        Business Variables
+      </RouterLink>
     </nav>
     <span class="spacer" />
     <template v-if="auth.isAuthenticated">

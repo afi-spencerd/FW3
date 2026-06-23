@@ -2,6 +2,8 @@ import type {
   AdjustContainer,
   AdjustStock,
   AuthenticatedUser,
+  BusinessVariable,
+  UpdateBusinessVariables,
   BatchRequirements,
   BatchRequirementsRequest,
   Container,
@@ -141,6 +143,13 @@ export const api = {
   listInventory: (query: InventoryQuery = {}) =>
     request<PaginatedInventory>(`/inventory${toQueryString(query)}`),
   getInventory: (id: string) => request<InventoryItem>(`/inventory/${id}`),
+  getBusinessVariables: () => request<BusinessVariable[]>("/business-variables"),
+  updateBusinessVariables: (data: UpdateBusinessVariables) =>
+    request<BusinessVariable[]>("/business-variables", {
+      method: "PUT",
+      body: JSON.stringify(data),
+    }),
+
   getFgRegulatory: (id: string) =>
     request<FgRegulatory>(`/inventory/${id}/regulatory`),
   refreshFgRegulatory: (id: string) =>

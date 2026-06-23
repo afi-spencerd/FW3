@@ -198,6 +198,12 @@ export const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
+      path: "/business-variables",
+      name: "business-variables",
+      component: () => import("./views/BusinessVariablesView.vue"),
+      meta: { requiresAuth: true },
+    },
+    {
       path: "/containers/new",
       name: "container-new",
       component: () => import("./views/ContainerFormView.vue"),
