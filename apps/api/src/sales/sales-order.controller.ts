@@ -44,6 +44,15 @@ export class SalesOrderController {
     return this.orders.listPending(user.tenantId);
   }
 
+  @Get("price-history/:customerId")
+  @RequirePermissions(PERMISSIONS.SO_READ)
+  priceHistory(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param("customerId") customerId: string,
+  ) {
+    return this.orders.customerPriceHistory(user.tenantId, customerId);
+  }
+
   @Get(":id")
   @RequirePermissions(PERMISSIONS.SO_READ)
   getById(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string) {

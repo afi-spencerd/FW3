@@ -6,6 +6,7 @@ import {
   containersForWeight,
   createSalesOrderSchema,
   type Customer,
+  type CustomerItemPrice,
   type InventoryItem,
   type ItemCost,
   PERMISSIONS,
@@ -21,6 +22,10 @@ const items = ref<InventoryItem[]>([]);
 const containers = ref<Container[]>([]);
 // Per-item cost basis (per lb), fetched on demand and cached by item id.
 const itemCosts = reactive<Record<string, ItemCost>>({});
+// Default profit margin (%) for suggesting prices, from business variables.
+const marginPct = ref(30);
+// This customer's historic price per item (loaded when the customer changes).
+const priceHistory = reactive<Record<string, CustomerItemPrice>>({});
 const allowBelowCost = ref(false);
 const issues = ref<string[]>([]);
 const busy = ref(false);
@@ -47,9 +52,38 @@ async function fetchCost(itemId: string): Promise<void> {
     /* leave uncosted; server still enforces on save */
   }
 }
-function onItemChange(line: SoLine): void {
+async function onItemChange(line: SoLine): Promise<void> {
   recalcContainers(line);
-  void fetchCost(line.itemId);
+  await fetchCost(line.itemId);
+  // Default the unit price to the per-lb production cost plus the profit margin.
+  const c = itemCosts[line.itemId];
+  if (c) {
+    const suggested = Number(c.productionUnitCost) * (1 + marginPct.value / 100);
+    line.unitPrice = String(Math.round(suggested * 10000) / 10000);
+  }
+}
+
+async function loadPriceHistory(): Promise<void> {
+  for (const k of Object.keys(priceHistory)) delete priceHistory[k];
+  if (!form.customerId) return;
+  try {
+    for (const r of await api.customerPriceHistory(form.customerId)) {
+      priceHistory[r.itemId] = r;
+    }
+  } catch {
+    /* history is advisory */
+  }
+}
+
+/** All-in cost per unit (lb) for the line, incl. its container allocation. */
+function lineUnitCost(line: SoLine): number | null {
+  const cost = lineCost(line);
+  const qty = Number(line.quantityOrdered) || 0;
+  return cost !== null && qty > 0 ? cost / qty : null;
+}
+function useHistoricAvg(line: SoLine): void {
+  const h = priceHistory[line.itemId];
+  if (h) line.unitPrice = h.avgUnitPrice;
 }
 
 function containerAvg(line: SoLine): number {
@@ -119,15 +153,18 @@ function removeLine(i: number): void {
 
 onMounted(async () => {
   try {
-    const [c, inv, cont] = await Promise.all([
+    const [c, inv, cont, vars] = await Promise.all([
       api.listCustomers(),
       api.listInventory({ pageSize: 200 }),
       api.listContainers(),
+      api.getBusinessVariables(),
     ]);
     customers.value = c.filter((x) => x.isActive);
     // Sellable: finished goods and bases (not raw materials).
     items.value = inv.items.filter((i) => i.itemType !== "RAW_MATERIAL");
     containers.value = cont.filter((x) => x.active);
+    const margin = vars.find((v) => v.key === "profitMarginPct")?.entries[0]?.value;
+    if (margin !== undefined) marginPct.value = Number(margin);
     addLine();
   } catch (err) {
     issues.value = [err instanceof ApiError ? err.message : "Failed to load"];
@@ -186,7 +223,7 @@ async function submit(): Promise<void> {
       <div class="grid-2">
         <div class="field">
           <label>Customer</label>
-          <select v-model="form.customerId">
+          <select v-model="form.customerId" @change="loadPriceHistory">
             <option value="" disabled>Select a customer…</option>
             <option v-for="c in customers" :key="c.id" :value="c.id">{{ c.name }}</option>
           </select>
@@ -238,7 +275,14 @@ async function submit(): Promise<void> {
                 @change="recalcContainers(line)"
               />
             </td>
-            <td class="num"><input v-model="line.unitPrice" inputmode="decimal" style="text-align: right" /></td>
+            <td class="num">
+              <input v-model="line.unitPrice" inputmode="decimal" style="text-align: right" />
+              <div v-if="priceHistory[line.itemId]" class="inactive" style="font-size: 0.7rem">
+                cust avg ${{ priceHistory[line.itemId]!.avgUnitPrice }}
+                · last ${{ priceHistory[line.itemId]!.lastUnitPrice }}
+                <a href="#" @click.prevent="useHistoricAvg(line)">use</a>
+              </div>
+            </td>
             <td>
               <select v-model="line.containerId" @change="recalcContainers(line)">
                 <option value="">— none —</option>
@@ -259,6 +303,9 @@ async function submit(): Promise<void> {
             <td class="num" :class="{ below: belowCost(line) }">
               <template v-if="lineCost(line) !== null">${{ lineCost(line)!.toFixed(2) }}</template>
               <span v-else class="inactive">—</span>
+              <div v-if="lineUnitCost(line) !== null" class="inactive" style="font-size: 0.7rem">
+                ${{ lineUnitCost(line)!.toFixed(2) }}/unit
+              </div>
             </td>
             <td class="num" :class="{ below: belowCost(line) }">
               <template v-if="lineMargin(line) !== null">{{ lineMargin(line)!.toFixed(1) }}%</template>

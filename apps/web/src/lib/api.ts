@@ -57,6 +57,7 @@ import type {
   PurchaseOrder,
   PurchaseOrderSummary,
   ReceivePurchaseOrder,
+  CustomerItemPrice,
   ItemCost,
   SalesOrder,
   SalesOrderSummary,
@@ -323,6 +324,8 @@ export const api = {
     }),
 
   getItemCost: (id: string) => request<ItemCost>(`/inventory/${id}/cost`),
+  customerPriceHistory: (customerId: string) =>
+    request<CustomerItemPrice[]>(`/sales-orders/price-history/${customerId}`),
   listSalesOrders: () => request<SalesOrderSummary[]>("/sales-orders"),
   pendingShipments: () => request<SalesOrder[]>("/sales-orders/pending"),
   getSalesOrder: (id: string) => request<SalesOrder>(`/sales-orders/${id}`),

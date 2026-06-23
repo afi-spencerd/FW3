@@ -93,6 +93,19 @@ export const updateSalesOrderSchema = z.object({
   allowBelowCost: z.boolean().optional(),
 });
 
+/** What a customer has historically paid for an item (across non-cancelled orders). */
+export const customerItemPriceSchema = z.object({
+  itemId: z.string().uuid(),
+  itemSku: z.string(),
+  itemName: z.string(),
+  /** Quantity-weighted average unit price. */
+  avgUnitPrice: z.string(),
+  /** Unit price on the most recent order. */
+  lastUnitPrice: z.string(),
+  /** Number of distinct orders that included this item. */
+  orderCount: z.number().int(),
+});
+
 /** Computed cost basis for an item (per lb): material roll-up × production factor. */
 export const itemCostSchema = z.object({
   itemId: z.string().uuid(),
@@ -201,6 +214,7 @@ export type Customer = z.infer<typeof customerSchema>;
 export type SalesOrderLineInput = z.infer<typeof soLineInputSchema>;
 export type CreateSalesOrder = z.infer<typeof createSalesOrderSchema>;
 export type UpdateSalesOrder = z.infer<typeof updateSalesOrderSchema>;
+export type CustomerItemPrice = z.infer<typeof customerItemPriceSchema>;
 export type ItemCost = z.infer<typeof itemCostSchema>;
 export type ShipSalesOrder = z.infer<typeof shipSalesOrderSchema>;
 export type UpdateShipment = z.infer<typeof updateShipmentSchema>;

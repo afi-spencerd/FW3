@@ -8,6 +8,7 @@ import Decimal from "decimal.js";
 import type {
   AuthenticatedUser,
   CreateSalesOrder,
+  CustomerItemPrice,
   SalesOrder,
   SalesOrderStatus,
   SalesOrderSummary,
@@ -133,6 +134,67 @@ export class SalesOrderService {
       orderBy: { orderDate: "asc" },
     });
     return orders.map((o) => this.toDto(o));
+  }
+
+  /**
+   * What a customer has historically paid per item — quantity-weighted average
+   * unit price, the most recent price, and order count, across their
+   * non-cancelled sales orders. Powers price suggestions on the SO form.
+   */
+  async customerPriceHistory(
+    tenantId: string,
+    customerId: string,
+  ): Promise<CustomerItemPrice[]> {
+    const lines = await this.prisma.salesOrderLine.findMany({
+      where: {
+        salesOrder: { tenantId, customerId, status: { not: "CANCELLED" } },
+      },
+      include: { item: true, salesOrder: { select: { id: true, orderDate: true } } },
+    });
+    type Agg = {
+      sku: string;
+      name: string;
+      qty: Decimal;
+      value: Decimal;
+      lastUnitPrice: string;
+      lastAt: Date;
+      orders: Set<string>;
+    };
+    const byItem = new Map<string, Agg>();
+    for (const l of lines) {
+      const qty = new Decimal(l.quantityOrdered.toString());
+      const price = l.unitPrice.toString();
+      let agg = byItem.get(l.itemId);
+      if (!agg) {
+        agg = {
+          sku: l.item.sku,
+          name: l.item.name,
+          qty: new Decimal(0),
+          value: new Decimal(0),
+          lastUnitPrice: price,
+          lastAt: l.salesOrder.orderDate,
+          orders: new Set(),
+        };
+        byItem.set(l.itemId, agg);
+      }
+      agg.qty = agg.qty.plus(qty);
+      agg.value = agg.value.plus(qty.times(l.unitPrice.toString()));
+      agg.orders.add(l.salesOrder.id);
+      if (l.salesOrder.orderDate >= agg.lastAt) {
+        agg.lastAt = l.salesOrder.orderDate;
+        agg.lastUnitPrice = price;
+      }
+    }
+    return [...byItem.entries()].map(([itemId, a]) => ({
+      itemId,
+      itemSku: a.sku,
+      itemName: a.name,
+      avgUnitPrice: a.qty.greaterThan(0)
+        ? a.value.div(a.qty).toDecimalPlaces(4).toString()
+        : "0",
+      lastUnitPrice: a.lastUnitPrice,
+      orderCount: a.orders.size,
+    }));
   }
 
   async create(
