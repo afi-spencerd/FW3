@@ -154,6 +154,13 @@ async function pack(): Promise<void> {
 function remaining(ordered: string, shipped: string): number {
   return Number(ordered) - Number(shipped);
 }
+type DetailLine = SalesOrder["lines"][number];
+function subjectName(line: DetailLine): string {
+  return (line.lineType === "CONTAINER" ? line.productContainerName : line.itemName) ?? "—";
+}
+function subjectSku(line: DetailLine): string {
+  return (line.lineType === "CONTAINER" ? line.productContainerSku : line.itemSku) ?? "";
+}
 
 // The production work order backing a line (prefer an unfinished one), if any.
 function lineWorkOrder(lineId: string) {
@@ -352,7 +359,10 @@ onMounted(load);
         </thead>
         <tbody>
           <tr v-for="line in so.lines" :key="line.id">
-            <td>{{ line.itemName }} <span class="inactive">({{ line.itemSku }})</span></td>
+            <td>
+              {{ subjectName(line) }} <span class="inactive">({{ subjectSku(line) }})</span>
+              <span v-if="line.lineType === 'CONTAINER'" class="inactive"> · container</span>
+            </td>
             <td class="num">{{ line.quantityOrdered }}</td>
             <td class="num">{{ line.quantityShipped }}</td>
             <td class="num">{{ remaining(line.quantityOrdered, line.quantityShipped) }}</td>

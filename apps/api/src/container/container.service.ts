@@ -25,6 +25,7 @@ import {
   applyInbound,
   applyOutbound,
   InsufficientStockError,
+  type PostingResult,
 } from "../stock/stock-costing";
 
 type ContainerRow = Prisma.ContainerGetPayload<{ include: { stock: true } }>;
@@ -261,6 +262,43 @@ export class ContainerService {
     }
   }
 
+  /**
+   * Sell containers (OUT, type SALE) within an existing transaction — used when
+   * shipping a sales order line that sells the container itself. Returns the
+   * posted cost per container so the shipment line can record COGS.
+   */
+  async sellInTx(
+    tx: Prisma.TransactionClient,
+    user: AuthenticatedUser,
+    entries: ContainerConsumeEntry[],
+    doc: { docType: string; docId: string; note?: string },
+  ): Promise<{ containerId: string; quantity: string; unitCost: string; value: string }[]> {
+    const posted: {
+      containerId: string;
+      quantity: string;
+      unitCost: string;
+      value: string;
+    }[] = [];
+    for (const entry of entries) {
+      const result = await this.postTxn(tx, user, entry.containerId, {
+        type: "SALE",
+        direction: "OUT",
+        quantity: entry.quantity,
+        docType: doc.docType,
+        docId: doc.docId,
+        note: doc.note ?? null,
+      });
+      posted.push({
+        containerId: entry.containerId,
+        quantity: entry.quantity,
+        // OUT movements are signed negative — report COGS as positive.
+        unitCost: result.unitCost,
+        value: new Decimal(result.value).abs().toString(),
+      });
+    }
+    return posted;
+  }
+
   /** Post one container movement: write the ledger row + update the position. */
   private async postTxn(
     tx: Prisma.TransactionClient,
@@ -276,7 +314,7 @@ export class ContainerService {
       docType?: string;
       docId?: string;
     },
-  ): Promise<void> {
+  ): Promise<PostingResult> {
     const container = await tx.container.findFirst({
       where: { id: containerId, tenantId: user.tenantId },
       include: { stock: true },
@@ -345,6 +383,7 @@ export class ContainerService {
         ...(move.docId ? { docId: move.docId } : {}),
       },
     });
+    return result;
   }
 
   private toDto(row: ContainerRow): Container {

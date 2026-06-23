@@ -28,6 +28,18 @@ function remaining(ordered: string, shipped: string): number {
 function available(itemId: string): number {
   return Number(onHand[itemId] ?? "0");
 }
+type SoLine = SalesOrder["lines"][number];
+function subjectName(line: SoLine): string {
+  return (line.lineType === "CONTAINER" ? line.productContainerName : line.itemName) ?? "—";
+}
+function subjectSku(line: SoLine): string {
+  return (line.lineType === "CONTAINER" ? line.productContainerSku : line.itemSku) ?? "";
+}
+// Item availability comes from the INV ledger; container availability isn't loaded
+// here (the server enforces container stock at ship time).
+function lineAvailable(line: SoLine): number | null {
+  return line.lineType === "ITEM" && line.itemId ? available(line.itemId) : null;
+}
 
 // The production work order backing a line (prefer an unfinished one), if any.
 function lineWorkOrder(o: SalesOrder, lineId: string) {
@@ -168,15 +180,19 @@ const totalRemaining = computed(() =>
             :key="line.id"
             :class="{ inactive: remaining(line.quantityOrdered, line.quantityShipped) <= 0 }"
           >
-            <td>{{ line.itemName }} <span class="inactive">({{ line.itemSku }})</span></td>
+            <td>
+              {{ subjectName(line) }} <span class="inactive">({{ subjectSku(line) }})</span>
+              <span v-if="line.lineType === 'CONTAINER'" class="badge">container</span>
+            </td>
             <td class="num">{{ line.quantityOrdered }}</td>
             <td class="num">{{ line.quantityShipped }}</td>
             <td class="num">{{ remaining(line.quantityOrdered, line.quantityShipped) }}</td>
             <td
               class="num"
-              :class="{ short: available(line.itemId) < remaining(line.quantityOrdered, line.quantityShipped) }"
+              :class="{ short: lineAvailable(line) !== null && lineAvailable(line)! < remaining(line.quantityOrdered, line.quantityShipped) }"
             >
-              {{ available(line.itemId) }}
+              <template v-if="lineAvailable(line) !== null">{{ lineAvailable(line) }}</template>
+              <span v-else class="inactive">—</span>
             </td>
             <td :class="{ pending: productionPending(o, line.id) }">
               <template v-if="lineWorkOrder(o, line.id)">

@@ -113,7 +113,7 @@ export class CostService {
     return this.unitCostOf(item.stocks[0]?.avgCost, item.standardCost);
   }
 
-  private async containerUnitCost(
+  async containerUnitCost(
     tenantId: string,
     containerId: string,
   ): Promise<Decimal> {

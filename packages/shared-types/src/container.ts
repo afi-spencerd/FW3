@@ -89,7 +89,12 @@ export const scrapContainerSchema = z.object({
   note: z.string().trim().max(500).optional(),
 });
 
-export const CONTAINER_TXN_TYPES = ["ADJUSTMENT", "CONSUME", "SCRAP"] as const;
+export const CONTAINER_TXN_TYPES = [
+  "ADJUSTMENT",
+  "CONSUME",
+  "SCRAP",
+  "SALE",
+] as const;
 export const containerTxnTypeSchema = z.enum(CONTAINER_TXN_TYPES);
 export type ContainerTxnType = (typeof CONTAINER_TXN_TYPES)[number];
 

@@ -5,6 +5,8 @@ import {
   type Container,
   createPurchaseOrderSchema,
   type InventoryItem,
+  ITEM_TYPES,
+  type ItemType,
   type PoLineType,
   type Vendor,
   type VendorSupplySummary,
@@ -29,6 +31,7 @@ interface PoLine {
   newSku: string;
   newName: string;
   newUom: string;
+  newItemType: ItemType;
 }
 const form = reactive({
   vendorId: "",
@@ -111,6 +114,7 @@ function addLine(): void {
     newSku: "",
     newName: "",
     newUom: "LB",
+    newItemType: "RAW_MATERIAL",
   });
 }
 function removeLine(i: number): void {
@@ -145,8 +149,8 @@ onMounted(async () => {
       api.vendorSupplySummary(),
     ]);
     vendors.value = v.filter((x) => x.isActive);
-    // Procurable: raw materials and bases (not finished goods).
-    items.value = inv.items.filter((i) => i.itemType !== "FINISHED_GOOD");
+    // Any item tier is procurable now (we resell purchased finished goods too).
+    items.value = inv.items.filter((i) => i.active);
     containers.value = cont.filter((c) => c.active);
     for (const s of sum) summary[s.vendorId] = s;
     addLine();
@@ -172,7 +176,7 @@ async function submit(): Promise<void> {
             ? {
                 sku: l.newSku.trim(),
                 name: l.newName.trim(),
-                itemType: "RAW_MATERIAL" as const,
+                itemType: l.newItemType,
                 unitOfMeasure: l.newUom,
               }
             : undefined,
@@ -272,6 +276,11 @@ async function submit(): Promise<void> {
                 <div v-if="line.subjectId === '__NEW__'" class="new-item">
                   <input v-model="line.newSku" placeholder="SKU" style="max-width: 110px" />
                   <input v-model="line.newName" placeholder="Name" style="max-width: 160px" />
+                  <select v-model="line.newItemType" style="max-width: 130px">
+                    <option v-for="t in ITEM_TYPES" :key="t" :value="t">
+                      {{ t.replace(/_/g, " ").toLowerCase() }}
+                    </option>
+                  </select>
                   <select v-model="line.newUom" style="max-width: 70px">
                     <option value="LB">LB</option>
                     <option value="KG">KG</option>

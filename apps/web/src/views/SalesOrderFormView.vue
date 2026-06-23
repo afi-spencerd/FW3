@@ -10,6 +10,7 @@ import {
   type InventoryItem,
   type ItemCost,
   PERMISSIONS,
+  type SoLineType,
 } from "@fw3/shared-types";
 import { api, ApiError } from "../lib/api";
 import { useAuthStore } from "../stores/auth";
@@ -31,7 +32,9 @@ const issues = ref<string[]>([]);
 const busy = ref(false);
 
 interface SoLine {
+  lineType: SoLineType;
   itemId: string;
+  productContainerId: string;
   quantityOrdered: string;
   unitPrice: string;
   containerId: string;
@@ -53,15 +56,35 @@ async function fetchCost(itemId: string): Promise<void> {
     /* leave uncosted; server still enforces on save */
   }
 }
+function suggestPrice(line: SoLine, unitCost: number): void {
+  const suggested = unitCost * (1 + marginPct.value / 100);
+  line.unitPrice = String(Math.round(suggested * 10000) / 10000);
+}
 async function onItemChange(line: SoLine): Promise<void> {
   recalcContainers(line);
   await fetchCost(line.itemId);
-  // Default the unit price to the per-lb production cost plus the profit margin.
   const c = itemCosts[line.itemId];
-  if (c) {
-    const suggested = Number(c.productionUnitCost) * (1 + marginPct.value / 100);
-    line.unitPrice = String(Math.round(suggested * 10000) / 10000);
-  }
+  if (c) suggestPrice(line, Number(c.productionUnitCost));
+}
+function onLineTypeChange(line: SoLine): void {
+  // Reset subject-specific fields when toggling between item / container.
+  line.itemId = "";
+  line.productContainerId = "";
+  line.containerId = "";
+  line.containerQuantity = "";
+  line.unitPrice = "0";
+}
+function containerById(id: string): Container | undefined {
+  return containers.value.find((x) => x.id === id);
+}
+function containerUnit(id: string): number {
+  const c = containerById(id);
+  if (!c) return 0;
+  const avg = Number(c.avgCost);
+  return avg > 0 ? avg : Number(c.standardCost);
+}
+function onProductContainerChange(line: SoLine): void {
+  if (line.productContainerId) suggestPrice(line, containerUnit(line.productContainerId));
 }
 
 async function loadPriceHistory(): Promise<void> {
@@ -76,7 +99,7 @@ async function loadPriceHistory(): Promise<void> {
   }
 }
 
-/** All-in cost per unit (lb) for the line, incl. its container allocation. */
+/** All-in cost per unit for the line. */
 function lineUnitCost(line: SoLine): number | null {
   const cost = lineCost(line);
   const qty = Number(line.quantityOrdered) || 0;
@@ -87,18 +110,21 @@ function useHistoricAvg(line: SoLine): void {
   if (h) line.unitPrice = h.avgUnitPrice;
 }
 
-function containerAvg(line: SoLine): number {
-  const c = containers.value.find((x) => x.id === line.containerId);
-  return c ? Number(c.avgCost) : 0;
+function packingAvg(line: SoLine): number {
+  return containerUnit(line.containerId);
 }
-/** Full computed cost of a line (production + container), or null if uncosted. */
+/** Full computed cost of a line, or null if uncosted. */
 function lineCost(line: SoLine): number | null {
+  const qty = Number(line.quantityOrdered) || 0;
+  if (line.lineType === "CONTAINER") {
+    if (!line.productContainerId) return null;
+    return qty * containerUnit(line.productContainerId);
+  }
   const c = itemCosts[line.itemId];
   if (!c) return null;
-  const qty = Number(line.quantityOrdered) || 0;
   let cost = qty * Number(c.productionUnitCost);
   if (line.containerId && line.containerQuantity) {
-    cost += (Number(line.containerQuantity) || 0) * containerAvg(line);
+    cost += (Number(line.containerQuantity) || 0) * packingAvg(line);
   }
   return cost;
 }
@@ -125,9 +151,9 @@ const blockedByCost = computed(
 );
 
 // Default the container count from fill capacity (overridable). Recomputed when
-// the line's quantity or chosen container changes.
+// the line's quantity or chosen packing container changes (item lines only).
 function recalcContainers(line: SoLine): void {
-  const c = containers.value.find((x) => x.id === line.containerId);
+  const c = containerById(line.containerId);
   if (!c) return;
   const suggested = containersForWeight(line.quantityOrdered, c.capacityLb);
   if (suggested > 0) line.containerQuantity = String(suggested);
@@ -141,7 +167,9 @@ const total = computed(() =>
 
 function addLine(): void {
   form.lines.push({
+    lineType: "ITEM",
     itemId: "",
+    productContainerId: "",
     quantityOrdered: "0",
     unitPrice: "0",
     containerId: "",
@@ -164,8 +192,8 @@ onMounted(async () => {
       api.getBusinessVariables(),
     ]);
     customers.value = c.filter((x) => x.isActive);
-    // Sellable: finished goods and bases (not raw materials).
-    items.value = inv.items.filter((i) => i.itemType !== "RAW_MATERIAL");
+    // Any item tier is sellable now (raw materials, bases, finished goods).
+    items.value = inv.items.filter((i) => i.active);
     containers.value = cont.filter((x) => x.active);
     const margin = vars.find((v) => v.key === "profitMarginPct")?.entries[0]?.value;
     if (margin !== undefined) marginPct.value = Number(margin);
@@ -188,12 +216,18 @@ async function submit(): Promise<void> {
       notes: form.notes || undefined,
       allowBelowCost: allowBelowCost.value || undefined,
       lines: form.lines.map((l, i) => ({
-        itemId: l.itemId,
+        lineType: l.lineType,
+        itemId: l.lineType === "ITEM" ? l.itemId : undefined,
+        productContainerId:
+          l.lineType === "CONTAINER" ? l.productContainerId : undefined,
         quantityOrdered: l.quantityOrdered,
         unitPrice: l.unitPrice,
         sortOrder: i,
-        containerId: l.containerId || undefined,
-        containerQuantity: l.containerId ? l.containerQuantity || undefined : undefined,
+        containerId: l.lineType === "ITEM" && l.containerId ? l.containerId : undefined,
+        containerQuantity:
+          l.lineType === "ITEM" && l.containerId
+            ? l.containerQuantity || undefined
+            : undefined,
       })),
     };
     const parsed = createSalesOrderSchema.safeParse(payload);
@@ -220,7 +254,7 @@ async function submit(): Promise<void> {
 </script>
 
 <template>
-  <div class="container" style="max-width: 800px">
+  <div class="container" style="max-width: 860px">
     <div class="panel">
       <h2>New sales order</h2>
       <ul v-if="issues.length" class="banner error" style="margin: 0 0 1rem; padding-left: 1.5rem">
@@ -253,30 +287,46 @@ async function submit(): Promise<void> {
 
       <h3>Lines</h3>
       <p class="inactive" style="font-size: 0.8rem">
-        Optionally choose the container the goods will be packed in. The count
-        defaults from the container's fill capacity but can be overridden (e.g. a
-        customer's size limit may require more, smaller containers).
+        Sell an inventory item or a container itself. Item lines may also choose a
+        packing container (count defaults from fill capacity, overridable).
       </p>
       <table>
         <thead>
           <tr>
-            <th>Item</th>
-            <th class="num" style="width: 90px">Qty</th>
-            <th class="num" style="width: 100px">Unit price</th>
-            <th style="width: 180px">Container</th>
-            <th class="num" style="width: 80px">Containers</th>
-            <th class="num" style="width: 90px">Cost</th>
-            <th class="num" style="width: 70px">Margin</th>
-            <th style="width: 40px"></th>
+            <th style="width: 90px">Type</th>
+            <th>Item / container</th>
+            <th class="num" style="width: 80px">Qty</th>
+            <th class="num" style="width: 95px">Unit price</th>
+            <th style="width: 160px">Packing</th>
+            <th class="num" style="width: 70px">Count</th>
+            <th class="num" style="width: 85px">Cost</th>
+            <th class="num" style="width: 60px">Margin</th>
+            <th style="width: 36px"></th>
           </tr>
         </thead>
         <tbody>
           <tr v-for="(line, index) in form.lines" :key="index">
             <td>
-              <select v-model="line.itemId" @change="onItemChange(line)">
+              <select v-model="line.lineType" @change="onLineTypeChange(line)">
+                <option value="ITEM">Item</option>
+                <option value="CONTAINER">Container</option>
+              </select>
+            </td>
+            <td>
+              <select
+                v-if="line.lineType === 'ITEM'"
+                v-model="line.itemId"
+                @change="onItemChange(line)"
+              >
                 <option value="" disabled>Select an item…</option>
                 <option v-for="it in items" :key="it.id" :value="it.id">
                   {{ it.name }} ({{ it.sku }}) · {{ it.unitOfMeasure }}
+                </option>
+              </select>
+              <select v-else v-model="line.productContainerId" @change="onProductContainerChange(line)">
+                <option value="" disabled>Select a container…</option>
+                <option v-for="c in containers" :key="c.id" :value="c.id">
+                  {{ c.name }} ({{ c.sku }})
                 </option>
               </select>
             </td>
@@ -290,28 +340,38 @@ async function submit(): Promise<void> {
             </td>
             <td class="num">
               <input v-model="line.unitPrice" inputmode="decimal" style="text-align: right" />
-              <div v-if="priceHistory[line.itemId]" class="inactive" style="font-size: 0.7rem">
+              <div
+                v-if="line.lineType === 'ITEM' && priceHistory[line.itemId]"
+                class="inactive"
+                style="font-size: 0.7rem"
+              >
                 cust avg ${{ priceHistory[line.itemId]!.avgUnitPrice }}
-                · last ${{ priceHistory[line.itemId]!.lastUnitPrice }}
                 <a href="#" @click.prevent="useHistoricAvg(line)">use</a>
               </div>
             </td>
             <td>
-              <select v-model="line.containerId" @change="recalcContainers(line)">
+              <select
+                v-if="line.lineType === 'ITEM'"
+                v-model="line.containerId"
+                @change="recalcContainers(line)"
+              >
                 <option value="">— none —</option>
                 <option v-for="c in containers" :key="c.id" :value="c.id">
                   {{ c.name }} ({{ c.sku }})<template v-if="c.capacityLb"> · {{ c.capacityLb }} lb</template>
                 </option>
               </select>
+              <span v-else class="inactive">—</span>
             </td>
             <td class="num">
               <input
+                v-if="line.lineType === 'ITEM'"
                 v-model="line.containerQuantity"
                 inputmode="numeric"
                 style="text-align: right"
                 :disabled="!line.containerId"
                 placeholder="—"
               />
+              <span v-else class="inactive">—</span>
             </td>
             <td class="num" :class="{ below: belowCost(line) }">
               <template v-if="lineCost(line) !== null">${{ lineCost(line)!.toFixed(2) }}</template>
@@ -330,6 +390,7 @@ async function submit(): Promise<void> {
         <tfoot>
           <tr>
             <td><button @click="addLine">+ Add line</button></td>
+            <td></td>
             <td></td>
             <td class="num">Rev <strong>${{ total }}</strong></td>
             <td></td>

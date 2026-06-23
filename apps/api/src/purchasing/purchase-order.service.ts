@@ -441,13 +441,9 @@ export class PurchaseOrderService {
       });
       const byId = new Map(items.map((i) => [i.id, i]));
       for (const id of itemIds) {
-        const item = byId.get(id);
-        if (!item) throw new BadRequestException(`Item ${id} not found`);
-        if (item.itemType === "FINISHED_GOOD") {
-          throw new BadRequestException(
-            `${item.sku} is a finished good and cannot be purchased`,
-          );
-        }
+        // Any item tier may be purchased (we resell finished goods too); just
+        // confirm the item exists in this tenant.
+        if (!byId.has(id)) throw new BadRequestException(`Item ${id} not found`);
       }
     }
 

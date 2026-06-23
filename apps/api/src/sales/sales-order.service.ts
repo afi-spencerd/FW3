@@ -11,6 +11,7 @@ import type {
   CustomerItemPrice,
   PaymentTerms,
   SalesOrder,
+  SalesOrderLineInput,
   SalesOrderStatus,
   SalesOrderSummary,
   ShipSalesOrder,
@@ -31,9 +32,12 @@ import { type Movement, StockService } from "../stock/stock.service";
 type SoWithRelations = Prisma.SalesOrderGetPayload<{
   include: {
     customer: true;
-    lines: { include: { item: true; container: true } };
+    lines: { include: { item: true; container: true; productContainer: true } };
     shipments: {
-      include: { lines: { include: { item: true } }; shippedBy: true };
+      include: {
+        lines: { include: { item: true; container: true } };
+        shippedBy: true;
+      };
     };
     workOrders: { include: { target: true } };
   };
@@ -63,20 +67,41 @@ export class SalesOrderService {
    */
   private async assertPricing(
     user: AuthenticatedUser,
-    lines: { itemId: string; quantityOrdered: string; unitPrice: string; containerId?: string | null; containerQuantity?: string | null }[],
+    lines: SalesOrderLineInput[],
     allowBelowCost: boolean | undefined,
-  ): Promise<{ itemId: string; unitPrice: string; lineCost: string }[]> {
-    const violations: { itemId: string; unitPrice: string; lineCost: string }[] = [];
+  ): Promise<{ subject: string; unitPrice: string; lineCost: string }[]> {
+    const violations: { subject: string; unitPrice: string; lineCost: string }[] = [];
     for (const line of lines) {
-      const { lineCost } = await this.costs.lineCost(user.tenantId, {
-        itemId: line.itemId,
-        quantity: line.quantityOrdered,
-        containerId: line.containerId ?? null,
-        containerQuantity: line.containerQuantity ?? null,
-      });
+      let lineCost: string;
+      let subject: string;
+      if (line.lineType === "CONTAINER" && line.productContainerId) {
+        const unit = await this.costs.containerUnitCost(
+          user.tenantId,
+          line.productContainerId,
+        );
+        lineCost = unit.times(new Decimal(line.quantityOrdered)).toDecimalPlaces(4).toString();
+        const c = await this.prisma.container.findFirst({
+          where: { id: line.productContainerId, tenantId: user.tenantId },
+          select: { sku: true },
+        });
+        subject = c?.sku ?? line.productContainerId;
+      } else {
+        const lc = await this.costs.lineCost(user.tenantId, {
+          itemId: line.itemId!,
+          quantity: line.quantityOrdered,
+          containerId: line.containerId ?? null,
+          containerQuantity: line.containerQuantity ?? null,
+        });
+        lineCost = lc.lineCost;
+        const item = await this.prisma.inventoryItem.findFirst({
+          where: { id: line.itemId!, tenantId: user.tenantId },
+          select: { sku: true },
+        });
+        subject = item?.sku ?? line.itemId!;
+      }
       const revenue = new Decimal(line.quantityOrdered).times(line.unitPrice);
       if (revenue.lessThan(lineCost)) {
-        violations.push({ itemId: line.itemId, unitPrice: line.unitPrice, lineCost });
+        violations.push({ subject, unitPrice: line.unitPrice, lineCost });
       }
     }
     if (violations.length === 0) return [];
@@ -84,13 +109,8 @@ export class SalesOrderService {
     const canOverride = user.permissions.includes(PERMISSIONS.SO_PRICE_OVERRIDE);
     if (canOverride && allowBelowCost) return violations; // proceed; caller audits
 
-    const items = await this.prisma.inventoryItem.findMany({
-      where: { id: { in: violations.map((v) => v.itemId) } },
-      select: { id: true, sku: true },
-    });
-    const sku = new Map(items.map((i) => [i.id, i.sku]));
     const detail = violations
-      .map((v) => `${sku.get(v.itemId) ?? v.itemId} (cost ${v.lineCost})`)
+      .map((v) => `${v.subject} (cost ${v.lineCost})`)
       .join(", ");
     throw new BadRequestException(
       canOverride
@@ -99,14 +119,30 @@ export class SalesOrderService {
     );
   }
 
+  /** Map a sales-line input to the DB line create payload, by subject type. */
+  private buildLine(line: SalesOrderLineInput) {
+    const isContainer = line.lineType === "CONTAINER";
+    return {
+      lineType: line.lineType ?? "ITEM",
+      itemId: isContainer ? null : line.itemId ?? null,
+      productContainerId: isContainer ? line.productContainerId ?? null : null,
+      quantityOrdered: line.quantityOrdered,
+      unitPrice: line.unitPrice,
+      sortOrder: line.sortOrder,
+      // Packing applies to item lines only.
+      containerId: isContainer ? null : line.containerId ?? null,
+      containerQuantity: isContainer ? null : line.containerQuantity ?? null,
+    };
+  }
+
   async list(tenantId: string): Promise<SalesOrderSummary[]> {
     const orders = await this.prisma.salesOrder.findMany({
       where: { tenantId },
       include: {
         customer: true,
-        lines: { include: { item: true, container: true } },
+        lines: { include: { item: true, container: true, productContainer: true } },
         shipments: {
-          include: { lines: { include: { item: true } }, shippedBy: true },
+          include: { lines: { include: { item: true, container: true } }, shippedBy: true },
         },
         workOrders: { include: { target: true } },
       },
@@ -134,11 +170,11 @@ export class SalesOrderService {
       include: {
         customer: true,
         lines: {
-          include: { item: true, container: true },
+          include: { item: true, container: true, productContainer: true },
           orderBy: { sortOrder: "asc" },
         },
         shipments: {
-          include: { lines: { include: { item: true } }, shippedBy: true },
+          include: { lines: { include: { item: true, container: true } }, shippedBy: true },
           orderBy: { shippedAt: "asc" },
         },
         workOrders: { include: { target: true }, orderBy: { createdAt: "asc" } },
@@ -159,6 +195,8 @@ export class SalesOrderService {
   ): Promise<CustomerItemPrice[]> {
     const lines = await this.prisma.salesOrderLine.findMany({
       where: {
+        // Item lines only — container-product lines have no item to key history on.
+        itemId: { not: null },
         salesOrder: { tenantId, customerId, status: { not: "CANCELLED" } },
       },
       include: { item: true, salesOrder: { select: { id: true, orderDate: true } } },
@@ -174,6 +212,7 @@ export class SalesOrderService {
     };
     const byItem = new Map<string, Agg>();
     for (const l of lines) {
+      if (!l.itemId || !l.item) continue; // item lines only
       const qty = new Decimal(l.quantityOrdered.toString());
       const price = l.unitPrice.toString();
       let agg = byItem.get(l.itemId);
@@ -238,16 +277,7 @@ export class SalesOrderService {
             orderDate,
             requestedShipDate,
             notes: input.notes ?? null,
-            lines: {
-              create: input.lines.map((line) => ({
-                itemId: line.itemId,
-                quantityOrdered: line.quantityOrdered,
-                unitPrice: line.unitPrice,
-                sortOrder: line.sortOrder,
-                containerId: line.containerId ?? null,
-                containerQuantity: line.containerQuantity ?? null,
-              })),
-            },
+            lines: { create: input.lines.map((line) => this.buildLine(line)) },
           },
         });
         await this.audit.record(tx, {
@@ -300,14 +330,7 @@ export class SalesOrderService {
               ? {
                   lines: {
                     deleteMany: {},
-                    create: input.lines.map((line) => ({
-                      itemId: line.itemId,
-                      quantityOrdered: line.quantityOrdered,
-                      unitPrice: line.unitPrice,
-                      sortOrder: line.sortOrder,
-                      containerId: line.containerId ?? null,
-                      containerQuantity: line.containerQuantity ?? null,
-                    })),
+                    create: input.lines.map((line) => this.buildLine(line)),
                   },
                 }
               : {}),
@@ -367,10 +390,11 @@ export class SalesOrderService {
       }
 
       const linesById = new Map(order.lines.map((l) => [l.id, l]));
+      // Item lines ship from item INV; container lines draw down container stock.
+      // Keep each group in posting order so we can pair with the cost results.
       const movements: Movement[] = [];
-      // Keep the ship entries in posting order so we can pair them with the
-      // PostedLine results (which carry the cost-of-goods each shipped out at).
-      const entries: { line: (typeof order.lines)[number]; qty: string }[] = [];
+      const itemEntries: { line: (typeof order.lines)[number]; qty: string }[] = [];
+      const containerEntries: { line: (typeof order.lines)[number]; qty: string }[] = [];
 
       for (const ship of input.lines) {
         const line = linesById.get(ship.salesOrderLineId);
@@ -379,33 +403,49 @@ export class SalesOrderService {
             `Line ${ship.salesOrderLineId} is not on this sales order`,
           );
         }
+        const label = line.item?.sku ?? line.productContainer?.sku ?? line.id;
         const remaining = line.quantityOrdered.minus(line.quantityShipped);
         const qty = new Decimal(ship.quantity);
         if (qty.greaterThan(remaining)) {
           throw new BadRequestException(
-            `Cannot ship ${qty} of ${line.item.sku}: only ${remaining} remaining on the order`,
+            `Cannot ship ${qty} of ${label}: only ${remaining} remaining on the order`,
           );
         }
-        movements.push({
-          itemId: line.itemId,
-          type: "SHIPMENT",
-          direction: "OUT",
-          quantity: ship.quantity,
-        });
-        entries.push({ line, qty: ship.quantity });
+        if (line.lineType === "CONTAINER") {
+          containerEntries.push({ line, qty: ship.quantity });
+        } else {
+          movements.push({
+            itemId: line.itemId!,
+            type: "SHIPMENT",
+            direction: "OUT",
+            quantity: ship.quantity,
+          });
+          itemEntries.push({ line, qty: ship.quantity });
+        }
         await tx.salesOrderLine.update({
           where: { id: line.id },
           data: { quantityShipped: line.quantityShipped.plus(qty) },
         });
       }
 
-      // Out at average cost; StockService rejects shipping more than on hand.
-      // Posted results return in the same order as the movements we built.
-      const posted = await this.stock.post(tx, user.tenantId, movements, {
-        docType: "SALES_ORDER",
-        docId: id,
-        note: `SO ${order.soNumber} shipment`,
-      });
+      // Items: OUT at average cost (StockService rejects shipping more than on hand).
+      const posted = movements.length
+        ? await this.stock.post(tx, user.tenantId, movements, {
+            docType: "SALES_ORDER",
+            docId: id,
+            note: `SO ${order.soNumber} shipment`,
+          })
+        : [];
+      // Containers: OUT at average cost via a SALE movement on the container ledger.
+      const containerPosted = await this.containers.sellInTx(
+        tx,
+        user,
+        containerEntries.map((e) => ({
+          containerId: e.line.productContainerId!,
+          quantity: e.qty,
+        })),
+        { docType: "SALES_ORDER", docId: id, note: `SO ${order.soNumber} shipment` },
+      );
 
       // Record the despatch as a first-class shipment, numbered per order.
       const priorShipments = await tx.shipment.count({
@@ -422,15 +462,27 @@ export class SalesOrderService {
           notes: input.notes ?? null,
           shippedById: user.id,
           lines: {
-            create: entries.map((entry, i) => ({
-              tenantId: user.tenantId,
-              salesOrderLineId: entry.line.id,
-              itemId: entry.line.itemId,
-              quantity: entry.qty,
-              // COGS the bucket shipped out at (posted.value is signed -ve OUT).
-              unitCost: posted[i]!.unitCost,
-              value: new Decimal(posted[i]!.value).abs().toString(),
-            })),
+            create: [
+              ...itemEntries.map((entry, i) => ({
+                tenantId: user.tenantId,
+                salesOrderLineId: entry.line.id,
+                lineType: "ITEM",
+                itemId: entry.line.itemId,
+                quantity: entry.qty,
+                // COGS the bucket shipped out at (posted.value is signed -ve OUT).
+                unitCost: posted[i]!.unitCost,
+                value: new Decimal(posted[i]!.value).abs().toString(),
+              })),
+              ...containerEntries.map((entry, i) => ({
+                tenantId: user.tenantId,
+                salesOrderLineId: entry.line.id,
+                lineType: "CONTAINER",
+                containerId: entry.line.productContainerId,
+                quantity: entry.qty,
+                unitCost: containerPosted[i]!.unitCost,
+                value: containerPosted[i]!.value,
+              })),
+            ],
           },
         },
       });
@@ -595,6 +647,7 @@ export class SalesOrderService {
       const created: string[] = [];
       for (const line of order.lines) {
         if (alreadyRequested.has(line.id)) continue;
+        if (!line.itemId) continue; // container-product lines aren't produced
         // Producible = has an active formula for this finished good.
         const formula = await tx.formula.findFirst({
           where: { tenantId: user.tenantId, finishedGoodId: line.itemId, isActive: true },
@@ -658,11 +711,11 @@ export class SalesOrderService {
       include: {
         customer: true,
         lines: {
-          include: { item: true, container: true },
+          include: { item: true, container: true, productContainer: true },
           orderBy: { sortOrder: "asc" },
         },
         shipments: {
-          include: { lines: { include: { item: true } }, shippedBy: true },
+          include: { lines: { include: { item: true, container: true } }, shippedBy: true },
           orderBy: { shippedAt: "asc" },
         },
         workOrders: { include: { target: true }, orderBy: { createdAt: "asc" } },
@@ -672,24 +725,44 @@ export class SalesOrderService {
     return order;
   }
 
-  /** Sales lines must be sellable items (finished goods or bases, not raws). */
+  /**
+   * Validate each line's subject exists in this tenant. Any item type is now
+   * sellable (raw materials, bases, finished goods); container lines must point
+   * at an active container being sold as the product.
+   */
   private async assertSellable(
     tx: Prisma.TransactionClient,
     tenantId: string,
-    lines: { itemId: string }[],
+    lines: SalesOrderLineInput[],
   ): Promise<void> {
-    const ids = lines.map((l) => l.itemId);
-    const items = await tx.inventoryItem.findMany({
-      where: { id: { in: ids }, tenantId },
-    });
-    const byId = new Map(items.map((i) => [i.id, i]));
-    for (const id of ids) {
-      const item = byId.get(id);
-      if (!item) throw new BadRequestException(`Item ${id} not found`);
-      if (item.itemType === "RAW_MATERIAL") {
-        throw new BadRequestException(
-          `${item.sku} is a raw material and cannot be sold`,
-        );
+    const itemIds = lines
+      .filter((l) => l.lineType !== "CONTAINER")
+      .map((l) => l.itemId)
+      .filter((v): v is string => !!v);
+    if (itemIds.length) {
+      const items = await tx.inventoryItem.findMany({
+        where: { id: { in: itemIds }, tenantId },
+      });
+      const found = new Set(items.map((i) => i.id));
+      for (const id of itemIds) {
+        if (!found.has(id)) throw new BadRequestException(`Item ${id} not found`);
+      }
+    }
+    const containerIds = lines
+      .filter((l) => l.lineType === "CONTAINER")
+      .map((l) => l.productContainerId)
+      .filter((v): v is string => !!v);
+    if (containerIds.length) {
+      const containers = await tx.container.findMany({
+        where: { id: { in: containerIds }, tenantId },
+      });
+      const byId = new Map(containers.map((c) => [c.id, c]));
+      for (const id of containerIds) {
+        const c = byId.get(id);
+        if (!c) throw new BadRequestException(`Container ${id} not found`);
+        if (!c.active) {
+          throw new BadRequestException(`${c.sku} is inactive and cannot be sold`);
+        }
       }
     }
   }
@@ -697,9 +770,13 @@ export class SalesOrderService {
   private toDto(order: SoWithRelations): SalesOrder {
     const lines = order.lines.map((line) => ({
       id: line.id,
+      lineType: line.lineType as "ITEM" | "CONTAINER",
       itemId: line.itemId,
-      itemSku: line.item.sku,
-      itemName: line.item.name,
+      itemSku: line.item?.sku ?? null,
+      itemName: line.item?.name ?? null,
+      productContainerId: line.productContainerId,
+      productContainerSku: line.productContainer?.sku ?? null,
+      productContainerName: line.productContainer?.name ?? null,
       quantityOrdered: line.quantityOrdered.toString(),
       unitPrice: line.unitPrice.toString(),
       quantityShipped: line.quantityShipped.toString(),
@@ -721,9 +798,13 @@ export class SalesOrderService {
       const sLines = s.lines.map((sl) => ({
         id: sl.id,
         salesOrderLineId: sl.salesOrderLineId,
+        lineType: sl.lineType as "ITEM" | "CONTAINER",
         itemId: sl.itemId,
-        itemSku: sl.item.sku,
-        itemName: sl.item.name,
+        itemSku: sl.item?.sku ?? null,
+        itemName: sl.item?.name ?? null,
+        containerId: sl.containerId,
+        containerSku: sl.container?.sku ?? null,
+        containerName: sl.container?.name ?? null,
         quantity: sl.quantity.toString(),
         unitCost: sl.unitCost.toString(),
         value: sl.value.toString(),

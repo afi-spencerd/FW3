@@ -64,16 +64,43 @@ const positiveQty = quantityString.refine(
   "must be greater than 0",
 );
 
-export const soLineInputSchema = z.object({
-  itemId: z.string().uuid(),
-  quantityOrdered: positiveQty,
-  unitPrice: moneyString,
-  sortOrder: z.number().int().min(0).default(0),
-  /** Container the goods will be packed in (optional; customer-driven). */
-  containerId: z.string().uuid().nullish(),
-  /** How many of that container — defaults from capacity but is overridable. */
-  containerQuantity: positiveQty.nullish(),
-});
+/** What a sales line sells: an inventory item, or a container as the product. */
+export const SO_LINE_TYPES = ["ITEM", "CONTAINER"] as const;
+export const soLineTypeSchema = z.enum(SO_LINE_TYPES);
+export type SoLineType = (typeof SO_LINE_TYPES)[number];
+
+export const soLineInputSchema = z
+  .object({
+    lineType: soLineTypeSchema.default("ITEM"),
+    /** The item sold (ITEM lines). */
+    itemId: z.string().uuid().nullish(),
+    /** The container sold as the product itself (CONTAINER lines). */
+    productContainerId: z.string().uuid().nullish(),
+    quantityOrdered: positiveQty,
+    unitPrice: moneyString,
+    sortOrder: z.number().int().min(0).default(0),
+    /** Container the goods will be packed in (ITEM lines only; customer-driven). */
+    containerId: z.string().uuid().nullish(),
+    /** How many of that container — defaults from capacity but is overridable. */
+    containerQuantity: positiveQty.nullish(),
+  })
+  .superRefine((line, ctx) => {
+    if (line.lineType === "CONTAINER") {
+      if (!line.productContainerId) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["productContainerId"],
+          message: "a container line must reference a container to sell",
+        });
+      }
+    } else if (!line.itemId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["itemId"],
+        message: "an item line must reference an item",
+      });
+    }
+  });
 
 export const createSalesOrderSchema = z.object({
   customerId: z.string().uuid(),
@@ -147,9 +174,15 @@ export const updateShipmentSchema = z.object({
 
 export const soLineSchema = z.object({
   id: z.string().uuid(),
-  itemId: z.string().uuid(),
-  itemSku: z.string(),
-  itemName: z.string(),
+  lineType: soLineTypeSchema,
+  /** Item sold (ITEM lines); null on container lines. */
+  itemId: z.string().uuid().nullable(),
+  itemSku: z.string().nullable(),
+  itemName: z.string().nullable(),
+  /** Container sold as the product (CONTAINER lines); null on item lines. */
+  productContainerId: z.string().uuid().nullable(),
+  productContainerSku: z.string().nullable(),
+  productContainerName: z.string().nullable(),
   quantityOrdered: z.string(),
   unitPrice: z.string(),
   quantityShipped: z.string(),
@@ -166,9 +199,14 @@ export const soLineSchema = z.object({
 export const shipmentLineSchema = z.object({
   id: z.string().uuid(),
   salesOrderLineId: z.string().uuid(),
-  itemId: z.string().uuid(),
-  itemSku: z.string(),
-  itemName: z.string(),
+  lineType: soLineTypeSchema,
+  /** The shipped subject — an item (ITEM lines) or a container (CONTAINER lines). */
+  itemId: z.string().uuid().nullable(),
+  itemSku: z.string().nullable(),
+  itemName: z.string().nullable(),
+  containerId: z.string().uuid().nullable(),
+  containerSku: z.string().nullable(),
+  containerName: z.string().nullable(),
   quantity: z.string(),
   /** Cost of goods at ship time (per unit / total). */
   unitCost: z.string(),

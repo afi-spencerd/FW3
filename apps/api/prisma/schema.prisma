@@ -711,18 +711,23 @@ model SalesOrder {
 model SalesOrderLine {
   id              String  @id @default(uuid()) @db.Char(36)
   salesOrderId    String  @db.Char(36)
-  itemId          String  @db.Char(36)
+  // ITEM | CONTAINER — what the line sells (CHECK in migration). ITEM lines set
+  // itemId; CONTAINER lines set productContainerId (selling the container itself).
+  lineType        String  @default("ITEM") @db.NVarChar(16)
+  itemId          String? @db.Char(36)
+  productContainerId String? @db.Char(36)
   quantityOrdered Decimal @db.Decimal(18, 4)
   unitPrice       Decimal @db.Decimal(19, 4)
   quantityShipped Decimal @default(0) @db.Decimal(18, 4)
   sortOrder       Int     @default(0)
-  // Packing plan: which container the goods go in and how many.
+  // Packing plan: which container the goods go in and how many (ITEM lines only).
   containerId       String?  @db.Char(36)
   containerQuantity Decimal? @db.Decimal(18, 4)
 
-  salesOrder SalesOrder    @relation(fields: [salesOrderId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  item       InventoryItem @relation("ItemSalesOrderLines", fields: [itemId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  container  Container?    @relation(fields: [containerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  salesOrder SalesOrder     @relation(fields: [salesOrderId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  item       InventoryItem? @relation("ItemSalesOrderLines", fields: [itemId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  container  Container?     @relation("SoLinePackingContainer", fields: [containerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  productContainer Container? @relation("SoLineProductContainer", fields: [productContainerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   shipmentLines ShipmentLine[]
   workOrders ProductionWorkOrder[]
 
@@ -750,7 +755,9 @@ model Container {
   tenant             Tenant              @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   stock              ContainerStock?
   txns               ContainerTxn[]
-  salesOrderLines    SalesOrderLine[]
+  salesOrderLines    SalesOrderLine[]    @relation("SoLinePackingContainer")
+  productSalesOrderLines SalesOrderLine[] @relation("SoLineProductContainer")
+  shipmentLines      ShipmentLine[]
   purchaseOrderLines PurchaseOrderLine[]
 
   @@unique([tenantId, sku])
@@ -830,7 +837,10 @@ model ShipmentLine {
   tenantId         String   @db.Char(36)
   shipmentId       String   @db.Char(36)
   salesOrderLineId String   @db.Char(36)
-  itemId           String   @db.Char(36)
+  // ITEM | CONTAINER — mirrors the SO line. ITEM sets itemId; CONTAINER sets containerId.
+  lineType         String   @default("ITEM") @db.NVarChar(16)
+  itemId           String?  @db.Char(36)
+  containerId      String?  @db.Char(36)
   quantity         Decimal  @db.Decimal(18, 4)
   unitCost         Decimal  @db.Decimal(19, 4) // COGS per unit at ship time
   value            Decimal  @db.Decimal(38, 4) // COGS total for the line
@@ -839,7 +849,8 @@ model ShipmentLine {
   tenant         Tenant         @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   shipment       Shipment       @relation(fields: [shipmentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   salesOrderLine SalesOrderLine @relation(fields: [salesOrderLineId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  item           InventoryItem  @relation(fields: [itemId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  item           InventoryItem? @relation(fields: [itemId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  container      Container?     @relation(fields: [containerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([tenantId])
   @@index([shipmentId])

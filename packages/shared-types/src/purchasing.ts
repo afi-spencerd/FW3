@@ -86,8 +86,8 @@ export type PoLineType = (typeof PO_LINE_TYPES)[number];
 export const poNewItemSchema = z.object({
   sku: z.string().trim().min(1).max(64),
   name: z.string().trim().min(1).max(200),
-  // Procurable tiers only — finished goods aren't purchased.
-  itemType: z.enum(["RAW_MATERIAL", "SEMI_FINISHED"]),
+  // Any tier may be purchased (we resell finished goods too).
+  itemType: z.enum(["RAW_MATERIAL", "SEMI_FINISHED", "FINISHED_GOOD"]),
   unitOfMeasure: unitOfMeasureSchema.default("LB"),
 });
 
