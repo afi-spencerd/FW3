@@ -9,13 +9,14 @@ import { z } from "zod";
  */
 
 /** Operator roles a variable's value can be scoped to (not user assignments yet). */
-export const OPERATOR_ROLES = ["FLOOR", "LAB"] as const;
+export const OPERATOR_ROLES = ["FLOOR", "LAB", "SAMPLE_LAB"] as const;
 export const operatorRoleSchema = z.enum(OPERATOR_ROLES);
 export type OperatorRole = (typeof OPERATOR_ROLES)[number];
 
 export const OPERATOR_ROLE_LABELS: Record<OperatorRole, string> = {
   FLOOR: "Floor",
   LAB: "Lab (small pours)",
+  SAMPLE_LAB: "Sample Lab",
 };
 
 /** Drives validation, display unit, and formatting of a variable's value. */
@@ -24,14 +25,29 @@ export const BUSINESS_VARIABLE_TYPES = [
   "COUNT",
   "PERCENT",
   "DURATION_HOURS",
+  "TIME",
 ] as const;
 export const businessVariableTypeSchema = z.enum(BUSINESS_VARIABLE_TYPES);
 export type BusinessVariableType = (typeof BUSINESS_VARIABLE_TYPES)[number];
 
-/** A non-negative number, up to 4 decimal places (values cross the wire as strings). */
+/** A non-negative number, up to 4 decimal places. */
+export const NUMERIC_VALUE_RE = /^\d{1,9}(\.\d{1,4})?$/;
 export const businessVariableValueString = z
   .string()
-  .regex(/^\d{1,9}(\.\d{1,4})?$/, "must be a non-negative number (max 4 decimals)");
+  .regex(NUMERIC_VALUE_RE, "must be a non-negative number (max 4 decimals)");
+/** A 24-hour clock time, HH:MM. */
+export const TIME_VALUE_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+/** Validate a value string against a variable's type (used by API + UI). */
+export function isValidBusinessVariableValue(
+  type: BusinessVariableType,
+  value: string,
+): boolean {
+  if (type === "TIME") return TIME_VALUE_RE.test(value);
+  if (!NUMERIC_VALUE_RE.test(value)) return false;
+  if (type === "PERCENT" && Number(value) > 100) return false;
+  return true;
+}
 
 export interface BusinessVariableDef {
   key: string;
@@ -81,6 +97,42 @@ export const BUSINESS_VARIABLES = [
     defaultValue: "85",
   },
   {
+    key: "productionCostFactor",
+    label: "Production cost factor (overhead multiplier)",
+    group: "Production",
+    type: "NUMBER",
+    unit: "×",
+    roleScoped: false,
+    defaultValue: "1",
+  },
+  {
+    key: "shiftStart",
+    label: "Shift start",
+    group: "Shift",
+    type: "TIME",
+    unit: "",
+    roleScoped: false,
+    defaultValue: "06:00",
+  },
+  {
+    key: "shiftEnd",
+    label: "Shift end",
+    group: "Shift",
+    type: "TIME",
+    unit: "",
+    roleScoped: false,
+    defaultValue: "14:30",
+  },
+  {
+    key: "profitMarginPct",
+    label: "Profit margin",
+    group: "Pricing",
+    type: "PERCENT",
+    unit: "%",
+    roleScoped: false,
+    defaultValue: "30",
+  },
+  {
     key: "poursPerHour",
     label: "Expected pours per hour",
     group: "Pours",
@@ -88,7 +140,7 @@ export const BUSINESS_VARIABLES = [
     unit: "/hr",
     roleScoped: true,
     defaultValue: "12",
-    roleDefaults: { FLOOR: "12", LAB: "30" },
+    roleDefaults: { FLOOR: "12", LAB: "30", SAMPLE_LAB: "60" },
   },
 ] as const satisfies readonly BusinessVariableDef[];
 
@@ -105,7 +157,8 @@ export function findBusinessVariable(key: string): BusinessVariableDef | undefin
 export const businessVariableValueInputSchema = z.object({
   key: z.string().min(1).max(80),
   operatorRole: operatorRoleSchema.nullish(),
-  value: businessVariableValueString,
+  // Validated against the variable's type server-side (numeric vs TIME).
+  value: z.string().trim().min(1).max(120),
 });
 export const updateBusinessVariablesSchema = z.object({
   values: z.array(businessVariableValueInputSchema).min(1),

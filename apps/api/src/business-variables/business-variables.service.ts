@@ -4,12 +4,20 @@ import {
   type BusinessVariable,
   BUSINESS_VARIABLES,
   findBusinessVariable,
+  isValidBusinessVariableValue,
   OPERATOR_ROLES,
   type OperatorRole,
   type UpdateBusinessVariables,
 } from "@fw3/shared-types";
 import { AuditService } from "../audit/audit.service";
 import { PrismaService } from "../database/prisma.service";
+
+/** Drop trailing zeros from a numeric string ("80.0000" -> "80", "14.50" -> "14.5"). */
+function normalizeNumeric(value: string): string {
+  return /^\d+(\.\d+)?$/.test(value)
+    ? value.replace(/(\.\d*?)0+$/, "$1").replace(/\.$/, "")
+    : value;
+}
 
 @Injectable()
 export class BusinessVariablesService {
@@ -25,8 +33,12 @@ export class BusinessVariablesService {
     });
     // Key stored overrides by "key|role" ("" role for non-scoped).
     const stored = new Map(
-      rows.map((r) => [`${r.key}|${r.operatorRole ?? ""}`, r.value.toString()]),
+      rows.map((r) => [`${r.key}|${r.operatorRole ?? ""}`, r.value]),
     );
+    // Numeric values are normalized for display (legacy rows migrated from the
+    // old decimal column may carry trailing zeros); TIME values pass through.
+    const display = (type: string, raw: string): string =>
+      type === "TIME" ? raw : normalizeNumeric(raw);
 
     return BUSINESS_VARIABLES.map((def) => {
       if (!def.roleScoped) {
@@ -41,7 +53,7 @@ export class BusinessVariablesService {
           entries: [
             {
               operatorRole: null,
-              value: override ?? def.defaultValue,
+              value: display(def.type, override ?? def.defaultValue),
               isDefault: override === undefined,
             },
           ],
@@ -52,7 +64,7 @@ export class BusinessVariablesService {
         const fallback = def.roleDefaults?.[role] ?? def.defaultValue;
         return {
           operatorRole: role,
-          value: override ?? fallback,
+          value: display(def.type, override ?? fallback),
           isDefault: override === undefined,
         };
       });
@@ -90,9 +102,13 @@ export class BusinessVariablesService {
         } else if (v.operatorRole) {
           throw new BadRequestException(`${def.key} is not role-scoped`);
         }
-        if (def.type === "PERCENT" && Number(v.value) > 100) {
-          throw new BadRequestException(`${def.key} must be ≤ 100%`);
+        if (!isValidBusinessVariableValue(def.type, v.value)) {
+          throw new BadRequestException(
+            `Invalid value for ${def.key} (${def.type}): ${v.value}`,
+          );
         }
+        // Numeric values stored canonically (drop trailing zeros); TIME as-is.
+        const value = def.type === "TIME" ? v.value : normalizeNumeric(v.value);
 
         // No upsert: a compound unique containing a NULL role isn't addressable
         // via Prisma's unique where, so find-then-write.
@@ -102,16 +118,11 @@ export class BusinessVariablesService {
         if (existing) {
           await tx.businessVariableValue.update({
             where: { id: existing.id },
-            data: { value: v.value },
+            data: { value },
           });
         } else {
           await tx.businessVariableValue.create({
-            data: {
-              tenantId: user.tenantId,
-              key: def.key,
-              operatorRole: role,
-              value: v.value,
-            },
+            data: { tenantId: user.tenantId, key: def.key, operatorRole: role, value },
           });
         }
       }

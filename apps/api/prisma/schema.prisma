@@ -55,6 +55,7 @@ model Tenant {
   fgRegulatoryProfiles FgRegulatoryProfile[]
   fgIfraLevels        FgIfraLevel[]
   businessVariables   BusinessVariableValue[]
+  companyHolidays     CompanyHoliday[]
 }
 
 model User {
@@ -241,14 +242,38 @@ model BusinessVariableValue {
   id           String   @id @default(uuid()) @db.Char(36)
   tenantId     String   @db.Char(36)
   key          String   @db.NVarChar(80)
-  operatorRole String?  @db.NVarChar(20) // FLOOR | LAB (CHECK); null = not role-scoped
-  value        Decimal  @db.Decimal(19, 4)
+  operatorRole String?  @db.NVarChar(20) // FLOOR | LAB | SAMPLE_LAB (CHECK); null = not role-scoped
+  // Stored as text so non-numeric types (e.g. TIME "06:00") fit; validated by the
+  // catalog's type. Numeric variables store a plain decimal string.
+  value        String   @db.NVarChar(120)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@unique([tenantId, key, operatorRole])
+  @@index([tenantId])
+}
+
+// A company holiday (closure day). Recurrence is rule-based so one row covers
+// every year: FIXED (month/day), NTH_WEEKDAY (nth weekday of a month; nth=-1 =
+// last), or EXPLICIT (a one-off date). Unused fields are null per rule type.
+model CompanyHoliday {
+  id        String    @id @default(uuid()) @db.Char(36)
+  tenantId  String    @db.Char(36)
+  name      String    @db.NVarChar(120)
+  ruleType  String    @db.NVarChar(20) // FIXED | NTH_WEEKDAY | EXPLICIT (CHECK)
+  month     Int? // 1-12 (FIXED, NTH_WEEKDAY)
+  day       Int? // 1-31 (FIXED)
+  weekday   Int? // 0-6, Sun..Sat (NTH_WEEKDAY)
+  nth       Int? // 1-5 or -1=last (NTH_WEEKDAY)
+  date      DateTime? @db.Date // EXPLICIT one-off
+  active    Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
   @@index([tenantId])
 }
 

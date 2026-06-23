@@ -4,6 +4,9 @@ import type {
   AuthenticatedUser,
   BusinessVariable,
   UpdateBusinessVariables,
+  CompanyHoliday,
+  CreateCompanyHoliday,
+  UpdateCompanyHoliday,
   BatchRequirements,
   BatchRequirementsRequest,
   Container,
@@ -149,6 +152,20 @@ export const api = {
       method: "PUT",
       body: JSON.stringify(data),
     }),
+
+  getCompanyHolidays: () => request<CompanyHoliday[]>("/company-holidays"),
+  createCompanyHoliday: (data: CreateCompanyHoliday) =>
+    request<CompanyHoliday>("/company-holidays", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  updateCompanyHoliday: (id: string, data: UpdateCompanyHoliday) =>
+    request<CompanyHoliday>(`/company-holidays/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    }),
+  deleteCompanyHoliday: (id: string) =>
+    request<{ deleted: boolean }>(`/company-holidays/${id}`, { method: "DELETE" }),
 
   getFgRegulatory: (id: string) =>
     request<FgRegulatory>(`/inventory/${id}/regulatory`),
