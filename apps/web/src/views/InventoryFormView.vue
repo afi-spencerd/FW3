@@ -79,6 +79,7 @@ const form = reactive({
   salesPrice: "0",
   qbItemType: "INVENTORY" as QbItemType,
   standardCost: "0",
+  reorderPoint: "",
   purchaseDescription: "",
   incomeAccount: "",
   cogsAccount: "",
@@ -356,6 +357,7 @@ onMounted(async () => {
       salesPrice: item.salesPrice,
       qbItemType: item.qbItemType,
       standardCost: item.standardCost,
+      reorderPoint: item.reorderPoint ?? "",
       purchaseDescription: item.purchaseDescription ?? "",
       incomeAccount: item.incomeAccount ?? "",
       cogsAccount: item.cogsAccount ?? "",
@@ -399,6 +401,7 @@ async function submit(): Promise<void> {
       salesPrice: form.salesPrice,
       qbItemType: form.qbItemType,
       standardCost: form.standardCost,
+      reorderPoint: form.reorderPoint || undefined,
       purchaseDescription: form.purchaseDescription || undefined,
       incomeAccount: form.incomeAccount || undefined,
       cogsAccount: form.cogsAccount || undefined,
@@ -541,6 +544,13 @@ async function submit(): Promise<void> {
         <div class="field">
           <label>Standard / purchase cost</label>
           <input v-model="form.standardCost" inputmode="decimal" />
+        </div>
+        <div class="field">
+          <label>Reorder point</label>
+          <input v-model="form.reorderPoint" inputmode="decimal" placeholder="none" />
+          <small class="inactive">
+            Below this usable on-hand, {{ isRawMaterial ? "Purchasing" : "Scheduling" }} is flagged.
+          </small>
         </div>
         <div class="field">
           <label>Income account</label>

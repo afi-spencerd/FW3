@@ -27,6 +27,7 @@ const form = reactive({
   containerType: "JUG" as (typeof CONTAINER_TYPES)[number],
   capacityLb: "",
   standardCost: "0",
+  reorderPoint: "",
   active: true,
 });
 const position = ref<Container | null>(null);
@@ -63,6 +64,7 @@ async function loadDetail(): Promise<void> {
     containerType: c.containerType,
     capacityLb: c.capacityLb ?? "",
     standardCost: c.standardCost,
+    reorderPoint: c.reorderPoint ?? "",
     active: c.active,
   });
 }
@@ -85,6 +87,7 @@ async function submit(): Promise<void> {
       containerType: form.containerType,
       capacityLb: form.capacityLb || undefined,
       standardCost: form.standardCost,
+      reorderPoint: form.reorderPoint || undefined,
       active: form.active,
     };
     if (isEdit && props.id) {
@@ -199,6 +202,11 @@ async function doScrap(): Promise<void> {
         <div class="field">
           <label>Standard cost</label>
           <input v-model="form.standardCost" inputmode="decimal" />
+        </div>
+        <div class="field">
+          <label>Reorder point</label>
+          <input v-model="form.reorderPoint" inputmode="decimal" placeholder="none" />
+          <small class="inactive">Below this count, Purchasing is flagged.</small>
         </div>
         <div class="field" style="align-self: end">
           <label><input type="checkbox" v-model="form.active" style="width: auto" /> Active</label>

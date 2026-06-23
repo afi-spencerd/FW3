@@ -71,6 +71,7 @@ export class ContainerService {
             containerType: input.containerType,
             capacityLb: input.capacityLb ?? null,
             standardCost: input.standardCost,
+            reorderPoint: input.reorderPoint ?? null,
             active: input.active,
             stock: { create: { tenantId: user.tenantId, quantity: "0", avgCost: "0" } },
           },
@@ -129,6 +130,9 @@ export class ContainerService {
             ...(input.standardCost === undefined
               ? {}
               : { standardCost: input.standardCost }),
+            ...(input.reorderPoint === undefined
+              ? {}
+              : { reorderPoint: input.reorderPoint ?? null }),
             ...(input.active === undefined ? {} : { active: input.active }),
           },
           include: { stock: true },
@@ -354,6 +358,7 @@ export class ContainerService {
       containerType: row.containerType as ContainerType,
       capacityLb: row.capacityLb === null ? null : row.capacityLb.toString(),
       standardCost: row.standardCost.toString(),
+      reorderPoint: row.reorderPoint === null ? null : row.reorderPoint.toString(),
       active: row.active,
       quantityOnHand: quantity,
       avgCost,

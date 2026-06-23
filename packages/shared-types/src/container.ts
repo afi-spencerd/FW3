@@ -39,6 +39,8 @@ export const createContainerSchema = z.object({
   capacityLb: quantityString.optional(),
   /** Standard/purchase cost per container (the moving average lives in the ledger). */
   standardCost: moneyString.default("0"),
+  /** Reorder threshold (whole count); below it Purchasing is flagged. Null = untracked. */
+  reorderPoint: quantityString.nullish(),
   active: z.boolean().default(true),
   /**
    * Optional opening stock — quantity already on hand that never came through a
@@ -61,6 +63,7 @@ export const containerSchema = z.object({
   containerType: containerTypeSchema,
   capacityLb: z.string().nullable(),
   standardCost: z.string(),
+  reorderPoint: z.string().nullable(),
   active: z.boolean(),
   // Position (from the ledger): on-hand count, moving-average cost, value.
   quantityOnHand: z.string(),

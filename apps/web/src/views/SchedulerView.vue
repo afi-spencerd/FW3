@@ -1,10 +1,16 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from "vue";
 import { RouterLink } from "vue-router";
-import type { SchedulerBoard, SchedulerMaterial, SchedulerWorkOrder } from "@fw3/shared-types";
+import type {
+  ReorderItem,
+  SchedulerBoard,
+  SchedulerMaterial,
+  SchedulerWorkOrder,
+} from "@fw3/shared-types";
 import { api, ApiError } from "../lib/api";
 
 const board = ref<SchedulerBoard>({ requested: [], queued: [] });
+const reorderItems = ref<ReorderItem[]>([]);
 const error = ref<string | null>(null);
 const busy = ref(false);
 // Requested WOs selected for "queue by rules".
@@ -20,7 +26,12 @@ const dragOverIndex = ref<number | null>(null);
 async function load(): Promise<void> {
   error.value = null;
   try {
-    board.value = await api.schedulerBoard();
+    const [b, r] = await Promise.all([
+      api.schedulerBoard(),
+      api.schedulerReorder(),
+    ]);
+    board.value = b;
+    reorderItems.value = r.items;
   } catch (err) {
     error.value = err instanceof ApiError ? err.message : "Failed to load";
   }
@@ -155,6 +166,32 @@ onMounted(load);
       Drag a requested card into the queue to place it at a position, or drag
       queued cards to reorder. No mouse? Use “Queue at” / the ↑↓ buttons.
     </p>
+
+    <div v-if="reorderItems.length" class="panel reorder">
+      <h3 style="margin-top: 0">
+        Finished goods below reorder point ({{ reorderItems.length }})
+      </h3>
+      <p class="inactive" style="font-size: 0.85rem">
+        Usable stock has dropped below the reorder point — raise a make-to-stock
+        <RouterLink :to="{ name: 'production-new' }">work order</RouterLink>.
+      </p>
+      <table>
+        <thead>
+          <tr>
+            <th>Item</th>
+            <th class="num">On hand</th>
+            <th class="num">Reorder point</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="it in reorderItems" :key="it.itemId">
+            <td>{{ it.name }} <span class="inactive">({{ it.sku }})</span></td>
+            <td class="num">{{ it.onHand }}</td>
+            <td class="num">{{ it.reorderPoint }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
 
     <div class="board">
       <!-- Requested column -->
@@ -410,5 +447,9 @@ onMounted(load);
 .dropzone.over {
   border-color: #2563eb;
   background: #eff6ff;
+}
+.panel.reorder {
+  border-left: 3px solid #b45309;
+  margin-bottom: 1rem;
 }
 </style>

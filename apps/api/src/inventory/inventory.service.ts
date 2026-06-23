@@ -112,6 +112,7 @@ export class InventoryService {
             cogsAccount: input.cogsAccount ?? null,
             assetAccount: input.assetAccount ?? null,
             active: input.active,
+            reorderPoint: input.reorderPoint ?? null,
             // Raw-material regulatory data.
             productionUse: input.productionUse,
             casNumber: input.casNumber ?? null,
@@ -270,6 +271,9 @@ export class InventoryService {
               ? {}
               : { assetAccount: input.assetAccount ?? null }),
             ...(input.active === undefined ? {} : { active: input.active }),
+            ...(input.reorderPoint === undefined
+              ? {}
+              : { reorderPoint: input.reorderPoint ?? null }),
             // Raw-material regulatory data.
             ...(input.productionUse === undefined
               ? {}
@@ -373,6 +377,7 @@ export class InventoryService {
       cogsAccount: row.cogsAccount,
       assetAccount: row.assetAccount,
       active: row.active,
+      reorderPoint: row.reorderPoint === null ? null : row.reorderPoint.toString(),
       productionUse: row.productionUse,
       casNumber: row.casNumber,
       flashPointC: row.flashPointC === null ? null : row.flashPointC.toString(),

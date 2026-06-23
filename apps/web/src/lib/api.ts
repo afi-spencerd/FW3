@@ -56,10 +56,12 @@ import type {
   StockPosition,
   PurchaseOrder,
   PurchaseOrderSummary,
+  PurchasingReorder,
   ReceivePurchaseOrder,
   CreatePurchasingAlert,
   PurchasingAlert,
   PurchasingAlertStatus,
+  SchedulerReorder,
   CustomerItemPrice,
   ItemCost,
   SalesOrder,
@@ -296,6 +298,7 @@ export const api = {
     }),
   releaseAllWorkOrders: () =>
     request<SchedulerBoard>("/scheduler/release-all", { method: "POST" }),
+  schedulerReorder: () => request<SchedulerReorder>("/scheduler/reorder"),
 
   // ---- Purchasing alerts ----
   listPurchasingAlerts: (status?: PurchasingAlertStatus) =>
@@ -311,6 +314,7 @@ export const api = {
     request<PurchasingAlert>(`/purchasing/alerts/${id}/resolve`, {
       method: "POST",
     }),
+  purchasingReorder: () => request<PurchasingReorder>("/purchasing/reorder"),
 
   listFormulas: () => request<FormulaSummary[]>("/formulas"),
   getFormula: (id: string) => request<Formula>(`/formulas/${id}`),

@@ -5,6 +5,7 @@ import {
   PERMISSIONS,
   type PurchaseOrderSummary,
   type PurchasingAlert,
+  type PurchasingReorder,
 } from "@fw3/shared-types";
 import { api, ApiError } from "../lib/api";
 import { useAuthStore } from "../stores/auth";
@@ -12,14 +13,16 @@ import { useAuthStore } from "../stores/auth";
 const auth = useAuthStore();
 const orders = ref<PurchaseOrderSummary[]>([]);
 const alerts = ref<PurchasingAlert[]>([]);
+const reorder = ref<PurchasingReorder>({ materials: [], containers: [] });
 const error = ref<string | null>(null);
 
 async function load(): Promise<void> {
   error.value = null;
   try {
-    [orders.value, alerts.value] = await Promise.all([
+    [orders.value, alerts.value, reorder.value] = await Promise.all([
       api.listPurchaseOrders(),
       api.listPurchasingAlerts("OPEN"),
+      api.purchasingReorder(),
     ]);
   } catch (err) {
     error.value = err instanceof ApiError ? err.message : "Failed to load";
@@ -79,6 +82,44 @@ onMounted(load);
             <td v-if="auth.hasPermission(PERMISSIONS.PO_UPDATE)">
               <button @click="resolveAlert(a.id)">Resolve</button>
             </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div
+      v-if="reorder.materials.length || reorder.containers.length"
+      class="panel"
+      style="border-left: 3px solid #b45309"
+    >
+      <h3 style="margin-top: 0">
+        Below reorder point ({{ reorder.materials.length + reorder.containers.length }})
+      </h3>
+      <p class="inactive" style="font-size: 0.85rem">
+        Raw materials and containers whose usable on-hand has dropped below their
+        reorder point — restock from a vendor.
+      </p>
+      <table>
+        <thead>
+          <tr>
+            <th>Item</th>
+            <th>Kind</th>
+            <th class="num">On hand</th>
+            <th class="num">Reorder point</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="m in reorder.materials" :key="m.itemId">
+            <td>{{ m.name }} <span class="inactive">({{ m.sku }})</span></td>
+            <td class="inactive">Raw material</td>
+            <td class="num">{{ m.onHand }}</td>
+            <td class="num">{{ m.reorderPoint }}</td>
+          </tr>
+          <tr v-for="c in reorder.containers" :key="c.containerId">
+            <td>{{ c.name }} <span class="inactive">({{ c.sku }})</span></td>
+            <td class="inactive">Container</td>
+            <td class="num">{{ c.onHand }}</td>
+            <td class="num">{{ c.reorderPoint }}</td>
           </tr>
         </tbody>
       </table>

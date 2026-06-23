@@ -1,5 +1,6 @@
 import { Module } from "@nestjs/common";
 import { ContainerModule } from "../container/container.module";
+import { ReorderModule } from "../reorder/reorder.module";
 import { VendorController } from "./vendor.controller";
 import { VendorService } from "./vendor.service";
 import { PurchaseOrderController } from "./purchase-order.controller";
@@ -8,7 +9,7 @@ import { PurchasingAlertController } from "./purchasing-alert.controller";
 import { PurchasingAlertService } from "./purchasing-alert.service";
 
 @Module({
-  imports: [ContainerModule],
+  imports: [ContainerModule, ReorderModule],
   controllers: [
     VendorController,
     PurchaseOrderController,

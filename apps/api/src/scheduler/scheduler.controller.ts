@@ -14,17 +14,27 @@ import { AuthGuard } from "../auth/guards/auth.guard";
 import { PermissionsGuard } from "../auth/guards/permissions.guard";
 import { CurrentUser } from "../common/current-user.decorator";
 import { ZodValidationPipe } from "../common/zod-validation.pipe";
+import { ReorderService } from "../reorder/reorder.service";
 import { SchedulerService } from "./scheduler.service";
 
 @Controller("scheduler")
 @UseGuards(AuthGuard, PermissionsGuard)
 @RequirePermissions(PERMISSIONS.PRODUCTION_SCHEDULE)
 export class SchedulerController {
-  constructor(private readonly scheduler: SchedulerService) {}
+  constructor(
+    private readonly scheduler: SchedulerService,
+    private readonly reorder: ReorderService,
+  ) {}
 
   @Get("board")
   board(@CurrentUser() user: AuthenticatedUser) {
     return this.scheduler.board(user.tenantId);
+  }
+
+  // Finished goods + bases below their reorder point — make-to-stock candidates.
+  @Get("reorder")
+  async reorderFlags(@CurrentUser() user: AuthenticatedUser) {
+    return { items: await this.reorder.producedBelowReorder(user.tenantId) };
   }
 
   @Post("work-orders/:id/queue")

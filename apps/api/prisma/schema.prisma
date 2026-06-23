@@ -144,6 +144,10 @@ model InventoryItem {
   unitOfMeasure  String    @default("LB") @db.NVarChar(16)
   salesPrice     Decimal   @default(0) @db.Decimal(19, 4)
   active         Boolean   @default(true)
+  // Replenishment threshold: when usable (INV) on-hand drops below this, the item
+  // is flagged — Purchasing for raw materials, Scheduling for produced goods.
+  // Null = not tracked.
+  reorderPoint   Decimal?  @db.Decimal(18, 4)
   // ---- Item master / QuickBooks attributes (NO inventory position here;
   // quantity + moving-average cost live in ItemStock / the ledger) ----
   qbItemType          String    @default("INVENTORY") @db.NVarChar(20) // INVENTORY | NON_INVENTORY | SERVICE
@@ -737,6 +741,8 @@ model Container {
   containerType String   @db.NVarChar(20) // DRUM | PAIL | JUG | CAN | BOTTLE | TOTE | OTHER (CHECK)
   capacityLb    Decimal? @db.Decimal(18, 4) // nominal fill weight, to default counts
   standardCost  Decimal  @default(0) @db.Decimal(19, 4)
+  // Reorder threshold (whole count); below it, Purchasing is flagged. Null = untracked.
+  reorderPoint  Decimal? @db.Decimal(18, 4)
   active        Boolean  @default(true)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt

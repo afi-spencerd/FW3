@@ -19,14 +19,29 @@ import { AuthGuard } from "../auth/guards/auth.guard";
 import { PermissionsGuard } from "../auth/guards/permissions.guard";
 import { CurrentUser } from "../common/current-user.decorator";
 import { ZodValidationPipe } from "../common/zod-validation.pipe";
+import { ReorderService } from "../reorder/reorder.service";
 import { PurchasingAlertService } from "./purchasing-alert.service";
 
-@Controller("purchasing/alerts")
+@Controller("purchasing")
 @UseGuards(AuthGuard, PermissionsGuard)
 export class PurchasingAlertController {
-  constructor(private readonly alerts: PurchasingAlertService) {}
+  constructor(
+    private readonly alerts: PurchasingAlertService,
+    private readonly reorder: ReorderService,
+  ) {}
 
-  @Get()
+  // Items/containers below their reorder point — what Purchasing should restock.
+  @Get("reorder")
+  @RequirePermissions(PERMISSIONS.PO_READ)
+  async reorderFlags(@CurrentUser() user: AuthenticatedUser) {
+    const [materials, containers] = await Promise.all([
+      this.reorder.materialsBelowReorder(user.tenantId),
+      this.reorder.containersBelowReorder(user.tenantId),
+    ]);
+    return { materials, containers };
+  }
+
+  @Get("alerts")
   @RequirePermissions(PERMISSIONS.PO_READ)
   list(
     @CurrentUser() user: AuthenticatedUser,
@@ -36,7 +51,7 @@ export class PurchasingAlertController {
   }
 
   // The scheduler raises shortage alerts; gate on the scheduler permission.
-  @Post()
+  @Post("alerts")
   @RequirePermissions(PERMISSIONS.PRODUCTION_SCHEDULE)
   create(
     @CurrentUser() user: AuthenticatedUser,
@@ -46,7 +61,7 @@ export class PurchasingAlertController {
     return this.alerts.create(user, body);
   }
 
-  @Post(":id/resolve")
+  @Post("alerts/:id/resolve")
   @RequirePermissions(PERMISSIONS.PO_UPDATE)
   resolve(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string) {
     return this.alerts.resolve(user, id);

@@ -126,6 +126,8 @@ export const createInventoryItemSchema = z.object({
   cogsAccount: z.string().trim().max(159).optional(),
   assetAccount: z.string().trim().max(159).optional(),
   active: z.boolean().default(true),
+  /** Reorder threshold (usable on-hand); below it the item is flagged. Null = untracked. */
+  reorderPoint: quantityString.nullish(),
   // ---- Raw-material regulatory attributes (only meaningful for RAW_MATERIAL) ----
   /**
    * Whether the material is used in production. R&D/lab-only materials are kept
@@ -166,6 +168,7 @@ export const inventoryItemSchema = z.object({
   cogsAccount: z.string().nullable(),
   assetAccount: z.string().nullable(),
   active: z.boolean(),
+  reorderPoint: z.string().nullable(),
   productionUse: z.boolean(),
   casNumber: z.string().nullable(),
   flashPointC: z.string().nullable(),
