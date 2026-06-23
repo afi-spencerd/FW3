@@ -9,6 +9,9 @@ import type {
   AuthenticatedUser,
   CreateSalesOrder,
   CustomerItemPrice,
+  ImportResultRow,
+  ImportSalesOrderRow,
+  ImportSalesOrdersResult,
   PaymentTerms,
   SalesOrder,
   SalesOrderLineInput,
@@ -294,6 +297,149 @@ export class SalesOrderService {
     } catch (err) {
       throw this.mapError(err, input.soNumber);
     }
+  }
+
+  /**
+   * Bulk-create sales orders from CSV-derived rows. Rows sharing a soNumber form
+   * one order (order-level fields from the first row). Human keys (customer
+   * code/name, item / container SKUs) are resolved to ids, then each order is
+   * created via create() — reusing all guards. Independent per order: a failure
+   * is reported and doesn't abort the batch.
+   */
+  async importOrders(
+    user: AuthenticatedUser,
+    rows: ImportSalesOrderRow[],
+  ): Promise<ImportSalesOrdersResult> {
+    const tenantId = user.tenantId;
+    // Resolve the human-readable keys present in the file, in bulk.
+    const customerKeys = [...new Set(rows.map((r) => r.customer))];
+    const itemSkus = [
+      ...new Set(rows.filter((r) => r.lineType !== "CONTAINER").map((r) => r.sku)),
+    ];
+    const containerSkus = [
+      ...new Set([
+        ...rows.filter((r) => r.lineType === "CONTAINER").map((r) => r.sku),
+        ...rows.map((r) => r.packingSku).filter((v): v is string => !!v),
+      ]),
+    ];
+    const [customers, items, containers] = await Promise.all([
+      this.prisma.customer.findMany({
+        where: { tenantId, OR: [{ code: { in: customerKeys } }, { name: { in: customerKeys } }] },
+        select: { id: true, code: true, name: true },
+      }),
+      itemSkus.length
+        ? this.prisma.inventoryItem.findMany({
+            where: { tenantId, sku: { in: itemSkus } },
+            select: { id: true, sku: true },
+          })
+        : Promise.resolve([]),
+      containerSkus.length
+        ? this.prisma.container.findMany({
+            where: { tenantId, sku: { in: containerSkus } },
+            select: { id: true, sku: true },
+          })
+        : Promise.resolve([]),
+    ]);
+    const customerByCode = new Map(customers.filter((c) => c.code).map((c) => [c.code!, c.id]));
+    const customerByName = new Map(customers.map((c) => [c.name, c.id]));
+    const itemBySku = new Map(items.map((i) => [i.sku, i.id]));
+    const containerBySku = new Map(containers.map((c) => [c.sku, c.id]));
+
+    // Group rows by soNumber, preserving first-seen order.
+    const groups: { soNumber: string; rows: ImportSalesOrderRow[] }[] = [];
+    const byNumber = new Map<string, (typeof groups)[number]>();
+    for (const row of rows) {
+      let g = byNumber.get(row.soNumber);
+      if (!g) {
+        g = { soNumber: row.soNumber, rows: [] };
+        byNumber.set(row.soNumber, g);
+        groups.push(g);
+      }
+      g.rows.push(row);
+    }
+
+    const results: ImportResultRow[] = [];
+    for (const group of groups) {
+      const head = group.rows[0]!;
+      try {
+        const customerId =
+          customerByCode.get(head.customer) ?? customerByName.get(head.customer);
+        if (!customerId) {
+          throw new BadRequestException(`Customer "${head.customer}" not found`);
+        }
+        const lines = group.rows.map((r, sortOrder) => {
+          if (r.lineType === "CONTAINER") {
+            const productContainerId = containerBySku.get(r.sku);
+            if (!productContainerId) {
+              throw new BadRequestException(`Container SKU "${r.sku}" not found`);
+            }
+            return {
+              lineType: "CONTAINER" as const,
+              productContainerId,
+              quantityOrdered: r.quantity,
+              unitPrice: r.unitPrice,
+              sortOrder,
+            };
+          }
+          const itemId = itemBySku.get(r.sku);
+          if (!itemId) throw new BadRequestException(`Item SKU "${r.sku}" not found`);
+          let containerId: string | undefined;
+          if (r.packingSku) {
+            containerId = containerBySku.get(r.packingSku);
+            if (!containerId) {
+              throw new BadRequestException(`Packing container SKU "${r.packingSku}" not found`);
+            }
+          }
+          return {
+            lineType: "ITEM" as const,
+            itemId,
+            quantityOrdered: r.quantity,
+            unitPrice: r.unitPrice,
+            sortOrder,
+            containerId,
+            containerQuantity: containerId ? r.packingQty : undefined,
+          };
+        });
+        const created = await this.create(user, {
+          customerId,
+          soNumber: group.soNumber,
+          requestedShipDate: this.toIsoDate(head.requestedShipDate),
+          notes: head.notes,
+          allowBelowCost: group.rows.some((r) => r.allowBelowCost) || undefined,
+          lines,
+        });
+        results.push({
+          soNumber: group.soNumber,
+          status: "CREATED",
+          salesOrderId: created.id,
+          lineCount: lines.length,
+          error: null,
+        });
+      } catch (err) {
+        results.push({
+          soNumber: group.soNumber,
+          status: "FAILED",
+          salesOrderId: null,
+          lineCount: group.rows.length,
+          error: err instanceof Error ? err.message : "Import failed",
+        });
+      }
+    }
+    return {
+      results,
+      created: results.filter((r) => r.status === "CREATED").length,
+      failed: results.filter((r) => r.status === "FAILED").length,
+    };
+  }
+
+  /** Accept a plain date (YYYY-MM-DD) or ISO datetime; return ISO, or undefined. */
+  private toIsoDate(value: string | undefined): string | undefined {
+    if (!value) return undefined;
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) {
+      throw new BadRequestException(`Invalid requested ship date "${value}"`);
+    }
+    return d.toISOString();
   }
 
   async update(

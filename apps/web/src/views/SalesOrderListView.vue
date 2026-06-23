@@ -29,6 +29,13 @@ onMounted(load);
       <span class="spacer" />
       <RouterLink
         v-if="auth.hasPermission(PERMISSIONS.SO_CREATE)"
+        class="btn"
+        :to="{ name: 'sales-order-import' }"
+      >
+        Import CSV
+      </RouterLink>
+      <RouterLink
+        v-if="auth.hasPermission(PERMISSIONS.SO_CREATE)"
         class="btn primary"
         :to="{ name: 'sales-order-new' }"
       >

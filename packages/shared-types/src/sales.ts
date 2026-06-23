@@ -266,6 +266,47 @@ export const salesOrderSummarySchema = salesOrderSchema
   .omit({ lines: true, shipments: true, workOrders: true })
   .extend({ lineCount: z.number().int() });
 
+// ---- CSV import ----
+/**
+ * One CSV row = one order line. Rows sharing a `soNumber` form a single order;
+ * the order-level fields (customer, requestedShipDate, notes, allowBelowCost) are
+ * taken from the order's first row. `customer` matches Customer.code, else name;
+ * `sku` is an item SKU (ITEM) or container SKU (CONTAINER, sold as the product).
+ */
+export const importSalesOrderRowSchema = z.object({
+  soNumber: z.string().trim().min(1).max(50),
+  customer: z.string().trim().min(1).max(200),
+  lineType: soLineTypeSchema.default("ITEM"),
+  sku: z.string().trim().min(1).max(64),
+  quantity: positiveQty,
+  unitPrice: moneyString,
+  /** Optional ship-by; a plain date (YYYY-MM-DD) or ISO datetime. */
+  requestedShipDate: z.string().trim().max(40).optional(),
+  notes: z.string().trim().max(2000).optional(),
+  /** Optional packing container (ITEM lines), by SKU. */
+  packingSku: z.string().trim().max(64).optional(),
+  packingQty: positiveQty.optional(),
+  allowBelowCost: z.boolean().optional(),
+});
+
+export const importSalesOrdersSchema = z.object({
+  rows: z.array(importSalesOrderRowSchema).min(1),
+});
+
+export const IMPORT_RESULT_STATUSES = ["CREATED", "FAILED"] as const;
+export const importResultRowSchema = z.object({
+  soNumber: z.string(),
+  status: z.enum(IMPORT_RESULT_STATUSES),
+  salesOrderId: z.string().uuid().nullable(),
+  lineCount: z.number().int(),
+  error: z.string().nullable(),
+});
+export const importSalesOrdersResultSchema = z.object({
+  results: z.array(importResultRowSchema),
+  created: z.number().int(),
+  failed: z.number().int(),
+});
+
 export type CreateCustomer = z.infer<typeof createCustomerSchema>;
 export type UpdateCustomer = z.infer<typeof updateCustomerSchema>;
 export type Customer = z.infer<typeof customerSchema>;
@@ -282,3 +323,7 @@ export type Shipment = z.infer<typeof shipmentSchema>;
 export type SalesOrderWorkOrder = z.infer<typeof salesOrderWorkOrderSchema>;
 export type SalesOrder = z.infer<typeof salesOrderSchema>;
 export type SalesOrderSummary = z.infer<typeof salesOrderSummarySchema>;
+export type ImportSalesOrderRow = z.infer<typeof importSalesOrderRowSchema>;
+export type ImportSalesOrders = z.infer<typeof importSalesOrdersSchema>;
+export type ImportResultRow = z.infer<typeof importResultRowSchema>;
+export type ImportSalesOrdersResult = z.infer<typeof importSalesOrdersResultSchema>;

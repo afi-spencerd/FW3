@@ -11,6 +11,8 @@ import {
   type AuthenticatedUser,
   type CreateSalesOrder,
   createSalesOrderSchema,
+  type ImportSalesOrders,
+  importSalesOrdersSchema,
   PERMISSIONS,
   type ShipSalesOrder,
   shipSalesOrderSchema,
@@ -66,6 +68,16 @@ export class SalesOrderController {
     @Body(new ZodValidationPipe(createSalesOrderSchema)) body: CreateSalesOrder,
   ) {
     return this.orders.create(user, body);
+  }
+
+  // CSV import: create one or many orders from parsed rows. Declared before ":id".
+  @Post("import")
+  @RequirePermissions(PERMISSIONS.SO_CREATE)
+  import(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body(new ZodValidationPipe(importSalesOrdersSchema)) body: ImportSalesOrders,
+  ) {
+    return this.orders.importOrders(user, body.rows);
   }
 
   @Put(":id")

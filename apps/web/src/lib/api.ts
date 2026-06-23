@@ -63,6 +63,8 @@ import type {
   PurchasingAlertStatus,
   SchedulerReorder,
   CustomerItemPrice,
+  ImportSalesOrderRow,
+  ImportSalesOrdersResult,
   ItemCost,
   SalesOrder,
   SalesOrderSummary,
@@ -386,6 +388,11 @@ export const api = {
     request<SalesOrder>(`/sales-orders/${id}`, {
       method: "PUT",
       body: JSON.stringify(data),
+    }),
+  importSalesOrders: (rows: ImportSalesOrderRow[]) =>
+    request<ImportSalesOrdersResult>("/sales-orders/import", {
+      method: "POST",
+      body: JSON.stringify({ rows }),
     }),
   cancelSalesOrder: (id: string) =>
     request<SalesOrder>(`/sales-orders/${id}/cancel`, { method: "POST" }),

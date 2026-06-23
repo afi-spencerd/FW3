@@ -235,6 +235,12 @@ export const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
+      path: "/sales-orders/import",
+      name: "sales-order-import",
+      component: () => import("./views/ImportSalesOrdersView.vue"),
+      meta: { requiresAuth: true },
+    },
+    {
       path: "/sales-orders/:id",
       name: "sales-order-detail",
       component: () => import("./views/SalesOrderDetailView.vue"),
