@@ -4,6 +4,7 @@ import {
   Get,
   Param,
   Post,
+  Put,
   UseGuards,
 } from "@nestjs/common";
 import {
@@ -11,6 +12,8 @@ import {
   type CreateProductionWorkOrder,
   createProductionWorkOrderSchema,
   PERMISSIONS,
+  type SetPourLocation,
+  setPourLocationSchema,
 } from "@fw3/shared-types";
 import { CurrentUser } from "../common/current-user.decorator";
 import { ZodValidationPipe } from "../common/zod-validation.pipe";
@@ -62,5 +65,26 @@ export class ProductionController {
   @RequirePermissions(PERMISSIONS.PRODUCTION_EXECUTE)
   cancel(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string) {
     return this.production.cancel(user, id);
+  }
+
+  // Pour routing: recompute all line assignments from the rules, or override one.
+  @Post(":id/assignments/recompute")
+  @RequirePermissions(PERMISSIONS.PRODUCTION_SCHEDULE)
+  recomputeAssignments(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param("id") id: string,
+  ) {
+    return this.production.recomputeAssignments(user, id);
+  }
+
+  @Put(":id/lines/:lineId/location")
+  @RequirePermissions(PERMISSIONS.PRODUCTION_SCHEDULE)
+  setLineLocation(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param("id") id: string,
+    @Param("lineId") lineId: string,
+    @Body(new ZodValidationPipe(setPourLocationSchema)) body: SetPourLocation,
+  ) {
+    return this.production.setLineLocation(user, id, lineId, body.location);
   }
 }

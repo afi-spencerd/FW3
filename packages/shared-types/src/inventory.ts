@@ -134,6 +134,14 @@ export const createInventoryItemSchema = z.object({
    * in inventory but excluded from the production compounder dosing tool.
    */
   productionUse: z.boolean().default(true),
+  /**
+   * Floor-only routing: when true this material is never assigned to the robot
+   * or the 2 lb small-pours lab (e.g. resins, heat-before-add, add-last,
+   * reaction-prone) — its pours always go to the floor.
+   */
+  restrictToFloor: z.boolean().default(false),
+  /** Optional note on why the material is floor-only. */
+  floorOnlyReason: z.string().trim().max(500).optional(),
   /** CAS registry number (regulatory identity). */
   casNumber: z.string().trim().max(40).optional(),
   /** Flash point in °C (closed cup); omit if not applicable. */
@@ -170,6 +178,8 @@ export const inventoryItemSchema = z.object({
   active: z.boolean(),
   reorderPoint: z.string().nullable(),
   productionUse: z.boolean(),
+  restrictToFloor: z.boolean(),
+  floorOnlyReason: z.string().nullable(),
   casNumber: z.string().nullable(),
   flashPointC: z.string().nullable(),
   prop65Status: prop65StatusSchema,

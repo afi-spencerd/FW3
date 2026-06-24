@@ -159,6 +159,24 @@ export const BUSINESS_VARIABLES = [
     defaultValue: "12",
     roleDefaults: { FLOOR: "12", LAB: "30", SAMPLE_LAB: "60" },
   },
+  {
+    key: "smallPoursLabThresholdLb",
+    label: "Small-pours lab max pour",
+    group: "Pours",
+    type: "NUMBER",
+    unit: "lb",
+    roleScoped: false,
+    defaultValue: "2",
+  },
+  {
+    key: "robotPourThresholdLb",
+    label: "Robot max pour",
+    group: "Pours",
+    type: "NUMBER",
+    unit: "lb",
+    roleScoped: false,
+    defaultValue: "2",
+  },
 ] as const satisfies readonly BusinessVariableDef[];
 
 export type BusinessVariableKey = (typeof BUSINESS_VARIABLES)[number]["key"];

@@ -4,6 +4,7 @@ import { useRouter } from "vue-router";
 import {
   kgEquivalent,
   PERMISSIONS,
+  POUR_LOCATION_LABELS,
   type ProductionWorkOrder,
 } from "@fw3/shared-types";
 import { api, ApiError } from "../lib/api";
@@ -84,6 +85,7 @@ onMounted(load);
             <th class="num">Staged (lb)</th>
             <th class="num">Consumed (lb)</th>
             <th class="num">kg equivalent</th>
+            <th>Assigned to</th>
           </tr>
         </thead>
         <tbody>
@@ -95,6 +97,7 @@ onMounted(load);
             <td class="num">
               {{ line.handlingUnit === "KG" ? kgEquivalent(line.requiredQty) + " kg" : "—" }}
             </td>
+            <td>{{ line.assignedLocation ? POUR_LOCATION_LABELS[line.assignedLocation] : "—" }}</td>
           </tr>
         </tbody>
       </table>

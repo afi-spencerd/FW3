@@ -87,6 +87,8 @@ const form = reactive({
   active: true,
   // Raw-material regulatory data.
   productionUse: true,
+  restrictToFloor: false,
+  floorOnlyReason: "",
   casNumber: "",
   flashPointC: "",
   prop65Status: "UNKNOWN" as Prop65Status,
@@ -364,6 +366,8 @@ onMounted(async () => {
       assetAccount: item.assetAccount ?? "",
       active: item.active,
       productionUse: item.productionUse,
+      restrictToFloor: item.restrictToFloor,
+      floorOnlyReason: item.floorOnlyReason ?? "",
       casNumber: item.casNumber ?? "",
       flashPointC: item.flashPointC ?? "",
       prop65Status: item.prop65Status,
@@ -408,6 +412,9 @@ async function submit(): Promise<void> {
       assetAccount: form.assetAccount || undefined,
       active: form.active,
       productionUse: isRawMaterial.value ? form.productionUse : true,
+      restrictToFloor: isRawMaterial.value ? form.restrictToFloor : false,
+      floorOnlyReason:
+        isRawMaterial.value && form.floorOnlyReason ? form.floorOnlyReason : undefined,
       casNumber: isRawMaterial.value && form.casNumber ? form.casNumber : undefined,
       flashPointC:
         isRawMaterial.value && form.flashPointC ? form.flashPointC : undefined,
@@ -581,6 +588,20 @@ async function submit(): Promise<void> {
             Uncheck for R&amp;D / lab-only materials. Unchecked materials stay in
             inventory but are hidden from the production compounder dosing tool.
           </div>
+        </div>
+        <div class="field">
+          <label>
+            <input type="checkbox" v-model="form.restrictToFloor" style="width: auto" />
+            Floor-only (never robot / 2lb lab)
+          </label>
+          <div class="inactive" style="font-size: 0.8rem">
+            For resins, materials needing heating, must-add-last, or reaction-prone
+            materials. Their pours are always assigned to the floor.
+          </div>
+        </div>
+        <div v-if="form.restrictToFloor" class="field">
+          <label>Floor-only reason (optional)</label>
+          <input v-model="form.floorOnlyReason" placeholder="e.g. resin — must be heated" />
         </div>
         <div class="grid-2">
           <div class="field">

@@ -169,6 +169,10 @@ model InventoryItem {
   // R&D/lab-only materials stay in inventory but are hidden from the production
   // compounder dosing tool (see CompounderService.getInventory).
   productionUse  Boolean   @default(true)
+  // Floor-only routing: never assign this material's pours to the robot or the
+  // 2 lb small-pours lab (resins, heat-before-add, add-last, reaction-prone).
+  restrictToFloor Boolean  @default(false)
+  floorOnlyReason String?  @db.NVarChar(500)
   casNumber      String?   @db.NVarChar(40)
   flashPointC    Decimal?  @db.Decimal(7, 2) // flash point °C (closed cup)
   prop65Status   String    @default("UNKNOWN") @db.NVarChar(20) // UNKNOWN | NOT_LISTED | LISTED (CHECK)
@@ -971,6 +975,7 @@ model ProductionWorkOrderLine {
   stagedQty             Decimal @default(0) @db.Decimal(18, 4)
   consumedQty           Decimal @default(0) @db.Decimal(18, 4)
   sortOrder             Int     @default(0)
+  assignedLocation      String? @db.NVarChar(20) // FLOOR | LAB | ROBOT (CHECK); null = unassigned (legacy)
 
   workOrder ProductionWorkOrder @relation(fields: [productionWorkOrderId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   component InventoryItem       @relation("ComponentProductionRunLines", fields: [componentId], references: [id], onDelete: NoAction, onUpdate: NoAction)

@@ -42,6 +42,47 @@ const positiveQty = quantityString.refine(
   "must be greater than 0",
 );
 
+// ---- Pour routing ----
+/**
+ * Where a pour (one work-order component) is dispatched. LAB is the 2 lb
+ * "small pours" lab (the LAB operator role); ROBOT is the automated station.
+ */
+export const POUR_LOCATIONS = ["FLOOR", "LAB", "ROBOT"] as const;
+export const pourLocationSchema = z.enum(POUR_LOCATIONS);
+export type PourLocation = (typeof POUR_LOCATIONS)[number];
+
+export const POUR_LOCATION_LABELS: Record<PourLocation, string> = {
+  FLOOR: "Floor",
+  LAB: "2lb (small pours) lab",
+  ROBOT: "Robot",
+};
+
+/**
+ * Decide where a single pour is initially assigned. Pure so it can be shared and
+ * unit-tested. Quantities and thresholds are in canonical pounds.
+ * - Floor-restricted materials (resins, heat-before-add, add-last, reaction-prone)
+ *   always go to the floor.
+ * - Pours over the small-pours-lab threshold always go to the floor.
+ * - A small pour of a material currently loaded in the (running) robot, below the
+ *   robot threshold, goes to the robot.
+ * - Otherwise a small pour goes to the 2 lb small-pours lab.
+ */
+export function assignPourLocation(args: {
+  restrictToFloor: boolean;
+  quantityLb: number;
+  inRobot: boolean;
+  robotDown: boolean;
+  smallPoursLabThresholdLb: number;
+  robotPourThresholdLb: number;
+}): PourLocation {
+  if (args.restrictToFloor) return "FLOOR";
+  if (args.quantityLb > args.smallPoursLabThresholdLb) return "FLOOR";
+  if (args.inRobot && !args.robotDown && args.quantityLb < args.robotPourThresholdLb) {
+    return "ROBOT";
+  }
+  return "LAB";
+}
+
 export const createProductionWorkOrderSchema = z.object({
   workOrderNumber: z.string().trim().min(1).max(50),
   targetItemId: z.string().uuid(),
@@ -65,7 +106,12 @@ export const productionWorkOrderLineSchema = z.object({
   stagedQty: z.string(),
   consumedQty: z.string(),
   sortOrder: z.number().int(),
+  /** Where this pour is assigned (null for legacy lines created before routing). */
+  assignedLocation: pourLocationSchema.nullable(),
 });
+
+/** Manually override (by scheduling) where a work-order line's pour is assigned. */
+export const setPourLocationSchema = z.object({ location: pourLocationSchema });
 
 export const productionWorkOrderSchema = z.object({
   id: z.string().uuid(),
@@ -200,3 +246,4 @@ export type SchedulerBoard = z.infer<typeof schedulerBoardSchema>;
 export type EnqueueWorkOrder = z.infer<typeof enqueueWorkOrderSchema>;
 export type QueueByRules = z.infer<typeof queueByRulesSchema>;
 export type RepositionWorkOrder = z.infer<typeof repositionWorkOrderSchema>;
+export type SetPourLocation = z.infer<typeof setPourLocationSchema>;

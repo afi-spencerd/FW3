@@ -115,6 +115,8 @@ export class InventoryService {
             reorderPoint: input.reorderPoint ?? null,
             // Raw-material regulatory data.
             productionUse: input.productionUse,
+            restrictToFloor: input.restrictToFloor,
+            floorOnlyReason: input.floorOnlyReason ?? null,
             casNumber: input.casNumber ?? null,
             flashPointC: input.flashPointC ?? null,
             prop65Status: input.prop65Status,
@@ -282,6 +284,12 @@ export class InventoryService {
             ...(input.productionUse === undefined
               ? {}
               : { productionUse: input.productionUse }),
+            ...(input.restrictToFloor === undefined
+              ? {}
+              : { restrictToFloor: input.restrictToFloor }),
+            ...(input.floorOnlyReason === undefined
+              ? {}
+              : { floorOnlyReason: input.floorOnlyReason ?? null }),
             ...(input.casNumber === undefined
               ? {}
               : { casNumber: input.casNumber ?? null }),
@@ -383,6 +391,8 @@ export class InventoryService {
       active: row.active,
       reorderPoint: row.reorderPoint === null ? null : row.reorderPoint.toString(),
       productionUse: row.productionUse,
+      restrictToFloor: row.restrictToFloor,
+      floorOnlyReason: row.floorOnlyReason,
       casNumber: row.casNumber,
       flashPointC: row.flashPointC === null ? null : row.flashPointC.toString(),
       prop65Status: row.prop65Status as Prop65Status,

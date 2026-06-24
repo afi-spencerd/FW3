@@ -20,6 +20,7 @@ import { CostModule } from "./cost/cost.module";
 import { ProductionModule } from "./production/production.module";
 import { SchedulerModule } from "./scheduler/scheduler.module";
 import { CompounderModule } from "./compounder/compounder.module";
+import { RobotModule } from "./robot/robot.module";
 import { QualityModule } from "./quality/quality.module";
 import { QbwcModule } from "./qbwc/qbwc.module";
 import { JobsModule } from "./jobs/jobs.module";
@@ -51,6 +52,7 @@ import { JobsModule } from "./jobs/jobs.module";
     ProductionModule,
     SchedulerModule,
     CompounderModule,
+    RobotModule,
     QualityModule,
     QbwcModule,
     JobsModule,

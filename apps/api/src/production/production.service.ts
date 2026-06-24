@@ -6,8 +6,10 @@ import {
 } from "@nestjs/common";
 import Decimal from "decimal.js";
 import {
+  assignPourLocation,
   type AuthenticatedUser,
   type CreateProductionWorkOrder,
+  type PourLocation,
   type ProductionStatus,
   type ProductionWorkOrder,
   type ProductionWorkOrderSummary,
@@ -16,9 +18,11 @@ import {
   type UnitOfMeasure,
 } from "@fw3/shared-types";
 import { AuditService } from "../audit/audit.service";
+import { BusinessVariablesService } from "../business-variables/business-variables.service";
 import { PrismaService } from "../database/prisma.service";
 import { FormulaService } from "../formula/formula.service";
 import { Prisma } from "../generated/prisma/client";
+import { RobotService } from "../robot/robot.service";
 import { type Movement, StockService } from "../stock/stock.service";
 import { rollUpUnitCost } from "./production-math";
 
@@ -38,7 +42,35 @@ export class ProductionService {
     private readonly audit: AuditService,
     private readonly stock: StockService,
     private readonly formulas: FormulaService,
+    private readonly businessVars: BusinessVariablesService,
+    private readonly robot: RobotService,
   ) {}
+
+  /**
+   * Resolve the routing inputs shared across a work order's lines (thresholds +
+   * robot state), then a helper to assign one component line. Quantities are in
+   * canonical pounds.
+   */
+  private async pourRouter(
+    tenantId: string,
+  ): Promise<(restrictToFloor: boolean, inRobot: boolean, quantityLb: number) => PourLocation> {
+    const smallPoursLabThresholdLb = Number(
+      (await this.businessVars.getValue(tenantId, "smallPoursLabThresholdLb")) ?? "2",
+    );
+    const robotPourThresholdLb = Number(
+      (await this.businessVars.getValue(tenantId, "robotPourThresholdLb")) ?? "2",
+    );
+    const robotDown = await this.robot.isDown(tenantId);
+    return (restrictToFloor, inRobot, quantityLb) =>
+      assignPourLocation({
+        restrictToFloor,
+        quantityLb,
+        inRobot,
+        robotDown,
+        smallPoursLabThresholdLb,
+        robotPourThresholdLb,
+      });
+  }
 
   async list(tenantId: string): Promise<ProductionWorkOrderSummary[]> {
     const orders = await this.prisma.productionWorkOrder.findMany({
@@ -93,6 +125,16 @@ export class ProductionService {
           input.batchUnit,
         );
 
+        // Routing inputs: per-component floor-only flag + which RMs the robot holds.
+        const componentIds = requirements.lines.map((l) => l.rawMaterialId);
+        const components = await tx.inventoryItem.findMany({
+          where: { id: { in: componentIds }, tenantId: user.tenantId },
+          select: { id: true, restrictToFloor: true },
+        });
+        const restrictById = new Map(components.map((c) => [c.id, c.restrictToFloor]));
+        const robotRMs = new Set(await this.robot.loadedRawMaterialIds(user.tenantId));
+        const route = await this.pourRouter(user.tenantId);
+
         const workOrder = await tx.productionWorkOrder.create({
           data: {
             tenantId: user.tenantId,
@@ -109,6 +151,11 @@ export class ProductionService {
                 componentId: line.rawMaterialId,
                 requiredQty: line.requiredQuantity,
                 sortOrder: index,
+                assignedLocation: route(
+                  restrictById.get(line.rawMaterialId) ?? false,
+                  robotRMs.has(line.rawMaterialId),
+                  Number(line.requiredQuantity),
+                ),
               })),
             },
           },
@@ -127,6 +174,70 @@ export class ProductionService {
     } catch (err) {
       throw this.mapError(err, input.workOrderNumber);
     }
+  }
+
+  /**
+   * Re-run pour routing for every line from the current rules/robot state.
+   * Overwrites prior assignments, including manual scheduling overrides.
+   */
+  async recomputeAssignments(
+    user: AuthenticatedUser,
+    id: string,
+  ): Promise<ProductionWorkOrder> {
+    await this.prisma.$transaction(async (tx) => {
+      const workOrder = await this.loadWorkOrder(tx, user.tenantId, id);
+      const robotRMs = new Set(await this.robot.loadedRawMaterialIds(user.tenantId));
+      const route = await this.pourRouter(user.tenantId);
+      for (const line of workOrder.lines) {
+        await tx.productionWorkOrderLine.update({
+          where: { id: line.id },
+          data: {
+            assignedLocation: route(
+              line.component.restrictToFloor,
+              robotRMs.has(line.componentId),
+              Number(line.requiredQty),
+            ),
+          },
+        });
+      }
+      await this.audit.record(tx, {
+        tenantId: user.tenantId,
+        actorId: user.id,
+        entityType: "ProductionWorkOrder",
+        entityId: id,
+        action: "UPDATE",
+        after: { recomputedAssignments: true },
+      });
+    });
+    return this.getById(user.tenantId, id);
+  }
+
+  /** Manually override (scheduling) where a single line's pour is assigned. */
+  async setLineLocation(
+    user: AuthenticatedUser,
+    id: string,
+    lineId: string,
+    location: PourLocation,
+  ): Promise<ProductionWorkOrder> {
+    await this.prisma.$transaction(async (tx) => {
+      const line = await tx.productionWorkOrderLine.findFirst({
+        where: { id: lineId, productionWorkOrderId: id, workOrder: { tenantId: user.tenantId } },
+      });
+      if (!line) throw new NotFoundException("Work order line not found");
+      await tx.productionWorkOrderLine.update({
+        where: { id: lineId },
+        data: { assignedLocation: location },
+      });
+      await this.audit.record(tx, {
+        tenantId: user.tenantId,
+        actorId: user.id,
+        entityType: "ProductionWorkOrder",
+        entityId: id,
+        action: "UPDATE",
+        after: { lineId, assignedLocation: location },
+      });
+    });
+    return this.getById(user.tenantId, id);
   }
 
   /** Stage components: move each required quantity INV -> WIP (into refill cans). */
@@ -369,6 +480,7 @@ export class ProductionService {
         stagedQty: line.stagedQty.toString(),
         consumedQty: line.consumedQty.toString(),
         sortOrder: line.sortOrder,
+        assignedLocation: line.assignedLocation as PourLocation | null,
       })),
       createdAt: workOrder.createdAt.toISOString(),
       updatedAt: workOrder.updatedAt.toISOString(),
