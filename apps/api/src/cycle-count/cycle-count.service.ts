@@ -215,6 +215,7 @@ export class CycleCountService {
         docType: "ADJUSTMENT" as const,
         docId: id,
         note: `Cycle count ${count.reference}`,
+        createdById: user.id,
       };
 
       for (const line of count.lines) {

@@ -162,6 +162,7 @@ export class CompounderService {
           docType: "PRODUCTION_RUN",
           docId: workOrderId,
           note: `Pour on ${wo.workOrderNumber}`,
+          createdById: user.id,
         },
       );
 

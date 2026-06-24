@@ -34,6 +34,7 @@ import {
   InsufficientStockError,
   type PostingResult,
 } from "./stock-costing";
+import { allocateLots, type LotAllocation } from "./lot-allocation";
 
 /** One movement to post. Magnitudes positive; direction signs it. status defaults INV. */
 export interface Movement {
@@ -51,6 +52,8 @@ export interface Movement {
    * per status (receiving for QUARANTINE inbound, default storage otherwise).
    */
   locationId?: string;
+  /** The lot this line pertains to (traceability). Null where no single lot applies. */
+  lotId?: string;
 }
 
 /** INV and QUARANTINE quantity is tracked by physical location; WIP is not. */
@@ -62,6 +65,8 @@ export interface PostingDoc {
   docType?: DocType;
   docId?: string;
   note?: string;
+  /** The acting user, written onto every ledger line for audit. */
+  createdById?: string;
 }
 
 export interface PostedLine extends PostingResult {
@@ -142,6 +147,8 @@ export class StockService {
           docType: doc.docType ?? null,
           docId: doc.docId ?? null,
           note: doc.note ?? null,
+          createdById: doc.createdById ?? null,
+          lotId: movement.lotId ?? null,
         },
       });
       await tx.itemStock.upsert({
@@ -192,6 +199,81 @@ export class StockService {
   }
 
   /**
+   * Per-lot availability in a bucket = signed Σ of the lot's ledger lines there,
+   * oldest lot first. Used to FIFO-attribute an outbound movement to lots.
+   */
+  private async allocateLotsFifo(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    itemId: string,
+    status: StockStatus,
+    quantity: string,
+  ): Promise<LotAllocation[]> {
+    const grouped = await tx.inventoryTxn.groupBy({
+      by: ["lotId"],
+      where: { tenantId, itemId, status, lotId: { not: null } },
+      _sum: { quantity: true },
+    });
+    const lotIds = grouped
+      .filter((g) => g.lotId && g._sum.quantity && g._sum.quantity.greaterThan(0))
+      .map((g) => ({ lotId: g.lotId as string, available: g._sum.quantity!.toString() }));
+    if (lotIds.length === 0) return [{ lotId: null, quantity }];
+    const lots = await tx.receivedLot.findMany({
+      where: { id: { in: lotIds.map((l) => l.lotId) } },
+      select: { id: true, receivedAt: true },
+    });
+    const receivedAt = new Map(lots.map((l) => [l.id, l.receivedAt.getTime()]));
+    lotIds.sort(
+      (a, b) => (receivedAt.get(a.lotId) ?? 0) - (receivedAt.get(b.lotId) ?? 0),
+    );
+    return allocateLots(lotIds, quantity);
+  }
+
+  /**
+   * Post one outbound movement, FIFO-attributed to lots: emits one ledger line
+   * per lot (oldest first), plus a lotId-null remainder for any uncovered (legacy)
+   * quantity. Returns the aggregate cost so callers needing one COGS figure (e.g.
+   * a shipment line) can use it; values stay moving-average (unchanged costing).
+   */
+  async postOutFifo(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    movement: Movement,
+    doc: PostingDoc,
+  ): Promise<{ unitCost: string; value: string }> {
+    const status: StockStatus = movement.status ?? "INV";
+    const allocations = await this.allocateLotsFifo(
+      tx,
+      tenantId,
+      movement.itemId,
+      status,
+      movement.quantity,
+    );
+    let totalValue = new Decimal(0);
+    let unitCost = "0";
+    for (const alloc of allocations) {
+      const [line] = await this.post(
+        tx,
+        tenantId,
+        [
+          {
+            ...movement,
+            direction: "OUT",
+            quantity: alloc.quantity,
+            ...(alloc.lotId ? { lotId: alloc.lotId } : {}),
+          },
+        ],
+        doc,
+      );
+      if (line) {
+        totalValue = totalValue.plus(new Decimal(line.value).abs());
+        unitCost = line.unitCost;
+      }
+    }
+    return { unitCost, value: totalValue.toString() };
+  }
+
+  /**
    * Move stock between statuses (e.g. INV -> WIP, or pack-off WIP -> INV). Cost
    * flows with the goods: out at the source average, in at that same cost, so
    * the two ledger lines are value-balanced.
@@ -206,6 +288,7 @@ export class StockService {
     doc: PostingDoc,
     type: TxnType = "TRANSFER",
     locations?: { fromLocationId?: string; toLocationId?: string },
+    lotId?: string,
   ): Promise<void> {
     const [out] = await this.post(
       tx,
@@ -217,6 +300,7 @@ export class StockService {
           direction: "OUT",
           quantity,
           status: fromStatus,
+          ...(lotId ? { lotId } : {}),
           ...(locations?.fromLocationId
             ? { locationId: locations.fromLocationId }
             : {}),
@@ -236,6 +320,7 @@ export class StockService {
           quantity,
           unitCost: out.unitCost,
           status: toStatus,
+          ...(lotId ? { lotId } : {}),
           ...(locations?.toLocationId
             ? { locationId: locations.toLocationId }
             : {}),
@@ -262,6 +347,7 @@ export class StockService {
       const [line] = await this.post(tx, user.tenantId, [movement], {
         docType: "ADJUSTMENT",
         note: input.note ?? undefined,
+        createdById: user.id,
       });
       await this.audit.record(tx, {
         tenantId: user.tenantId,
@@ -311,7 +397,8 @@ export class StockService {
         );
       }
 
-      // Consume approved lots FIFO.
+      // Consume approved lots FIFO, transferring each lot's slice WIP -> INV so
+      // the ledger lines carry the lot id (traceability follows the lot into INV).
       let remaining = requested;
       for (const lot of lots) {
         if (remaining.lessThanOrEqualTo(0)) break;
@@ -322,13 +409,20 @@ export class StockService {
           where: { id: lot.id },
           data: { packedQty: lot.packedQty.plus(take) },
         });
+        await this.transfer(
+          tx,
+          user.tenantId,
+          itemId,
+          "WIP",
+          "INV",
+          take.toString(),
+          { docType: "PRODUCTION_RUN", note: `Pack-off ${item.sku}`, createdById: user.id },
+          "TRANSFER",
+          undefined,
+          lot.id,
+        );
         remaining = remaining.minus(take);
       }
-
-      await this.transfer(tx, user.tenantId, itemId, "WIP", "INV", quantity, {
-        docType: "PRODUCTION_RUN",
-        note: `Pack-off ${item.sku}`,
-      });
       await this.audit.record(tx, {
         tenantId: user.tenantId,
         actorId: user.id,
@@ -373,9 +467,24 @@ export class StockService {
 
     const txns = await this.prisma.inventoryTxn.findMany({
       where: { tenantId, itemId },
+      include: {
+        createdBy: { select: { displayName: true } },
+        lot: { select: { supplierLotNumber: true } },
+      },
       orderBy: { occurredAt: "asc" },
     });
-    return txns.map((t) => ({
+    return txns.map((t) => this.toLedgerDto(t));
+  }
+
+  private toLedgerDto(
+    t: Prisma.InventoryTxnGetPayload<{
+      include: {
+        createdBy: { select: { displayName: true } };
+        lot: { select: { supplierLotNumber: true } };
+      };
+    }>,
+  ): InventoryTxnDto {
+    return {
       id: t.id,
       itemId: t.itemId,
       type: t.type as TxnType,
@@ -388,8 +497,25 @@ export class StockService {
       docType: (t.docType as DocType | null) ?? null,
       docId: t.docId,
       note: t.note,
+      createdById: t.createdById,
+      createdByName: t.createdBy?.displayName ?? null,
+      lotId: t.lotId,
+      lotNumber: t.lot?.supplierLotNumber ?? null,
       occurredAt: t.occurredAt.toISOString(),
-    }));
+    };
+  }
+
+  /** A single lot's ledger lines — its genealogy through QC, INV, ship/consume. */
+  async getLotLedger(tenantId: string, lotId: string): Promise<InventoryTxnDto[]> {
+    const txns = await this.prisma.inventoryTxn.findMany({
+      where: { tenantId, lotId },
+      include: {
+        createdBy: { select: { displayName: true } },
+        lot: { select: { supplierLotNumber: true } },
+      },
+      orderBy: { occurredAt: "asc" },
+    });
+    return txns.map((t) => this.toLedgerDto(t));
   }
 
   /** All per-(item, status) positions — drives the WIP vs LOT-traceable report. */
@@ -444,7 +570,10 @@ export class StockService {
             ...(input.locationId ? { locationId: input.locationId } : {}),
           },
         ],
-        { note: `Scrap (${input.reason})${input.note ? `: ${input.note}` : ""}` },
+        {
+          note: `Scrap (${input.reason})${input.note ? `: ${input.note}` : ""}`,
+          createdById: user.id,
+        },
       );
       if (!line) throw new BadRequestException("Scrap failed");
 

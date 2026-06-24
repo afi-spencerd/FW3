@@ -254,21 +254,12 @@ export class PurchaseOrderService {
           const handlingUnit = item.unitOfMeasure as UnitOfMeasure;
           const qtyLb = toPounds(recv.quantity, handlingUnit);
           const unitCostLb = unitCostToPounds(line.unitCost.toString(), handlingUnit);
-          // Received goods land in QUARANTINE at the receiving dock pending QC.
-          movements.push({
-            itemId: item.id,
-            type: "RECEIPT",
-            direction: "IN",
-            quantity: qtyLb,
-            unitCost: unitCostLb,
-            status: "QUARANTINE",
-            ...(receivingLocationId ? { locationId: receivingLocationId } : {}),
-          });
           // One quarantined lot per received line, with an empty QC test suite.
+          // Created before the movement so the ledger line carries its lot id.
           const supplierLotNumber =
             recv.supplierLotNumber?.trim() ||
             `${order.poNumber}-${item.sku}-${Date.now().toString(36)}`;
-          await tx.receivedLot.create({
+          const lot = await tx.receivedLot.create({
             data: {
               tenantId: user.tenantId,
               itemId: item.id,
@@ -288,6 +279,17 @@ export class PurchaseOrderService {
               },
             },
           });
+          // Received goods land in QUARANTINE at the receiving dock pending QC.
+          movements.push({
+            itemId: item.id,
+            type: "RECEIPT",
+            direction: "IN",
+            quantity: qtyLb,
+            unitCost: unitCostLb,
+            status: "QUARANTINE",
+            lotId: lot.id,
+            ...(receivingLocationId ? { locationId: receivingLocationId } : {}),
+          });
         }
 
         await tx.purchaseOrderLine.update({
@@ -301,6 +303,7 @@ export class PurchaseOrderService {
           docType: "PURCHASE_ORDER",
           docId: id,
           note: `PO ${order.poNumber} receipt to quarantine`,
+          createdById: user.id,
         });
       }
       if (containerEntries.length) {

@@ -158,12 +158,14 @@ export class QualityService {
             docType: "PURCHASE_ORDER",
             docId: lot.purchaseOrderId ?? undefined,
             note: `QC approved lot ${lot.supplierLotNumber}`,
+            createdById: user.id,
           },
           "TRANSFER",
           {
             ...(lot.locationId ? { fromLocationId: lot.locationId } : {}),
             ...(toLocationId ? { toLocationId } : {}),
           },
+          lot.id,
         );
       }
       await tx.receivedLot.update({
@@ -257,6 +259,7 @@ export class QualityService {
             direction: "OUT",
             quantity: qty.toString(),
             status: "QUARANTINE",
+            lotId: lot.id,
             ...(lot.locationId ? { locationId: lot.locationId } : {}),
           },
         ],
@@ -264,6 +267,7 @@ export class QualityService {
           docType: "PURCHASE_ORDER",
           docId: lot.purchaseOrderId ?? undefined,
           note: `Return to vendor — lot ${lot.supplierLotNumber}${input.rmaNumber ? ` (RMA ${input.rmaNumber})` : ""}`,
+          createdById: user.id,
         },
       );
 

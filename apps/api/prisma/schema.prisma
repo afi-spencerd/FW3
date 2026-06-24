@@ -79,6 +79,7 @@ model User {
   vendorReturns        VendorReturn[]
   shipments            Shipment[]
   purchasingAlerts     PurchasingAlert[] @relation("PurchasingAlertRaisedBy")
+  inventoryTxns        InventoryTxn[]
 
   @@unique([tenantId, idpSub])
   @@unique([tenantId, email])
@@ -355,6 +356,7 @@ model ReceivedLot {
   location Location?           @relation(fields: [locationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   results  QualityTestResult[]
   vendorReturns VendorReturn[]
+  txns     InventoryTxn[]
 
   @@index([tenantId, qcStatus])
   @@index([itemId])
@@ -501,13 +503,22 @@ model InventoryTxn {
   docType        String?  @db.NVarChar(30) // PURCHASE_ORDER | PRODUCTION_RUN | SALES_ORDER | ADJUSTMENT
   docId          String?  @db.Char(36)
   note           String?  @db.NVarChar(500)
+  // Who posted the line (audit on the ledger itself); null for legacy/system rows.
+  createdById    String?  @db.Char(36)
+  // The lot this quantity pertains to, for traceability (QC -> INV -> ship/consume).
+  // Null where no single lot applies (WIP blend, adjustments, opening balances).
+  lotId          String?  @db.Char(36)
   occurredAt     DateTime @default(now())
 
-  tenant Tenant        @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  item   InventoryItem @relation(fields: [itemId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  tenant    Tenant        @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  item      InventoryItem @relation(fields: [itemId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  createdBy User?         @relation(fields: [createdById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  lot       ReceivedLot?  @relation(fields: [lotId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([tenantId, itemId, occurredAt])
   @@index([tenantId, docType, docId])
+  @@index([tenantId, itemId, status, lotId])
+  @@index([lotId])
 }
 
 model Vendor {

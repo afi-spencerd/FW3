@@ -60,6 +60,12 @@ export const inventoryTxnSchema = z.object({
   docType: z.enum(DOC_TYPES).nullable(),
   docId: z.string().nullable(),
   note: z.string().nullable(),
+  /** Who posted this line (audit on the ledger); null for legacy/system rows. */
+  createdById: z.string().uuid().nullable(),
+  createdByName: z.string().nullable(),
+  /** The lot this quantity pertains to (traceability); null where no single lot applies. */
+  lotId: z.string().uuid().nullable(),
+  lotNumber: z.string().nullable(),
   occurredAt: z.string().datetime(),
 });
 

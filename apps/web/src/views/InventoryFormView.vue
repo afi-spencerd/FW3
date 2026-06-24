@@ -687,6 +687,8 @@ async function submit(): Promise<void> {
             <th class="num">Unit cost</th>
             <th class="num">Value</th>
             <th class="num">Balance</th>
+            <th>Lot</th>
+            <th>Operator</th>
             <th>Note</th>
           </tr>
         </thead>
@@ -698,10 +700,12 @@ async function submit(): Promise<void> {
             <td class="num">{{ t.unitCost }}</td>
             <td class="num">{{ t.value }}</td>
             <td class="num">{{ t.balanceQty }}</td>
+            <td>{{ t.lotNumber ?? "—" }}</td>
+            <td>{{ t.createdByName ?? "—" }}</td>
             <td>{{ t.note }}</td>
           </tr>
           <tr v-if="ledger.length === 0">
-            <td colspan="7" class="inactive">
+            <td colspan="9" class="inactive">
               No ledger entries yet (the on-hand above is the opening balance).
             </td>
           </tr>

@@ -136,19 +136,37 @@ export class ProductionService {
       if (workOrder.status !== "PLANNED") {
         throw new BadRequestException(`Cannot stage a ${workOrder.status} work order`);
       }
+      const doc = {
+        docType: "PRODUCTION_RUN" as const,
+        docId: id,
+        note: `Work order ${workOrder.workOrderNumber} staging`,
+        createdById: user.id,
+      };
       for (const line of workOrder.lines) {
-        await this.stock.transfer(
+        const qty = line.requiredQty.toString();
+        // INV -> WIP: the INV-side OUT is FIFO-attributed to the component's lots
+        // (traceability follows the raw material into the work order); the WIP-side
+        // IN is lot-anonymous — the material has entered the blend.
+        const out = await this.stock.postOutFifo(
           tx,
           user.tenantId,
-          line.componentId,
-          "INV",
-          "WIP",
-          line.requiredQty.toString(),
-          {
-            docType: "PRODUCTION_RUN",
-            docId: id,
-            note: `Work order ${workOrder.workOrderNumber} staging`,
-          },
+          { itemId: line.componentId, type: "TRANSFER", direction: "OUT", quantity: qty, status: "INV" },
+          doc,
+        );
+        await this.stock.post(
+          tx,
+          user.tenantId,
+          [
+            {
+              itemId: line.componentId,
+              type: "TRANSFER",
+              direction: "IN",
+              quantity: qty,
+              unitCost: out.unitCost,
+              status: "WIP",
+            },
+          ],
+          doc,
         );
         await tx.productionWorkOrderLine.update({
           where: { id: line.id },
@@ -183,6 +201,7 @@ export class ProductionService {
         docType: "PRODUCTION_RUN" as const,
         docId: id,
         note: `Work order ${workOrder.workOrderNumber}`,
+        createdById: user.id,
       };
 
       // Components are consumed by the compounder's pours as they happen. If any
@@ -228,25 +247,12 @@ export class ProductionService {
         consumedValue.toString(),
         workOrder.outputQty.toString(),
       );
-      await this.stock.post(
-        tx,
-        user.tenantId,
-        [
-          {
-            itemId: workOrder.targetItemId,
-            type: "PRODUCTION_OUTPUT",
-            direction: "IN",
-            quantity: workOrder.outputQty.toString(),
-            unitCost,
-            status: "WIP",
-          },
-        ],
-        doc,
-      );
 
-      // Open a PENDING production lot for the output (in FG_WIP). It must pass QC
-      // before it can be packed off (FG_WIP -> FG_INV).
-      await tx.receivedLot.create({
+      // Open a fresh PENDING production lot for the output (in FG_WIP) — created
+      // before the output movement so the ledger line carries it. The RM lots
+      // consumed above do NOT carry through: the blend starts this new lot. It
+      // must pass QC before pack-off (FG_WIP -> FG_INV).
+      const outputLot = await tx.receivedLot.create({
         data: {
           tenantId: user.tenantId,
           origin: "PRODUCTION",
@@ -264,6 +270,23 @@ export class ProductionService {
           },
         },
       });
+
+      await this.stock.post(
+        tx,
+        user.tenantId,
+        [
+          {
+            itemId: workOrder.targetItemId,
+            type: "PRODUCTION_OUTPUT",
+            direction: "IN",
+            quantity: workOrder.outputQty.toString(),
+            unitCost,
+            status: "WIP",
+            lotId: outputLot.id,
+          },
+        ],
+        doc,
+      );
 
       await tx.productionWorkOrder.update({ where: { id }, data: { status: "COMPLETED" } });
       await this.audit.record(tx, {

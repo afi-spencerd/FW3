@@ -30,7 +30,7 @@ import { FormulaService } from "../formula/formula.service";
 import { Prisma } from "../generated/prisma/client";
 import { extendedValue } from "../inventory/valuation";
 import { poStatusFromLines } from "../purchasing/po-status";
-import { type Movement, StockService } from "../stock/stock.service";
+import { StockService } from "../stock/stock.service";
 
 type SoWithRelations = Prisma.SalesOrderGetPayload<{
   include: {
@@ -538,7 +538,6 @@ export class SalesOrderService {
       const linesById = new Map(order.lines.map((l) => [l.id, l]));
       // Item lines ship from item INV; container lines draw down container stock.
       // Keep each group in posting order so we can pair with the cost results.
-      const movements: Movement[] = [];
       const itemEntries: { line: (typeof order.lines)[number]; qty: string }[] = [];
       const containerEntries: { line: (typeof order.lines)[number]; qty: string }[] = [];
 
@@ -560,12 +559,6 @@ export class SalesOrderService {
         if (line.lineType === "CONTAINER") {
           containerEntries.push({ line, qty: ship.quantity });
         } else {
-          movements.push({
-            itemId: line.itemId!,
-            type: "SHIPMENT",
-            direction: "OUT",
-            quantity: ship.quantity,
-          });
           itemEntries.push({ line, qty: ship.quantity });
         }
         await tx.salesOrderLine.update({
@@ -574,14 +567,25 @@ export class SalesOrderService {
         });
       }
 
-      // Items: OUT at average cost (StockService rejects shipping more than on hand).
-      const posted = movements.length
-        ? await this.stock.post(tx, user.tenantId, movements, {
-            docType: "SALES_ORDER",
-            docId: id,
-            note: `SO ${order.soNumber} shipment`,
-          })
-        : [];
+      // Items: OUT at average cost, FIFO-attributed to the FG's INV lots (one
+      // ledger line per lot). StockService rejects shipping more than on hand.
+      const shipDoc = {
+        docType: "SALES_ORDER" as const,
+        docId: id,
+        note: `SO ${order.soNumber} shipment`,
+        createdById: user.id,
+      };
+      const posted: { unitCost: string; value: string }[] = [];
+      for (const entry of itemEntries) {
+        posted.push(
+          await this.stock.postOutFifo(
+            tx,
+            user.tenantId,
+            { itemId: entry.line.itemId!, type: "SHIPMENT", direction: "OUT", quantity: entry.qty },
+            shipDoc,
+          ),
+        );
+      }
       // Containers: OUT at average cost via a SALE movement on the container ledger.
       const containerPosted = await this.containers.sellInTx(
         tx,
@@ -615,9 +619,9 @@ export class SalesOrderService {
                 lineType: "ITEM",
                 itemId: entry.line.itemId,
                 quantity: entry.qty,
-                // COGS the bucket shipped out at (posted.value is signed -ve OUT).
+                // COGS = sum of the FIFO lot lines (postOutFifo returns it positive).
                 unitCost: posted[i]!.unitCost,
-                value: new Decimal(posted[i]!.value).abs().toString(),
+                value: posted[i]!.value,
               })),
               ...containerEntries.map((entry, i) => ({
                 tenantId: user.tenantId,

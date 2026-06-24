@@ -207,6 +207,8 @@ export const api = {
     request<InventoryPosition>(`/inventory/${id}/position`),
   itemLedger: (id: string) =>
     request<InventoryTxn[]>(`/inventory/${id}/ledger`),
+  lotLedger: (lotId: string) =>
+    request<InventoryTxn[]>(`/inventory/lots/${lotId}/ledger`),
   adjustStock: (id: string, body: AdjustStock) =>
     request<InventoryPosition>(`/inventory/${id}/adjust`, {
       method: "POST",

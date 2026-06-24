@@ -2,6 +2,7 @@
 import { computed, onMounted, reactive, ref } from "vue";
 import { useRouter } from "vue-router";
 import {
+  type InventoryTxn,
   type ItemQualitySpec,
   type Lot,
   PERMISSIONS,
@@ -15,6 +16,7 @@ const router = useRouter();
 const auth = useAuthStore();
 
 const lot = ref<Lot | null>(null);
+const movements = ref<InventoryTxn[]>([]);
 const specs = ref<ItemQualitySpec[]>([]);
 const measured = reactive<Record<string, string>>({});
 // Judgment tests (odor, appearance) are passed/failed manually by the analyst.
@@ -84,6 +86,7 @@ async function load(): Promise<void> {
   try {
     lot.value = await api.getQualityLot(props.id);
     specs.value = await api.getItemQualitySpec(lot.value.itemId);
+    movements.value = await api.lotLedger(props.id);
     for (const r of lot.value.results) {
       measured[r.testType] = r.measuredValue ?? "";
       if (r.kind === "JUDGMENT") {
@@ -259,6 +262,34 @@ onMounted(load);
           </button>
         </div>
         <p v-else-if="remaining <= 0" class="banner ok">Fully returned to vendor.</p>
+      </div>
+
+      <div class="panel" style="margin-top: 1.5rem">
+        <h3 style="margin-top: 0">Lot movements</h3>
+        <p class="inactive" style="font-size: 0.85rem">
+          This lot's ledger genealogy — receipt → QC → into stock → ship/consume.
+        </p>
+        <table>
+          <thead>
+            <tr>
+              <th>When</th><th>Type</th><th>Bucket</th>
+              <th class="num">Qty</th><th class="num">Value</th><th>Operator</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="m in movements" :key="m.id">
+              <td>{{ new Date(m.occurredAt).toLocaleString() }}</td>
+              <td>{{ m.type }}</td>
+              <td>{{ m.status }}</td>
+              <td class="num">{{ m.quantity }}</td>
+              <td class="num">{{ m.value }}</td>
+              <td>{{ m.createdByName ?? "—" }}</td>
+            </tr>
+            <tr v-if="movements.length === 0">
+              <td colspan="6" class="inactive">No movements recorded for this lot yet.</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </div>
   </div>

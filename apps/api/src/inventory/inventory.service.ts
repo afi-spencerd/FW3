@@ -199,7 +199,11 @@ export class InventoryService {
               status: "INV",
             },
           ],
-          { docType: "ADJUSTMENT", note: input.note ?? "Opening balance" },
+          {
+            docType: "ADJUSTMENT",
+            note: input.note ?? "Opening balance",
+            createdById: user.id,
+          },
         );
         await this.audit.record(tx, {
           tenantId: user.tenantId,

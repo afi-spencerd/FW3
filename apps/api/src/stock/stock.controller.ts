@@ -42,6 +42,13 @@ export class StockController {
     return this.stock.getLedger(user.tenantId, id);
   }
 
+  // A single lot's ledger genealogy (receipt -> QC -> INV -> ship/consume).
+  @Get("lots/:lotId/ledger")
+  @RequirePermissions(PERMISSIONS.INVENTORY_READ)
+  lotLedger(@CurrentUser() user: AuthenticatedUser, @Param("lotId") lotId: string) {
+    return this.stock.getLotLedger(user.tenantId, lotId);
+  }
+
   @Post(":id/adjust")
   @RequirePermissions(PERMISSIONS.STOCK_ADJUST)
   adjust(
