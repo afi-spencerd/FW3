@@ -6,13 +6,16 @@ import {
 } from "@nestjs/common";
 import Decimal from "decimal.js";
 import type {
+  AuditEntry,
   AuthenticatedUser,
   CreateSalesOrder,
   CustomerItemPrice,
   ImportResultRow,
   ImportSalesOrderRow,
   ImportSalesOrdersResult,
+  PaymentMethod,
   PaymentTerms,
+  RecordPayment,
   SalesOrder,
   SalesOrderLineInput,
   SalesOrderStatus,
@@ -23,6 +26,7 @@ import type {
 } from "@fw3/shared-types";
 import { NET_PAYMENT_TERMS, PERMISSIONS } from "@fw3/shared-types";
 import { AuditService } from "../audit/audit.service";
+import { BusinessVariablesService } from "../business-variables/business-variables.service";
 import { ContainerService } from "../container/container.service";
 import { CostService } from "../cost/cost.service";
 import { PrismaService } from "../database/prisma.service";
@@ -43,6 +47,7 @@ type SoWithRelations = Prisma.SalesOrderGetPayload<{
       };
     };
     workOrders: { include: { target: true } };
+    payments: { include: { receivedBy: true } };
   };
 }>;
 
@@ -61,6 +66,7 @@ export class SalesOrderService {
     private readonly containers: ContainerService,
     private readonly costs: CostService,
     private readonly formulas: FormulaService,
+    private readonly businessVars: BusinessVariablesService,
   ) {}
 
   /**
@@ -148,12 +154,13 @@ export class SalesOrderService {
           include: { lines: { include: { item: true, container: true } }, shippedBy: true },
         },
         workOrders: { include: { target: true } },
+        payments: { include: { receivedBy: true } },
       },
       orderBy: { orderDate: "desc" },
     });
     return orders.map((o) => {
       const dto = this.toDto(o);
-      const { lines, shipments, workOrders, ...summary } = dto;
+      const { lines, shipments, workOrders, payments, ...summary } = dto;
       return { ...summary, lineCount: lines.length };
     });
   }
@@ -181,6 +188,7 @@ export class SalesOrderService {
           orderBy: { shippedAt: "asc" },
         },
         workOrders: { include: { target: true }, orderBy: { createdAt: "asc" } },
+        payments: { include: { receivedBy: true }, orderBy: { receivedAt: "asc" } },
       },
       orderBy: { orderDate: "asc" },
     });
@@ -488,7 +496,14 @@ export class SalesOrderService {
           entityType: "SalesOrder",
           entityId: id,
           action: "UPDATE",
-          before: { status: existing.status },
+          before: {
+            status: existing.status,
+            customerId: existing.customerId,
+            soNumber: existing.soNumber,
+            requestedShipDate: existing.requestedShipDate?.toISOString() ?? null,
+            notes: existing.notes,
+            lineCount: existing.lines.length,
+          },
           after: input,
         });
       });
@@ -745,25 +760,109 @@ export class SalesOrderService {
     return this.getById(user.tenantId, id);
   }
 
-  /** Record payment on the order (unblocks requesting production). Idempotent. */
-  async markPaid(user: AuthenticatedUser, id: string): Promise<SalesOrder> {
+  /**
+   * Record a (partial) payment against the order. Credit-card payments add a
+   * convenience-fee surcharge (creditCardFeePct, server-computed) on top of the
+   * amount — only the amount reduces the balance. The order is auto-marked paid
+   * (paidAt) once recorded amounts cover the order total. Overpayment is rejected.
+   */
+  async recordPayment(
+    user: AuthenticatedUser,
+    id: string,
+    input: RecordPayment,
+  ): Promise<SalesOrder> {
     await this.prisma.$transaction(async (tx) => {
       const order = await this.loadOrder(tx, user.tenantId, id);
       if (order.status === "CANCELLED") {
-        throw new BadRequestException("Cannot mark a cancelled order paid");
+        throw new BadRequestException("Cannot record a payment on a cancelled order");
       }
-      if (order.paidAt) return; // already paid
-      await tx.salesOrder.update({ where: { id }, data: { paidAt: new Date() } });
+      const total = this.orderTotal(order);
+      const paid = this.amountPaid(order);
+      const balance = total.minus(paid);
+      const amount = new Decimal(input.amount);
+      if (balance.lessThanOrEqualTo(0)) {
+        throw new BadRequestException("Order is already paid in full");
+      }
+      if (amount.greaterThan(balance)) {
+        throw new BadRequestException(
+          `Payment ${amount} exceeds the balance due (${balance.toDecimalPlaces(2)})`,
+        );
+      }
+
+      // Credit-card convenience fee (surcharge on top; not applied to the balance).
+      let convenienceFee = new Decimal(0);
+      if (input.method === "CREDIT_CARD") {
+        const pct = new Decimal(
+          (await this.businessVars.getValue(user.tenantId, "creditCardFeePct")) ?? "0",
+        );
+        convenienceFee = amount.times(pct).div(100).toDecimalPlaces(2);
+      }
+
+      await tx.salesOrderPayment.create({
+        data: {
+          tenantId: user.tenantId,
+          salesOrderId: id,
+          method: input.method,
+          amount: input.amount,
+          convenienceFee: convenienceFee.toString(),
+          reference: input.reference ?? null,
+          note: input.note ?? null,
+          receivedById: user.id,
+        },
+      });
+
+      // Auto-mark paid once cumulative amounts cover the total.
+      if (!order.paidAt && paid.plus(amount).greaterThanOrEqualTo(total)) {
+        await tx.salesOrder.update({ where: { id }, data: { paidAt: new Date() } });
+      }
+
       await this.audit.record(tx, {
         tenantId: user.tenantId,
         actorId: user.id,
         entityType: "SalesOrder",
         entityId: id,
         action: "UPDATE",
-        after: { paidAt: new Date().toISOString() },
+        after: {
+          payment: {
+            method: input.method,
+            amount: input.amount,
+            convenienceFee: convenienceFee.toString(),
+            ...(input.reference ? { reference: input.reference } : {}),
+          },
+        },
       });
     });
     return this.getById(user.tenantId, id);
+  }
+
+  /** Sales-order change history (who/what/when), newest first, from the audit log. */
+  async history(tenantId: string, id: string): Promise<AuditEntry[]> {
+    const rows = await this.prisma.auditLog.findMany({
+      where: { tenantId, entityType: "SalesOrder", entityId: id },
+      include: { actor: { select: { displayName: true } } },
+      orderBy: { createdAt: "desc" },
+    });
+    return rows.map((r) => ({
+      id: r.id,
+      action: r.action,
+      actorName: r.actor?.displayName ?? null,
+      before: r.before,
+      after: r.after,
+      createdAt: r.createdAt.toISOString(),
+    }));
+  }
+
+  private orderTotal(order: SoWithRelations): Decimal {
+    return order.lines.reduce(
+      (sum, l) => sum.plus(new Decimal(extendedValue(l.quantityOrdered.toString(), l.unitPrice.toString()))),
+      new Decimal(0),
+    );
+  }
+  private amountPaid(order: SoWithRelations): Decimal {
+    return order.payments.reduce(
+      (sum, p) => sum.plus(new Decimal(p.amount.toString())),
+      new Decimal(0),
+    );
   }
 
   /**
@@ -869,6 +968,7 @@ export class SalesOrderService {
           orderBy: { shippedAt: "asc" },
         },
         workOrders: { include: { target: true }, orderBy: { createdAt: "asc" } },
+        payments: { include: { receivedBy: true }, orderBy: { receivedAt: "asc" } },
       },
     });
     if (!order) throw new NotFoundException("Sales order not found");
@@ -941,9 +1041,24 @@ export class SalesOrderService {
       containerQuantity:
         line.containerQuantity === null ? null : line.containerQuantity.toString(),
     }));
-    const totalRevenue = lines
-      .reduce((sum, l) => sum.plus(l.lineRevenue), new Decimal(0))
-      .toString();
+    const totalRevenueDec = lines.reduce(
+      (sum, l) => sum.plus(l.lineRevenue),
+      new Decimal(0),
+    );
+    const totalRevenue = totalRevenueDec.toString();
+    const amountPaidDec = this.amountPaid(order);
+    const amountPaid = amountPaidDec.toString();
+    const balanceDue = totalRevenueDec.minus(amountPaidDec).toString();
+    const payments = order.payments.map((p) => ({
+      id: p.id,
+      amount: p.amount.toString(),
+      method: p.method as PaymentMethod,
+      convenienceFee: p.convenienceFee.toString(),
+      reference: p.reference,
+      note: p.note,
+      receivedByName: p.receivedBy?.displayName ?? null,
+      receivedAt: p.receivedAt.toISOString(),
+    }));
     const shipments = order.shipments.map((s) => {
       const sLines = s.lines.map((sl) => ({
         id: sl.id,
@@ -988,8 +1103,11 @@ export class SalesOrderService {
       paidAt: order.paidAt?.toISOString() ?? null,
       notes: order.notes,
       totalRevenue,
+      amountPaid,
+      balanceDue,
       packedAt: order.packedAt?.toISOString() ?? null,
       lines,
+      payments,
       shipments,
       workOrders: order.workOrders.map((w) => ({
         id: w.id,

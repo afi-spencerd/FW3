@@ -5,6 +5,7 @@ import {
   addressSchema,
   contactInputSchema,
   contactSchema,
+  paymentMethodSchema,
   paymentTermsSchema,
 } from "./party.js";
 
@@ -236,6 +237,40 @@ export const salesOrderWorkOrderSchema = z.object({
   salesOrderLineId: z.string().uuid().nullable(),
 });
 
+// ---- Payments ----
+const positiveMoney = moneyString.refine((v) => Number(v) > 0, "must be greater than 0");
+
+/** Record a payment against an order. The convenience fee is computed server-side. */
+export const recordPaymentSchema = z.object({
+  amount: positiveMoney,
+  method: paymentMethodSchema,
+  reference: z.string().trim().max(120).optional(),
+  note: z.string().trim().max(500).optional(),
+});
+
+export const salesOrderPaymentSchema = z.object({
+  id: z.string().uuid(),
+  amount: z.string(),
+  method: paymentMethodSchema,
+  /** Credit-card surcharge charged on top of `amount` (0 for other methods). */
+  convenienceFee: z.string(),
+  reference: z.string().nullable(),
+  note: z.string().nullable(),
+  receivedByName: z.string().nullable(),
+  receivedAt: z.string().datetime(),
+});
+
+/** One change-history entry for a sales order (from the audit log). */
+export const auditEntrySchema = z.object({
+  id: z.string().uuid(),
+  action: z.string(),
+  actorName: z.string().nullable(),
+  /** JSON snapshots as stored; null where not captured. */
+  before: z.string().nullable(),
+  after: z.string().nullable(),
+  createdAt: z.string().datetime(),
+});
+
 export const salesOrderSchema = z.object({
   id: z.string().uuid(),
   tenantId: z.string().uuid(),
@@ -252,9 +287,14 @@ export const salesOrderSchema = z.object({
   paidAt: z.string().datetime().nullable(),
   notes: z.string().nullable(),
   totalRevenue: z.string(),
+  /** Sum of recorded payment amounts (excludes convenience fees). */
+  amountPaid: z.string(),
+  /** totalRevenue − amountPaid. */
+  balanceDue: z.string(),
   /** When the order's containers were consumed (packed); null until packed. */
   packedAt: z.string().datetime().nullable(),
   lines: z.array(soLineSchema),
+  payments: z.array(salesOrderPaymentSchema),
   shipments: z.array(shipmentSchema),
   /** Production work orders requested from this order (empty until requested). */
   workOrders: z.array(salesOrderWorkOrderSchema),
@@ -263,7 +303,7 @@ export const salesOrderSchema = z.object({
 });
 
 export const salesOrderSummarySchema = salesOrderSchema
-  .omit({ lines: true, shipments: true, workOrders: true })
+  .omit({ lines: true, shipments: true, workOrders: true, payments: true })
   .extend({ lineCount: z.number().int() });
 
 // ---- CSV import ----
@@ -323,6 +363,9 @@ export type Shipment = z.infer<typeof shipmentSchema>;
 export type SalesOrderWorkOrder = z.infer<typeof salesOrderWorkOrderSchema>;
 export type SalesOrder = z.infer<typeof salesOrderSchema>;
 export type SalesOrderSummary = z.infer<typeof salesOrderSummarySchema>;
+export type RecordPayment = z.infer<typeof recordPaymentSchema>;
+export type SalesOrderPayment = z.infer<typeof salesOrderPaymentSchema>;
+export type AuditEntry = z.infer<typeof auditEntrySchema>;
 export type ImportSalesOrderRow = z.infer<typeof importSalesOrderRowSchema>;
 export type ImportSalesOrders = z.infer<typeof importSalesOrdersSchema>;
 export type ImportResultRow = z.infer<typeof importResultRowSchema>;

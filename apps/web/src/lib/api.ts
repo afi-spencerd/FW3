@@ -68,6 +68,8 @@ import type {
   ItemCost,
   SalesOrder,
   SalesOrderSummary,
+  RecordPayment,
+  AuditEntry,
   SchedulerBoard,
   ShipSalesOrder,
   UpdateSalesOrder,
@@ -398,8 +400,13 @@ export const api = {
     }),
   cancelSalesOrder: (id: string) =>
     request<SalesOrder>(`/sales-orders/${id}/cancel`, { method: "POST" }),
-  markSalesOrderPaid: (id: string) =>
-    request<SalesOrder>(`/sales-orders/${id}/mark-paid`, { method: "POST" }),
+  recordSalesOrderPayment: (id: string, data: RecordPayment) =>
+    request<SalesOrder>(`/sales-orders/${id}/payments`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  salesOrderHistory: (id: string) =>
+    request<AuditEntry[]>(`/sales-orders/${id}/history`),
   requestProduction: (id: string) =>
     request<SalesOrder>(`/sales-orders/${id}/request-production`, {
       method: "POST",

@@ -1,4 +1,5 @@
 import { Module } from "@nestjs/common";
+import { BusinessVariablesModule } from "../business-variables/business-variables.module";
 import { ContainerModule } from "../container/container.module";
 import { CostModule } from "../cost/cost.module";
 import { FormulaModule } from "../formula/formula.module";
@@ -8,7 +9,7 @@ import { SalesOrderController } from "./sales-order.controller";
 import { SalesOrderService } from "./sales-order.service";
 
 @Module({
-  imports: [ContainerModule, CostModule, FormulaModule],
+  imports: [ContainerModule, CostModule, FormulaModule, BusinessVariablesModule],
   controllers: [CustomerController, SalesOrderController],
   providers: [CustomerService, SalesOrderService],
   exports: [CustomerService, SalesOrderService],

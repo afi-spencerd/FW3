@@ -133,6 +133,15 @@ export const BUSINESS_VARIABLES = [
     defaultValue: "30",
   },
   {
+    key: "creditCardFeePct",
+    label: "Credit card convenience fee",
+    group: "Pricing",
+    type: "PERCENT",
+    unit: "%",
+    roleScoped: false,
+    defaultValue: "3",
+  },
+  {
     key: "poursPerHour",
     label: "Expected pours per hour",
     group: "Pours",

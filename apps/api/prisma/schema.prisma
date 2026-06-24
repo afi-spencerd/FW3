@@ -57,6 +57,7 @@ model Tenant {
   businessVariables   BusinessVariableValue[]
   companyHolidays     CompanyHoliday[]
   purchasingAlerts    PurchasingAlert[]
+  salesOrderPayments  SalesOrderPayment[]
 }
 
 model User {
@@ -80,6 +81,7 @@ model User {
   shipments            Shipment[]
   purchasingAlerts     PurchasingAlert[] @relation("PurchasingAlertRaisedBy")
   inventoryTxns        InventoryTxn[]
+  salesOrderPayments   SalesOrderPayment[]
 
   @@unique([tenantId, idpSub])
   @@unique([tenantId, email])
@@ -713,10 +715,35 @@ model SalesOrder {
   lines     SalesOrderLine[]
   shipments Shipment[]
   workOrders ProductionWorkOrder[]
+  payments  SalesOrderPayment[]
 
   @@unique([tenantId, soNumber])
   @@index([tenantId])
   @@index([tenantId, customerId])
+}
+
+// A payment recorded against a sales order. Partial payments are allowed; the SO
+// is marked paid (SalesOrder.paidAt) once the amounts cover the order total. The
+// convenience fee (credit-card surcharge) is charged on top of `amount` and does
+// not reduce the order balance.
+model SalesOrderPayment {
+  id            String   @id @default(uuid()) @db.Char(36)
+  tenantId      String   @db.Char(36)
+  salesOrderId  String   @db.Char(36)
+  method        String   @db.NVarChar(20) // CASH | CHECK | CREDIT_CARD | ACH | WIRE | OTHER (CHECK)
+  amount        Decimal  @db.Decimal(19, 4) // applied to the order balance
+  convenienceFee Decimal @default(0) @db.Decimal(19, 4) // surcharge on top (CC only)
+  reference     String?  @db.NVarChar(120) // check #, card last-4, txn id, etc.
+  note          String?  @db.NVarChar(500)
+  receivedById  String   @db.Char(36)
+  receivedAt    DateTime @default(now())
+  createdAt     DateTime @default(now())
+
+  tenant     Tenant     @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  salesOrder SalesOrder @relation(fields: [salesOrderId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  receivedBy User       @relation(fields: [receivedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([tenantId, salesOrderId])
 }
 
 model SalesOrderLine {

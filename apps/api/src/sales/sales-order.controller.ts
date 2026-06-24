@@ -14,6 +14,8 @@ import {
   type ImportSalesOrders,
   importSalesOrdersSchema,
   PERMISSIONS,
+  type RecordPayment,
+  recordPaymentSchema,
   type ShipSalesOrder,
   shipSalesOrderSchema,
   type UpdateSalesOrder,
@@ -96,10 +98,20 @@ export class SalesOrderController {
     return this.orders.cancel(user, id);
   }
 
-  @Post(":id/mark-paid")
-  @RequirePermissions(PERMISSIONS.SO_UPDATE)
-  markPaid(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string) {
-    return this.orders.markPaid(user, id);
+  @Post(":id/payments")
+  @RequirePermissions(PERMISSIONS.SO_RECORD_PAYMENT)
+  recordPayment(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param("id") id: string,
+    @Body(new ZodValidationPipe(recordPaymentSchema)) body: RecordPayment,
+  ) {
+    return this.orders.recordPayment(user, id, body);
+  }
+
+  @Get(":id/history")
+  @RequirePermissions(PERMISSIONS.SO_READ)
+  history(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string) {
+    return this.orders.history(user.tenantId, id);
   }
 
   @Post(":id/request-production")

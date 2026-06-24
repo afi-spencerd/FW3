@@ -1,7 +1,14 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from "vue";
 import { useRouter } from "vue-router";
-import { NET_PAYMENT_TERMS, PERMISSIONS, type SalesOrder } from "@fw3/shared-types";
+import {
+  type AuditEntry,
+  NET_PAYMENT_TERMS,
+  PAYMENT_METHODS,
+  type PaymentMethod,
+  PERMISSIONS,
+  type SalesOrder,
+} from "@fw3/shared-types";
 import { api, ApiError } from "../lib/api";
 import { useAuthStore } from "../stores/auth";
 
@@ -55,13 +62,63 @@ const canPack = computed(
 const packBusy = ref(false);
 const prodBusy = ref(false);
 
-const canMarkPaid = computed(
+// --- Payments ---
+const PAYMENT_METHOD_OPTIONS = PAYMENT_METHODS;
+const payment = reactive({
+  amount: "",
+  method: "CASH" as PaymentMethod,
+  reference: "",
+  note: "",
+});
+const history = ref<AuditEntry[]>([]);
+const creditCardFeePct = ref(0);
+
+const canRecordPayment = computed(
   () =>
     so.value !== null &&
     so.value.status !== "CANCELLED" &&
-    !so.value.paidAt &&
-    auth.hasPermission(PERMISSIONS.SO_UPDATE),
+    Number(so.value.balanceDue) > 0 &&
+    auth.hasPermission(PERMISSIONS.SO_RECORD_PAYMENT),
 );
+// Convenience-fee preview for a credit-card payment (server is authoritative).
+const feePreview = computed(() => {
+  if (payment.method !== "CREDIT_CARD") return 0;
+  return (Number(payment.amount) || 0) * (creditCardFeePct.value / 100);
+});
+
+async function recordPayment(): Promise<void> {
+  if (!so.value) return;
+  error.value = null;
+  notice.value = null;
+  prodBusy.value = true;
+  try {
+    so.value = await api.recordSalesOrderPayment(so.value.id, {
+      amount: payment.amount,
+      method: payment.method,
+      reference: payment.reference.trim() || undefined,
+      note: payment.note.trim() || undefined,
+    });
+    payment.amount = "";
+    payment.reference = "";
+    payment.note = "";
+    await loadHistory();
+    notice.value = "Payment recorded.";
+  } catch (err) {
+    error.value = err instanceof ApiError ? err.message : "Failed to record payment";
+  } finally {
+    prodBusy.value = false;
+  }
+}
+
+async function loadHistory(): Promise<void> {
+  if (!so.value) return;
+  try {
+    history.value = await api.salesOrderHistory(so.value.id);
+  } catch {
+    /* history is advisory */
+  }
+}
+
 const canRequestProduction = computed(
   () =>
     so.value !== null &&
@@ -100,21 +157,6 @@ async function saveShipDate(): Promise<void> {
     error.value = err instanceof ApiError ? err.message : "Failed to update ship date";
   } finally {
     shipDateBusy.value = false;
-  }
-}
-
-async function markPaid(): Promise<void> {
-  if (!so.value) return;
-  error.value = null;
-  notice.value = null;
-  prodBusy.value = true;
-  try {
-    so.value = await api.markSalesOrderPaid(so.value.id);
-    notice.value = "Payment recorded.";
-  } catch (err) {
-    error.value = err instanceof ApiError ? err.message : "Failed";
-  } finally {
-    prodBusy.value = false;
   }
 }
 
@@ -194,9 +236,21 @@ async function load(): Promise<void> {
     shipDateEdit.value = so.value.requestedShipDate
       ? so.value.requestedShipDate.slice(0, 10)
       : "";
+    payment.amount = so.value.balanceDue;
     syncTrackEdits(so.value);
+    await Promise.all([loadHistory(), loadFeePct()]);
   } catch (err) {
     error.value = err instanceof ApiError ? err.message : "Failed to load";
+  }
+}
+
+async function loadFeePct(): Promise<void> {
+  try {
+    const vars = await api.getBusinessVariables();
+    const v = vars.find((x) => x.key === "creditCardFeePct")?.entries[0]?.value;
+    if (v !== undefined) creditCardFeePct.value = Number(v);
+  } catch {
+    /* fee preview is advisory; server computes the authoritative fee */
   }
 }
 
@@ -279,7 +333,6 @@ onMounted(load);
         <h2 style="margin: 0">{{ so.soNumber }}</h2>
         <span class="spacer" />
         <button @click="router.push({ name: 'sales-orders' })">Back</button>
-        <button v-if="canMarkPaid" :disabled="prodBusy" @click="markPaid">Mark paid</button>
         <button
           v-if="canRequestProduction"
           class="primary"
@@ -320,9 +373,13 @@ onMounted(load);
           </div>
         </div>
         <div class="metric">
+          <div class="label">Balance due</div>
+          <div class="value">${{ so.balanceDue }}</div>
+        </div>
+        <div class="metric">
           <div class="label">Paid</div>
           <div class="value" style="font-size: 1rem">
-            {{ so.paidAt ? new Date(so.paidAt).toLocaleDateString() : "—" }}
+            {{ so.paidAt ? "✓ " + new Date(so.paidAt).toLocaleDateString() : "—" }}
           </div>
         </div>
         <div class="metric">
@@ -457,6 +514,70 @@ onMounted(load);
           </tbody>
         </table>
       </template>
+
+      <!-- Payments -->
+      <h3 style="margin-top: 1.5rem">
+        Payments
+        <span class="inactive" style="font-size: 0.85rem; font-weight: normal">
+          · paid ${{ so.amountPaid }} of ${{ so.totalRevenue }} · balance ${{ so.balanceDue }}
+        </span>
+      </h3>
+      <table v-if="so.payments.length">
+        <thead>
+          <tr>
+            <th>When</th><th>Method</th><th class="num">Amount</th>
+            <th class="num">CC fee</th><th>Reference</th><th>By</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="p in so.payments" :key="p.id">
+            <td>{{ new Date(p.receivedAt).toLocaleString() }}</td>
+            <td>{{ p.method.replace(/_/g, " ") }}</td>
+            <td class="num">${{ p.amount }}</td>
+            <td class="num">{{ Number(p.convenienceFee) > 0 ? "$" + p.convenienceFee : "—" }}</td>
+            <td>{{ p.reference ?? "—" }}</td>
+            <td>{{ p.receivedByName ?? "—" }}</td>
+          </tr>
+        </tbody>
+      </table>
+      <p v-else class="inactive" style="font-size: 0.85rem">No payments recorded yet.</p>
+
+      <div v-if="canRecordPayment" class="toolbar" style="flex-wrap: wrap; align-items: center">
+        <input v-model="payment.amount" inputmode="decimal" placeholder="Amount" style="max-width: 120px" />
+        <select v-model="payment.method" style="max-width: 150px">
+          <option v-for="m in PAYMENT_METHOD_OPTIONS" :key="m" :value="m">{{ m.replace(/_/g, " ") }}</option>
+        </select>
+        <input v-model="payment.reference" placeholder="Reference (optional)" style="max-width: 180px" />
+        <span v-if="feePreview > 0" class="inactive" style="font-size: 0.85rem">
+          + ${{ feePreview.toFixed(2) }} CC fee → charge ${{ (Number(payment.amount || 0) + feePreview).toFixed(2) }}
+        </span>
+        <span class="spacer" />
+        <button class="primary" :disabled="prodBusy || !(Number(payment.amount) > 0)" @click="recordPayment">
+          Record payment
+        </button>
+      </div>
+
+      <!-- Change history (audit) -->
+      <h3 style="margin-top: 1.5rem">History</h3>
+      <p class="inactive" style="font-size: 0.85rem">
+        Who changed what and when — every adjustment to this order.
+      </p>
+      <table v-if="history.length">
+        <thead>
+          <tr><th>When</th><th>By</th><th>Action</th><th>Detail</th></tr>
+        </thead>
+        <tbody>
+          <tr v-for="h in history" :key="h.id">
+            <td>{{ new Date(h.createdAt).toLocaleString() }}</td>
+            <td>{{ h.actorName ?? "system" }}</td>
+            <td>{{ h.action }}</td>
+            <td style="font-size: 0.8rem; max-width: 360px; overflow-wrap: anywhere">
+              {{ h.after ?? "" }}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      <p v-else class="inactive" style="font-size: 0.85rem">No history yet.</p>
     </div>
   </div>
 </template>

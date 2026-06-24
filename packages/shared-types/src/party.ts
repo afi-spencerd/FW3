@@ -24,6 +24,18 @@ export const PAYMENT_TERMS = [
 export const paymentTermsSchema = z.enum(PAYMENT_TERMS);
 export type PaymentTerms = (typeof PAYMENT_TERMS)[number];
 
+/** How a payment was tendered. Credit-card payments carry a convenience fee. */
+export const PAYMENT_METHODS = [
+  "CASH",
+  "CHECK",
+  "CREDIT_CARD",
+  "ACH",
+  "WIRE",
+  "OTHER",
+] as const;
+export const paymentMethodSchema = z.enum(PAYMENT_METHODS);
+export type PaymentMethod = (typeof PAYMENT_METHODS)[number];
+
 /**
  * Terms that let a customer receive goods before paying — used to decide whether
  * a sales order can be sent to production without a recorded payment.
