@@ -248,13 +248,16 @@ model FgRegulatoryProfile {
 
 // A tenant's override for a business variable (a code-defined catalog entry).
 // Unset catalog entries fall back to their defaults — only overrides are stored.
-// operatorRole is null for non-role-scoped variables; for role-scoped ones there's
-// one row per role. SQL Server unique treats the single NULL role as one slot.
+// operatorRole is null except for role-scoped variables (one row per role);
+// customerRating is null except for rating-scoped variables (a base row with both
+// null, plus one row per A/B/C/D override). SQL Server unique treats a NULL scope
+// column as one slot.
 model BusinessVariableValue {
   id           String   @id @default(uuid()) @db.Char(36)
   tenantId     String   @db.Char(36)
   key          String   @db.NVarChar(80)
   operatorRole String?  @db.NVarChar(20) // FLOOR | LAB | SAMPLE_LAB (CHECK); null = not role-scoped
+  customerRating String? @db.NVarChar(1) // A | B | C | D (CHECK); null = base / not rating-scoped
   // Stored as text so non-numeric types (e.g. TIME "06:00") fit; validated by the
   // catalog's type. Numeric variables store a plain decimal string.
   value        String   @db.NVarChar(120)
@@ -263,7 +266,7 @@ model BusinessVariableValue {
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
-  @@unique([tenantId, key, operatorRole])
+  @@unique([tenantId, key, operatorRole, customerRating])
   @@index([tenantId])
 }
 

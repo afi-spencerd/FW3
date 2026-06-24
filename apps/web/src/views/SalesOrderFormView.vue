@@ -23,8 +23,11 @@ const items = ref<InventoryItem[]>([]);
 const containers = ref<Container[]>([]);
 // Per-item cost basis (per lb), fetched on demand and cached by item id.
 const itemCosts = reactive<Record<string, ItemCost>>({});
-// Default profit margin (%) for suggesting prices, from business variables.
+// Profit margin (%) used to suggest prices. Sourced from the rating-scoped
+// `profitMarginPct` business variable: a base value plus per-rating overrides.
 const marginPct = ref(30);
+const baseMargin = ref(30);
+const marginByRating = reactive<Record<string, number>>({});
 // This customer's historic price per item (loaded when the customer changes).
 const priceHistory = reactive<Record<string, CustomerItemPrice>>({});
 const allowBelowCost = ref(false);
@@ -97,6 +100,18 @@ async function loadPriceHistory(): Promise<void> {
   } catch {
     /* history is advisory */
   }
+}
+
+// Pick the price-suggestion margin for the selected customer's rating; unrated
+// customers (and ratings without an override) fall back to the base margin.
+function recomputeMargin(): void {
+  const rating = customers.value.find((c) => c.id === form.customerId)?.rating;
+  marginPct.value = (rating && marginByRating[rating]) ?? baseMargin.value;
+}
+
+async function onCustomerChange(): Promise<void> {
+  recomputeMargin();
+  await loadPriceHistory();
 }
 
 /** All-in cost per unit for the line. */
@@ -195,8 +210,14 @@ onMounted(async () => {
     // Any item tier is sellable now (raw materials, bases, finished goods).
     items.value = inv.items.filter((i) => i.active);
     containers.value = cont.filter((x) => x.active);
-    const margin = vars.find((v) => v.key === "profitMarginPct")?.entries[0]?.value;
-    if (margin !== undefined) marginPct.value = Number(margin);
+    const marginVar = vars.find((v) => v.key === "profitMarginPct");
+    if (marginVar) {
+      for (const e of marginVar.entries) {
+        if (e.customerRating) marginByRating[e.customerRating] = Number(e.value);
+        else baseMargin.value = Number(e.value);
+      }
+    }
+    marginPct.value = baseMargin.value;
     addLine();
   } catch (err) {
     issues.value = [err instanceof ApiError ? err.message : "Failed to load"];
@@ -264,7 +285,7 @@ async function submit(): Promise<void> {
       <div class="grid-2">
         <div class="field">
           <label>Customer</label>
-          <select v-model="form.customerId" @change="loadPriceHistory">
+          <select v-model="form.customerId" @change="onCustomerChange">
             <option value="" disabled>Select a customer…</option>
             <option v-for="c in customers" :key="c.id" :value="c.id">{{ c.name }}</option>
           </select>

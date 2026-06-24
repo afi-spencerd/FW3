@@ -3,6 +3,7 @@ import { computed, onMounted, reactive, ref } from "vue";
 import {
   type BusinessVariable,
   type CompanyHoliday,
+  type CustomerRating,
   HOLIDAY_RULE_TYPES,
   type HolidayRuleType,
   MONTH_LABELS,
@@ -26,8 +27,12 @@ const error = ref<string | null>(null);
 const notice = ref<string | null>(null);
 const busy = ref(false);
 
-function entryKey(key: string, role: OperatorRole | null): string {
-  return `${key}|${role ?? ""}`;
+function entryKey(
+  key: string,
+  role: OperatorRole | null,
+  rating: CustomerRating | null = null,
+): string {
+  return `${key}|${role ?? ""}|${rating ?? ""}`;
 }
 
 const groups = computed(() => [...new Set(vars.value.map((v) => v.group))]);
@@ -38,9 +43,16 @@ function varsInGroup(group: string): BusinessVariable[] {
 const changed = computed(() =>
   vars.value.flatMap((v) =>
     v.entries.flatMap((e) => {
-      const k = entryKey(v.key, e.operatorRole);
+      const k = entryKey(v.key, e.operatorRole, e.customerRating);
       return edits[k] !== undefined && edits[k] !== original[k]
-        ? [{ key: v.key, operatorRole: e.operatorRole ?? undefined, value: edits[k]! }]
+        ? [
+            {
+              key: v.key,
+              operatorRole: e.operatorRole ?? undefined,
+              customerRating: e.customerRating ?? undefined,
+              value: edits[k]!,
+            },
+          ]
         : [];
     }),
   ),
@@ -52,7 +64,7 @@ function apply(list: BusinessVariable[]): void {
   for (const k of Object.keys(original)) delete original[k];
   for (const v of list) {
     for (const e of v.entries) {
-      const k = entryKey(v.key, e.operatorRole);
+      const k = entryKey(v.key, e.operatorRole, e.customerRating);
       edits[k] = e.value;
       original[k] = e.value;
     }
@@ -191,8 +203,8 @@ onMounted(load);
       <table>
         <tbody>
           <template v-for="v in varsInGroup(group)" :key="v.key">
-            <!-- Non-role-scoped: single value -->
-            <tr v-if="!v.roleScoped">
+            <!-- Non-scoped: single value -->
+            <tr v-if="!v.roleScoped && !v.ratingScoped">
               <td>{{ v.label }}</td>
               <td class="num" style="width: 180px">
                 <input
@@ -215,17 +227,40 @@ onMounted(load);
               </td>
             </tr>
             <!-- Role-scoped: one row per operator role -->
-            <template v-else>
+            <template v-else-if="v.roleScoped">
               <tr>
                 <td colspan="3"><strong>{{ v.label }}</strong> <span class="inactive">({{ v.unit }})</span></td>
               </tr>
-              <tr v-for="e in v.entries" :key="entryKey(v.key, e.operatorRole)">
+              <tr v-for="e in v.entries" :key="entryKey(v.key, e.operatorRole, e.customerRating)">
                 <td style="padding-left: 1.25rem">
                   {{ e.operatorRole ? OPERATOR_ROLE_LABELS[e.operatorRole] : "—" }}
                 </td>
                 <td class="num" style="width: 180px">
                   <input
-                    v-model="edits[entryKey(v.key, e.operatorRole)]"
+                    v-model="edits[entryKey(v.key, e.operatorRole, e.customerRating)]"
+                    inputmode="decimal"
+                    :disabled="!canManage"
+                    style="text-align: right; max-width: 110px"
+                  />
+                  <span class="inactive" style="margin-left: 0.35rem">{{ v.unit }}</span>
+                </td>
+                <td style="width: 70px">
+                  <span v-if="e.isDefault" class="inactive" style="font-size: 0.75rem">default</span>
+                </td>
+              </tr>
+            </template>
+            <!-- Rating-scoped: an editable base plus one row per customer rating -->
+            <template v-else>
+              <tr>
+                <td colspan="3"><strong>{{ v.label }}</strong> <span class="inactive">({{ v.unit }})</span></td>
+              </tr>
+              <tr v-for="e in v.entries" :key="entryKey(v.key, e.operatorRole, e.customerRating)">
+                <td style="padding-left: 1.25rem">
+                  {{ e.customerRating ? `Rating ${e.customerRating}` : "Default (unrated)" }}
+                </td>
+                <td class="num" style="width: 180px">
+                  <input
+                    v-model="edits[entryKey(v.key, e.operatorRole, e.customerRating)]"
                     inputmode="decimal"
                     :disabled="!canManage"
                     style="text-align: right; max-width: 110px"

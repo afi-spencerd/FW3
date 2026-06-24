@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { customerRatingSchema } from "./sales.js";
 
 /**
  * Business variables — tenant-configurable operational parameters (working hours,
@@ -58,7 +59,13 @@ export interface BusinessVariableDef {
   unit: string;
   /** When true, the variable holds one value per operator role. */
   roleScoped: boolean;
-  /** Default for a non-role-scoped variable (and fallback for role-scoped). */
+  /**
+   * When true, the variable holds an editable base value plus optional per
+   * customer-rating (A/B/C/D) overrides; a rating without an override (and any
+   * unrated customer) falls back to the base. Mutually exclusive with roleScoped.
+   */
+  ratingScoped?: boolean;
+  /** Default for a non-scoped variable (and base/fallback for scoped ones). */
   defaultValue: string;
   /** Per-role defaults for a role-scoped variable. */
   roleDefaults?: Partial<Record<OperatorRole, string>>;
@@ -130,6 +137,7 @@ export const BUSINESS_VARIABLES = [
     type: "PERCENT",
     unit: "%",
     roleScoped: false,
+    ratingScoped: true,
     defaultValue: "30",
   },
   {
@@ -162,10 +170,14 @@ export function findBusinessVariable(key: string): BusinessVariableDef | undefin
 
 // ---- write + read shapes ----
 
-/** One value override; operatorRole is required iff the variable is role-scoped. */
+/**
+ * One value override. `operatorRole` is required iff the variable is role-scoped;
+ * `customerRating` may be set (or null for the base) iff it is rating-scoped.
+ */
 export const businessVariableValueInputSchema = z.object({
   key: z.string().min(1).max(80),
   operatorRole: operatorRoleSchema.nullish(),
+  customerRating: customerRatingSchema.nullish(),
   // Validated against the variable's type server-side (numeric vs TIME).
   value: z.string().trim().min(1).max(120),
 });
@@ -174,10 +186,12 @@ export const updateBusinessVariablesSchema = z.object({
 });
 
 export const businessVariableEntrySchema = z.object({
-  /** Null for a non-role-scoped variable; the role for a role-scoped one. */
+  /** Set only for a role-scoped variable's per-role entries; null otherwise. */
   operatorRole: operatorRoleSchema.nullable(),
+  /** Set only for a rating-scoped variable's per-rating entries; null = base. */
+  customerRating: customerRatingSchema.nullable(),
   value: z.string(),
-  /** True when the value comes from the catalog default (no stored override). */
+  /** True when the value comes from a default/base (no stored override). */
   isDefault: z.boolean(),
 });
 
@@ -188,6 +202,7 @@ export const businessVariableSchema = z.object({
   type: businessVariableTypeSchema,
   unit: z.string(),
   roleScoped: z.boolean(),
+  ratingScoped: z.boolean(),
   entries: z.array(businessVariableEntrySchema),
 });
 

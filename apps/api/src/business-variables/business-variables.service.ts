@@ -2,7 +2,10 @@ import { BadRequestException, Injectable } from "@nestjs/common";
 import {
   type AuthenticatedUser,
   type BusinessVariable,
+  type BusinessVariableDef,
   BUSINESS_VARIABLES,
+  CUSTOMER_RATINGS,
+  type CustomerRating,
   findBusinessVariable,
   isValidBusinessVariableValue,
   OPERATOR_ROLES,
@@ -34,15 +37,23 @@ export class BusinessVariablesService {
     tenantId: string,
     key: string,
     operatorRole: OperatorRole | null = null,
+    customerRating: CustomerRating | null = null,
   ): Promise<string | null> {
     const def = findBusinessVariable(key);
     if (!def) return null;
     const row = await this.prisma.businessVariableValue.findFirst({
-      where: { tenantId, key, operatorRole },
+      where: { tenantId, key, operatorRole, customerRating },
     });
     if (row) return row.value;
     if (def.roleScoped && operatorRole) {
       return def.roleDefaults?.[operatorRole] ?? def.defaultValue;
+    }
+    if (def.ratingScoped && customerRating) {
+      // A rating without its own override falls back to the editable base value.
+      const base = await this.prisma.businessVariableValue.findFirst({
+        where: { tenantId, key, operatorRole: null, customerRating: null },
+      });
+      return base?.value ?? def.defaultValue;
     }
     return def.defaultValue;
   }
@@ -52,51 +63,75 @@ export class BusinessVariablesService {
     const rows = await this.prisma.businessVariableValue.findMany({
       where: { tenantId },
     });
-    // Key stored overrides by "key|role" ("" role for non-scoped).
+    // Key stored overrides by "key|role|rating" ("" for an unset scope slot).
     const stored = new Map(
-      rows.map((r) => [`${r.key}|${r.operatorRole ?? ""}`, r.value]),
+      rows.map((r) => [
+        `${r.key}|${r.operatorRole ?? ""}|${r.customerRating ?? ""}`,
+        r.value,
+      ]),
     );
     // Numeric values are normalized for display (legacy rows migrated from the
     // old decimal column may carry trailing zeros); TIME values pass through.
     const display = (type: string, raw: string): string =>
       type === "TIME" ? raw : normalizeNumeric(raw);
 
-    return BUSINESS_VARIABLES.map((def) => {
-      if (!def.roleScoped) {
-        const override = stored.get(`${def.key}|`);
-        return {
-          key: def.key,
-          label: def.label,
-          group: def.group,
-          type: def.type,
-          unit: def.unit,
-          roleScoped: false,
-          entries: [
-            {
-              operatorRole: null,
-              value: display(def.type, override ?? def.defaultValue),
-              isDefault: override === undefined,
-            },
-          ],
-        };
-      }
-      const entries = OPERATOR_ROLES.map((role) => {
-        const override = stored.get(`${def.key}|${role}`);
-        const fallback = def.roleDefaults?.[role] ?? def.defaultValue;
-        return {
-          operatorRole: role,
-          value: display(def.type, override ?? fallback),
-          isDefault: override === undefined,
-        };
-      });
-      return {
+    return BUSINESS_VARIABLES.map((def: BusinessVariableDef) => {
+      const head = {
         key: def.key,
         label: def.label,
         group: def.group,
         type: def.type,
         unit: def.unit,
-        roleScoped: true,
-        entries,
+        roleScoped: def.roleScoped,
+        ratingScoped: def.ratingScoped ?? false,
+      };
+      if (def.roleScoped) {
+        const entries = OPERATOR_ROLES.map((role) => {
+          const override = stored.get(`${def.key}|${role}|`);
+          const fallback = def.roleDefaults?.[role] ?? def.defaultValue;
+          return {
+            operatorRole: role,
+            customerRating: null,
+            value: display(def.type, override ?? fallback),
+            isDefault: override === undefined,
+          };
+        });
+        return { ...head, entries };
+      }
+      if (def.ratingScoped) {
+        const baseOverride = stored.get(`${def.key}||`);
+        const baseValue = baseOverride ?? def.defaultValue;
+        const entries = [
+          {
+            operatorRole: null,
+            customerRating: null,
+            value: display(def.type, baseValue),
+            isDefault: baseOverride === undefined,
+          },
+          ...CUSTOMER_RATINGS.map((rating) => {
+            const override = stored.get(`${def.key}||${rating}`);
+            return {
+              operatorRole: null,
+              customerRating: rating,
+              // A rating without its own override shows the base value.
+              value: display(def.type, override ?? baseValue),
+              isDefault: override === undefined,
+            };
+          }),
+        ];
+        return { ...head, entries };
+      }
+      const override = stored.get(`${def.key}||`);
+      return {
+        ...head,
+        entries: [
+          {
+            operatorRole: null,
+            customerRating: null,
+            value: display(def.type, override ?? def.defaultValue),
+            isDefault: override === undefined,
+          },
+        ],
       };
     });
   }
@@ -113,15 +148,30 @@ export class BusinessVariablesService {
           throw new BadRequestException(`Unknown business variable: ${v.key}`);
         }
         let role: OperatorRole | null = null;
+        let rating: CustomerRating | null = null;
         if (def.roleScoped) {
           if (!v.operatorRole) {
             throw new BadRequestException(
               `${def.key} is role-scoped — an operator role is required`,
             );
           }
+          if (v.customerRating) {
+            throw new BadRequestException(`${def.key} is not rating-scoped`);
+          }
           role = v.operatorRole;
-        } else if (v.operatorRole) {
-          throw new BadRequestException(`${def.key} is not role-scoped`);
+        } else if (def.ratingScoped) {
+          if (v.operatorRole) {
+            throw new BadRequestException(`${def.key} is not role-scoped`);
+          }
+          // customerRating null targets the editable base value.
+          rating = v.customerRating ?? null;
+        } else {
+          if (v.operatorRole) {
+            throw new BadRequestException(`${def.key} is not role-scoped`);
+          }
+          if (v.customerRating) {
+            throw new BadRequestException(`${def.key} is not rating-scoped`);
+          }
         }
         if (!isValidBusinessVariableValue(def.type, v.value)) {
           throw new BadRequestException(
@@ -131,10 +181,15 @@ export class BusinessVariablesService {
         // Numeric values stored canonically (drop trailing zeros); TIME as-is.
         const value = def.type === "TIME" ? v.value : normalizeNumeric(v.value);
 
-        // No upsert: a compound unique containing a NULL role isn't addressable
-        // via Prisma's unique where, so find-then-write.
+        // No upsert: a compound unique containing NULL scope columns isn't
+        // addressable via Prisma's unique where, so find-then-write.
         const existing = await tx.businessVariableValue.findFirst({
-          where: { tenantId: user.tenantId, key: def.key, operatorRole: role },
+          where: {
+            tenantId: user.tenantId,
+            key: def.key,
+            operatorRole: role,
+            customerRating: rating,
+          },
         });
         if (existing) {
           await tx.businessVariableValue.update({
@@ -143,7 +198,13 @@ export class BusinessVariablesService {
           });
         } else {
           await tx.businessVariableValue.create({
-            data: { tenantId: user.tenantId, key: def.key, operatorRole: role, value },
+            data: {
+              tenantId: user.tenantId,
+              key: def.key,
+              operatorRole: role,
+              customerRating: rating,
+              value,
+            },
           });
         }
       }
