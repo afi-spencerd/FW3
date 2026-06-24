@@ -12,9 +12,9 @@ const router = useRouter();
 
 const REQUIRED = ["soNumber", "customer", "sku", "quantity", "unitPrice"];
 const TEMPLATE =
-  "soNumber,customer,lineType,sku,quantity,unitPrice,requestedShipDate,notes,packingSku,packingQty,allowBelowCost\n" +
-  "SO-IMP-1,ACME,ITEM,FG-NOIR-01,100,42.50,2026-07-01,First order,CT-JUG-WHITE,2,\n" +
-  "SO-IMP-1,ACME,CONTAINER,CT-DRUM-55,5,75,,,,,\n";
+  "soNumber,customer,customerPo,lineType,sku,quantity,unitPrice,requestedShipDate,notes,packingSku,packingQty,allowBelowCost\n" +
+  "5147184,ACME,PO-9981,ITEM,FG-NOIR-01,100,42.50,2026-07-01,First order,CT-JUG-WHITE,2,\n" +
+  "5147184,ACME,PO-9981,CONTAINER,CT-DRUM-55,5,75,,,,,\n";
 
 const rawText = ref("");
 const rows = ref<ImportSalesOrderRow[]>([]);
@@ -36,6 +36,7 @@ function parse(): void {
       return {
         soNumber: get("soNumber"),
         customer: get("customer"),
+        customerPo: get("customerPo") || undefined,
         lineType,
         sku: get("sku"),
         quantity: get("quantity"),

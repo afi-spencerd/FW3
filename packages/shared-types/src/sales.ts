@@ -105,7 +105,10 @@ export const soLineInputSchema = z
 
 export const createSalesOrderSchema = z.object({
   customerId: z.string().uuid(),
-  soNumber: z.string().trim().min(1).max(50),
+  /** Omitted for new orders (auto-generated, SO-######); provided only on import/backfill. */
+  soNumber: z.string().trim().min(1).max(50).optional(),
+  /** The customer's purchase-order reference (free text). */
+  customerPoNumber: z.string().trim().max(100).optional(),
   orderDate: z.string().datetime().optional(),
   /** When sales has committed to ship by; drives scheduler RUSH/sequencing. */
   requestedShipDate: z.string().datetime().optional(),
@@ -118,6 +121,7 @@ export const createSalesOrderSchema = z.object({
 export const updateSalesOrderSchema = z.object({
   customerId: z.string().uuid().optional(),
   soNumber: z.string().trim().min(1).max(50).optional(),
+  customerPoNumber: z.string().trim().max(100).nullish(),
   requestedShipDate: z.string().datetime().nullish(),
   notes: z.string().trim().max(2000).optional(),
   lines: z.array(soLineInputSchema).min(1).optional(),
@@ -309,6 +313,8 @@ export const salesOrderSchema = z.object({
   /** The customer's payment terms — lets the UI gate "request production". */
   customerPaymentTerms: paymentTermsSchema.nullable(),
   soNumber: z.string(),
+  /** The customer's purchase-order reference (free text); null if unset. */
+  customerPoNumber: z.string().nullable(),
   status: z.enum(SO_STATUSES),
   orderDate: z.string().datetime(),
   /** Sales' committed ship-by date (drives scheduler RUSH/sequencing); null if unset. */
@@ -351,6 +357,8 @@ export const salesOrderSummarySchema = salesOrderSchema
 export const importSalesOrderRowSchema = z.object({
   soNumber: z.string().trim().min(1).max(50),
   customer: z.string().trim().min(1).max(200),
+  /** The customer's PO reference (order-level; taken from the first row). */
+  customerPo: z.string().trim().max(100).optional(),
   lineType: soLineTypeSchema.default("ITEM"),
   sku: z.string().trim().min(1).max(64),
   quantity: positiveQty,

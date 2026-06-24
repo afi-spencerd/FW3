@@ -407,6 +407,7 @@ onMounted(load);
       </div>
       <div class="summary" style="margin-bottom: 1rem">
         <div class="metric"><div class="label">Customer</div><div class="value" style="font-size: 1rem">{{ so.customerName }}</div></div>
+        <div class="metric"><div class="label">Customer PO</div><div class="value" style="font-size: 1rem">{{ so.customerPoNumber || "—" }}</div></div>
         <div class="metric"><div class="label">Status</div><div class="value" style="font-size: 1rem">{{ so.status }}</div></div>
         <div class="metric"><div class="label">Revenue</div><div class="value">${{ so.totalRevenue }}</div></div>
         <div class="metric">

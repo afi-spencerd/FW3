@@ -66,6 +66,13 @@ async function main(): Promise<void> {
       update: {},
     });
 
+    // Sales-order number counter: first auto-generated SO is SO-6000000.
+    await prisma.numberSequence.upsert({
+      where: { tenantId_name: { tenantId: tenant.id, name: "salesOrder" } },
+      create: { tenantId: tenant.id, name: "salesOrder", lastValue: 5_999_999 },
+      update: {},
+    });
+
     // 3. Built-in roles + their permissions.
     for (const roleName of Object.keys(BUILTIN_ROLES) as BuiltinRoleName[]) {
       const role = await prisma.role.upsert({

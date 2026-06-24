@@ -45,7 +45,7 @@ interface SoLine {
 }
 const form = reactive({
   customerId: "",
-  soNumber: "",
+  customerPoNumber: "",
   requestedShipDate: "",
   notes: "",
   lines: [] as SoLine[],
@@ -230,7 +230,7 @@ async function submit(): Promise<void> {
   try {
     const payload = {
       customerId: form.customerId,
-      soNumber: form.soNumber,
+      customerPoNumber: form.customerPoNumber || undefined,
       requestedShipDate: form.requestedShipDate
         ? new Date(form.requestedShipDate).toISOString()
         : undefined,
@@ -291,8 +291,8 @@ async function submit(): Promise<void> {
           </select>
         </div>
         <div class="field">
-          <label>SO number</label>
-          <input v-model="form.soNumber" />
+          <label>Customer PO</label>
+          <input v-model="form.customerPoNumber" placeholder="Customer's PO # (optional)" />
         </div>
       </div>
       <div class="grid-2">

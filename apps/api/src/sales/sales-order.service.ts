@@ -60,6 +60,10 @@ const NET_TERMS = new Set<string>(NET_PAYMENT_TERMS);
 /** Default ship-by lead time when sales doesn't specify one (calendar days). */
 const DEFAULT_SHIP_LEAD_DAYS = 3;
 
+/** Auto-generated SO numbers start here (padding above the legacy ERP's range). */
+const SO_NUMBER_START = 6_000_000;
+const SO_SEQUENCE = "salesOrder";
+
 @Injectable()
 export class SalesOrderService {
   constructor(
@@ -284,11 +288,14 @@ export class SalesOrderService {
           ? new Date(input.requestedShipDate)
           : new Date(orderDate.getTime() + DEFAULT_SHIP_LEAD_DAYS * 86_400_000);
 
+        // New orders auto-number (SO-######); an explicit number (import/backfill) is kept.
+        const soNumber = input.soNumber ?? (await this.nextSoNumber(tx, user.tenantId));
         const order = await tx.salesOrder.create({
           data: {
             tenantId: user.tenantId,
             customerId: input.customerId,
-            soNumber: input.soNumber,
+            soNumber,
+            customerPoNumber: input.customerPoNumber ?? null,
             status: "OPEN",
             orderDate,
             requestedShipDate,
@@ -310,6 +317,27 @@ export class SalesOrderService {
     } catch (err) {
       throw this.mapError(err, input.soNumber);
     }
+  }
+
+  /**
+   * Assign the next sequential sales-order number for a tenant (SO-######).
+   * Atomic: the row-level increment serializes concurrent creates so each gets a
+   * distinct value. Lazily initializes the counter so the first number is 6000000.
+   */
+  private async nextSoNumber(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+  ): Promise<string> {
+    await tx.numberSequence.upsert({
+      where: { tenantId_name: { tenantId, name: SO_SEQUENCE } },
+      create: { tenantId, name: SO_SEQUENCE, lastValue: SO_NUMBER_START - 1 },
+      update: {},
+    });
+    const seq = await tx.numberSequence.update({
+      where: { tenantId_name: { tenantId, name: SO_SEQUENCE } },
+      data: { lastValue: { increment: 1 } },
+    });
+    return `SO-${seq.lastValue}`;
   }
 
   /**
@@ -416,6 +444,7 @@ export class SalesOrderService {
         const created = await this.create(user, {
           customerId,
           soNumber: group.soNumber,
+          customerPoNumber: head.customerPo,
           requestedShipDate: this.toIsoDate(head.requestedShipDate),
           notes: head.notes,
           allowBelowCost: group.rows.some((r) => r.allowBelowCost) || undefined,
@@ -477,6 +506,9 @@ export class SalesOrderService {
           data: {
             ...(input.customerId === undefined ? {} : { customerId: input.customerId }),
             ...(input.soNumber === undefined ? {} : { soNumber: input.soNumber }),
+            ...(input.customerPoNumber === undefined
+              ? {}
+              : { customerPoNumber: input.customerPoNumber ?? null }),
             ...(input.requestedShipDate === undefined
               ? {}
               : {
@@ -1207,6 +1239,7 @@ export class SalesOrderService {
       customerName: order.customer.name,
       customerPaymentTerms: order.customer.paymentTerms as PaymentTerms | null,
       soNumber: order.soNumber,
+      customerPoNumber: order.customerPoNumber,
       status: order.status as SalesOrderStatus,
       orderDate: order.orderDate.toISOString(),
       requestedShipDate: order.requestedShipDate?.toISOString() ?? null,

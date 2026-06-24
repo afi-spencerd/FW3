@@ -59,6 +59,23 @@ model Tenant {
   purchasingAlerts    PurchasingAlert[]
   salesOrderPayments  SalesOrderPayment[]
   salesOrderRefunds   SalesOrderRefund[]
+  numberSequences     NumberSequence[]
+}
+
+// Per-tenant named counters for human-facing sequential numbers (e.g. sales
+// orders). `lastValue` is the most recently assigned value; the next is +1.
+model NumberSequence {
+  id        String   @id @default(uuid()) @db.Char(36)
+  tenantId  String   @db.Char(36)
+  name      String   @db.NVarChar(40)
+  lastValue Int
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
 }
 
 model User {
@@ -705,7 +722,8 @@ model SalesOrder {
   id         String   @id @default(uuid()) @db.Char(36)
   tenantId   String   @db.Char(36)
   customerId String   @db.Char(36)
-  soNumber   String   @db.NVarChar(50)
+  soNumber   String   @db.NVarChar(50) // auto-generated (SO-######) for new orders; old numbers kept on import
+  customerPoNumber String? @db.NVarChar(100) // the customer's purchase-order reference
   status     String   @default("OPEN") @db.NVarChar(20) // OPEN | PARTIAL | SHIPPED | CANCELLED
   orderDate  DateTime @default(now())
   // Sales' committed ship-by date; drives scheduler RUSH / sequencing. Null if unset.
