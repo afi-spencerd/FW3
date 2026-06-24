@@ -3,6 +3,7 @@ import "./auth/session.types";
 import { Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { NestFactory } from "@nestjs/core";
+import type { NestExpressApplication } from "@nestjs/platform-express";
 import { RedisStore } from "connect-redis";
 import session from "express-session";
 import helmet from "helmet";
@@ -12,9 +13,16 @@ import type { Env } from "./config/env";
 import { REDIS } from "./redis/redis.module";
 
 async function bootstrap(): Promise<void> {
-  const app = await NestFactory.create(AppModule, { bufferLogs: false });
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    bufferLogs: false,
+  });
   const config = app.get(ConfigService) as ConfigService<Env, true>;
   const redis = app.get<IORedis>(REDIS);
+
+  if (config.get("NODE_ENV", { infer: true }) === "production") {
+    // Behind Caddy's TLS: trust X-Forwarded-Proto so secure cookies are sent.
+    app.set("trust proxy", 1);
+  }
 
   app.use(helmet());
   app.enableCors({
