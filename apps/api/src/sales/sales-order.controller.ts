@@ -13,6 +13,8 @@ import {
   createSalesOrderSchema,
   type ImportSalesOrders,
   importSalesOrdersSchema,
+  type IssueRefund,
+  issueRefundSchema,
   PERMISSIONS,
   type RecordPayment,
   recordPaymentSchema,
@@ -106,6 +108,16 @@ export class SalesOrderController {
     @Body(new ZodValidationPipe(recordPaymentSchema)) body: RecordPayment,
   ) {
     return this.orders.recordPayment(user, id, body);
+  }
+
+  @Post(":id/refunds")
+  @RequirePermissions(PERMISSIONS.SO_ISSUE_REFUND)
+  issueRefund(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param("id") id: string,
+    @Body(new ZodValidationPipe(issueRefundSchema)) body: IssueRefund,
+  ) {
+    return this.orders.issueRefund(user, id, body);
   }
 
   @Get(":id/history")

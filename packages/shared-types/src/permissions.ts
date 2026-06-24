@@ -42,6 +42,8 @@ export const PERMISSIONS = {
   SO_REQUEST_PRODUCTION: "so:request-production",
   // Record payments against a sales order.
   SO_RECORD_PAYMENT: "so:record-payment",
+  // Customer service: refund overpayments / approved cancellations.
+  SO_ISSUE_REFUND: "so:issue-refund",
   PRODUCTION_READ: "production:read",
   PRODUCTION_CREATE: "production:create",
   PRODUCTION_EXECUTE: "production:execute",
@@ -98,6 +100,7 @@ export const BUILTIN_ROLES = {
     PERMISSIONS.SO_SHIP,
     PERMISSIONS.SO_REQUEST_PRODUCTION,
     PERMISSIONS.SO_RECORD_PAYMENT,
+    PERMISSIONS.SO_ISSUE_REFUND,
     PERMISSIONS.PRODUCTION_READ,
     PERMISSIONS.PRODUCTION_CREATE,
     PERMISSIONS.PRODUCTION_EXECUTE,

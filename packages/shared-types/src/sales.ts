@@ -260,6 +260,36 @@ export const salesOrderPaymentSchema = z.object({
   receivedAt: z.string().datetime(),
 });
 
+// ---- Refunds ----
+/**
+ * Why money is being returned. OVERPAYMENT: net payments exceed what's owed
+ * (e.g. lines reduced after payment). CANCELLATION: an approved (CANCELLED)
+ * order's payments are returned.
+ */
+export const REFUND_REASONS = ["OVERPAYMENT", "CANCELLATION"] as const;
+export const refundReasonSchema = z.enum(REFUND_REASONS);
+export type RefundReason = (typeof REFUND_REASONS)[number];
+
+/** Issue a refund against an order. Eligibility/amount are validated server-side. */
+export const issueRefundSchema = z.object({
+  amount: positiveMoney,
+  method: paymentMethodSchema,
+  reason: refundReasonSchema,
+  reference: z.string().trim().max(120).optional(),
+  note: z.string().trim().max(500).optional(),
+});
+
+export const salesOrderRefundSchema = z.object({
+  id: z.string().uuid(),
+  amount: z.string(),
+  method: paymentMethodSchema,
+  reason: refundReasonSchema,
+  reference: z.string().nullable(),
+  note: z.string().nullable(),
+  issuedByName: z.string().nullable(),
+  issuedAt: z.string().datetime(),
+});
+
 /** One change-history entry for a sales order (from the audit log). */
 export const auditEntrySchema = z.object({
   id: z.string().uuid(),
@@ -289,12 +319,17 @@ export const salesOrderSchema = z.object({
   totalRevenue: z.string(),
   /** Sum of recorded payment amounts (excludes convenience fees). */
   amountPaid: z.string(),
-  /** totalRevenue − amountPaid. */
+  /** Sum of issued refund amounts. */
+  amountRefunded: z.string(),
+  /** totalRevenue − (amountPaid − amountRefunded). */
   balanceDue: z.string(),
+  /** What can still be refunded now: max(0, netPaid − amountOwed). */
+  refundableAmount: z.string(),
   /** When the order's containers were consumed (packed); null until packed. */
   packedAt: z.string().datetime().nullable(),
   lines: z.array(soLineSchema),
   payments: z.array(salesOrderPaymentSchema),
+  refunds: z.array(salesOrderRefundSchema),
   shipments: z.array(shipmentSchema),
   /** Production work orders requested from this order (empty until requested). */
   workOrders: z.array(salesOrderWorkOrderSchema),
@@ -303,7 +338,7 @@ export const salesOrderSchema = z.object({
 });
 
 export const salesOrderSummarySchema = salesOrderSchema
-  .omit({ lines: true, shipments: true, workOrders: true, payments: true })
+  .omit({ lines: true, shipments: true, workOrders: true, payments: true, refunds: true })
   .extend({ lineCount: z.number().int() });
 
 // ---- CSV import ----
@@ -365,6 +400,8 @@ export type SalesOrder = z.infer<typeof salesOrderSchema>;
 export type SalesOrderSummary = z.infer<typeof salesOrderSummarySchema>;
 export type RecordPayment = z.infer<typeof recordPaymentSchema>;
 export type SalesOrderPayment = z.infer<typeof salesOrderPaymentSchema>;
+export type IssueRefund = z.infer<typeof issueRefundSchema>;
+export type SalesOrderRefund = z.infer<typeof salesOrderRefundSchema>;
 export type AuditEntry = z.infer<typeof auditEntrySchema>;
 export type ImportSalesOrderRow = z.infer<typeof importSalesOrderRowSchema>;
 export type ImportSalesOrders = z.infer<typeof importSalesOrdersSchema>;

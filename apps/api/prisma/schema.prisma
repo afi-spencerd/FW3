@@ -58,6 +58,7 @@ model Tenant {
   companyHolidays     CompanyHoliday[]
   purchasingAlerts    PurchasingAlert[]
   salesOrderPayments  SalesOrderPayment[]
+  salesOrderRefunds   SalesOrderRefund[]
 }
 
 model User {
@@ -82,6 +83,7 @@ model User {
   purchasingAlerts     PurchasingAlert[] @relation("PurchasingAlertRaisedBy")
   inventoryTxns        InventoryTxn[]
   salesOrderPayments   SalesOrderPayment[]
+  salesOrderRefunds    SalesOrderRefund[]
 
   @@unique([tenantId, idpSub])
   @@unique([tenantId, email])
@@ -716,6 +718,7 @@ model SalesOrder {
   shipments Shipment[]
   workOrders ProductionWorkOrder[]
   payments  SalesOrderPayment[]
+  refunds   SalesOrderRefund[]
 
   @@unique([tenantId, soNumber])
   @@index([tenantId])
@@ -742,6 +745,29 @@ model SalesOrderPayment {
   tenant     Tenant     @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   salesOrder SalesOrder @relation(fields: [salesOrderId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   receivedBy User       @relation(fields: [receivedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([tenantId, salesOrderId])
+}
+
+// A refund issued against a sales order — money returned to the customer for an
+// overpayment (net payments exceed what's owed) or an approved (CANCELLED) order.
+// Refunds reduce the net amount paid: netPaid = Σ payments − Σ refunds.
+model SalesOrderRefund {
+  id           String   @id @default(uuid()) @db.Char(36)
+  tenantId     String   @db.Char(36)
+  salesOrderId String   @db.Char(36)
+  method       String   @db.NVarChar(20) // CASH | CHECK | CREDIT_CARD | ACH | WIRE | OTHER (CHECK)
+  amount       Decimal  @db.Decimal(19, 4)
+  reason       String   @db.NVarChar(20) // OVERPAYMENT | CANCELLATION (CHECK)
+  reference    String?  @db.NVarChar(120) // check #, card last-4, txn id, etc.
+  note         String?  @db.NVarChar(500)
+  issuedById   String   @db.Char(36)
+  issuedAt     DateTime @default(now())
+  createdAt    DateTime @default(now())
+
+  tenant     Tenant     @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  salesOrder SalesOrder @relation(fields: [salesOrderId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  issuedBy   User       @relation(fields: [issuedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([tenantId, salesOrderId])
 }

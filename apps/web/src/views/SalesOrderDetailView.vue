@@ -7,6 +7,8 @@ import {
   PAYMENT_METHODS,
   type PaymentMethod,
   PERMISSIONS,
+  REFUND_REASONS,
+  type RefundReason,
   type SalesOrder,
 } from "@fw3/shared-types";
 import { api, ApiError } from "../lib/api";
@@ -105,6 +107,49 @@ async function recordPayment(): Promise<void> {
     notice.value = "Payment recorded.";
   } catch (err) {
     error.value = err instanceof ApiError ? err.message : "Failed to record payment";
+  } finally {
+    prodBusy.value = false;
+  }
+}
+
+// --- Refunds ---
+const REFUND_REASON_OPTIONS = REFUND_REASONS;
+const refund = reactive({
+  amount: "",
+  method: "CASH" as PaymentMethod,
+  // Default to the reason that matches the order's state.
+  reason: "OVERPAYMENT" as RefundReason,
+  reference: "",
+  note: "",
+});
+
+const canIssueRefund = computed(
+  () =>
+    so.value !== null &&
+    Number(so.value.refundableAmount) > 0 &&
+    auth.hasPermission(PERMISSIONS.SO_ISSUE_REFUND),
+);
+
+async function issueRefund(): Promise<void> {
+  if (!so.value) return;
+  error.value = null;
+  notice.value = null;
+  prodBusy.value = true;
+  try {
+    so.value = await api.issueSalesOrderRefund(so.value.id, {
+      amount: refund.amount,
+      method: refund.method,
+      reason: refund.reason,
+      reference: refund.reference.trim() || undefined,
+      note: refund.note.trim() || undefined,
+    });
+    refund.amount = "";
+    refund.reference = "";
+    refund.note = "";
+    await loadHistory();
+    notice.value = "Refund issued.";
+  } catch (err) {
+    error.value = err instanceof ApiError ? err.message : "Failed to issue refund";
   } finally {
     prodBusy.value = false;
   }
@@ -237,6 +282,10 @@ async function load(): Promise<void> {
       ? so.value.requestedShipDate.slice(0, 10)
       : "";
     payment.amount = so.value.balanceDue;
+    // Seed the refund form from the order's state: cancelled → cancellation,
+    // otherwise an overpayment surplus; prefill the full refundable amount.
+    refund.reason = so.value.status === "CANCELLED" ? "CANCELLATION" : "OVERPAYMENT";
+    refund.amount = so.value.refundableAmount;
     syncTrackEdits(so.value);
     await Promise.all([loadHistory(), loadFeePct()]);
   } catch (err) {
@@ -554,6 +603,48 @@ onMounted(load);
         <span class="spacer" />
         <button class="primary" :disabled="prodBusy || !(Number(payment.amount) > 0)" @click="recordPayment">
           Record payment
+        </button>
+      </div>
+
+      <!-- Refunds -->
+      <h3 style="margin-top: 1.5rem">
+        Refunds
+        <span class="inactive" style="font-size: 0.85rem; font-weight: normal">
+          · refunded ${{ so.amountRefunded }} · refundable ${{ so.refundableAmount }}
+        </span>
+      </h3>
+      <table v-if="so.refunds.length">
+        <thead>
+          <tr>
+            <th>When</th><th>Method</th><th class="num">Amount</th>
+            <th>Reason</th><th>Reference</th><th>By</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="r in so.refunds" :key="r.id">
+            <td>{{ new Date(r.issuedAt).toLocaleString() }}</td>
+            <td>{{ r.method.replace(/_/g, " ") }}</td>
+            <td class="num">${{ r.amount }}</td>
+            <td>{{ r.reason.replace(/_/g, " ") }}</td>
+            <td>{{ r.reference ?? "—" }}</td>
+            <td>{{ r.issuedByName ?? "—" }}</td>
+          </tr>
+        </tbody>
+      </table>
+      <p v-else class="inactive" style="font-size: 0.85rem">No refunds issued yet.</p>
+
+      <div v-if="canIssueRefund" class="toolbar" style="flex-wrap: wrap; align-items: center">
+        <input v-model="refund.amount" inputmode="decimal" placeholder="Amount" style="max-width: 120px" />
+        <select v-model="refund.method" style="max-width: 150px">
+          <option v-for="m in PAYMENT_METHOD_OPTIONS" :key="m" :value="m">{{ m.replace(/_/g, " ") }}</option>
+        </select>
+        <select v-model="refund.reason" style="max-width: 160px">
+          <option v-for="r in REFUND_REASON_OPTIONS" :key="r" :value="r">{{ r.replace(/_/g, " ") }}</option>
+        </select>
+        <input v-model="refund.reference" placeholder="Reference (optional)" style="max-width: 180px" />
+        <span class="spacer" />
+        <button class="primary" :disabled="prodBusy || !(Number(refund.amount) > 0)" @click="issueRefund">
+          Issue refund
         </button>
       </div>
 

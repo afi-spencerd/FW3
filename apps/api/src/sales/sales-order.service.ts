@@ -13,9 +13,11 @@ import type {
   ImportResultRow,
   ImportSalesOrderRow,
   ImportSalesOrdersResult,
+  IssueRefund,
   PaymentMethod,
   PaymentTerms,
   RecordPayment,
+  RefundReason,
   SalesOrder,
   SalesOrderLineInput,
   SalesOrderStatus,
@@ -48,6 +50,7 @@ type SoWithRelations = Prisma.SalesOrderGetPayload<{
     };
     workOrders: { include: { target: true } };
     payments: { include: { receivedBy: true } };
+    refunds: { include: { issuedBy: true } };
   };
 }>;
 
@@ -155,12 +158,13 @@ export class SalesOrderService {
         },
         workOrders: { include: { target: true } },
         payments: { include: { receivedBy: true } },
+        refunds: { include: { issuedBy: true } },
       },
       orderBy: { orderDate: "desc" },
     });
     return orders.map((o) => {
       const dto = this.toDto(o);
-      const { lines, shipments, workOrders, payments, ...summary } = dto;
+      const { lines, shipments, workOrders, payments, refunds, ...summary } = dto;
       return { ...summary, lineCount: lines.length };
     });
   }
@@ -189,6 +193,7 @@ export class SalesOrderService {
         },
         workOrders: { include: { target: true }, orderBy: { createdAt: "asc" } },
         payments: { include: { receivedBy: true }, orderBy: { receivedAt: "asc" } },
+        refunds: { include: { issuedBy: true }, orderBy: { issuedAt: "asc" } },
       },
       orderBy: { orderDate: "asc" },
     });
@@ -835,6 +840,78 @@ export class SalesOrderService {
     return this.getById(user.tenantId, id);
   }
 
+  /**
+   * Issue a refund against the order. Allowed only for an OVERPAYMENT (net
+   * payments exceed what's owed on an active order) or an approved CANCELLATION
+   * (the order is CANCELLED). The amount may not exceed the currently refundable
+   * surplus. Recorded with the actor and audited in the same transaction.
+   */
+  async issueRefund(
+    user: AuthenticatedUser,
+    id: string,
+    input: IssueRefund,
+  ): Promise<SalesOrder> {
+    await this.prisma.$transaction(async (tx) => {
+      const order = await this.loadOrder(tx, user.tenantId, id);
+      const isCancelled = order.status === "CANCELLED";
+      if (input.reason === "CANCELLATION" && !isCancelled) {
+        throw new BadRequestException(
+          "A cancellation refund requires the order to be cancelled",
+        );
+      }
+      if (input.reason === "OVERPAYMENT" && isCancelled) {
+        throw new BadRequestException(
+          "Use reason CANCELLATION to refund a cancelled order",
+        );
+      }
+
+      const refundable = this.refundableAmount(order);
+      if (refundable.lessThanOrEqualTo(0)) {
+        throw new BadRequestException(
+          isCancelled
+            ? "Nothing left to refund on this order"
+            : "Order is not overpaid; nothing to refund",
+        );
+      }
+      const amount = new Decimal(input.amount);
+      if (amount.greaterThan(refundable)) {
+        throw new BadRequestException(
+          `Refund ${amount} exceeds the refundable amount (${refundable.toDecimalPlaces(2)})`,
+        );
+      }
+
+      await tx.salesOrderRefund.create({
+        data: {
+          tenantId: user.tenantId,
+          salesOrderId: id,
+          method: input.method,
+          amount: input.amount,
+          reason: input.reason,
+          reference: input.reference ?? null,
+          note: input.note ?? null,
+          issuedById: user.id,
+        },
+      });
+
+      await this.audit.record(tx, {
+        tenantId: user.tenantId,
+        actorId: user.id,
+        entityType: "SalesOrder",
+        entityId: id,
+        action: "UPDATE",
+        after: {
+          refund: {
+            method: input.method,
+            amount: input.amount,
+            reason: input.reason,
+            ...(input.reference ? { reference: input.reference } : {}),
+          },
+        },
+      });
+    });
+    return this.getById(user.tenantId, id);
+  }
+
   /** Sales-order change history (who/what/when), newest first, from the audit log. */
   async history(tenantId: string, id: string): Promise<AuditEntry[]> {
     const rows = await this.prisma.auditLog.findMany({
@@ -863,6 +940,22 @@ export class SalesOrderService {
       (sum, p) => sum.plus(new Decimal(p.amount.toString())),
       new Decimal(0),
     );
+  }
+  private amountRefunded(order: SoWithRelations): Decimal {
+    return order.refunds.reduce(
+      (sum, r) => sum.plus(new Decimal(r.amount.toString())),
+      new Decimal(0),
+    );
+  }
+  /**
+   * What can still be refunded: net payments (paid − already refunded) above what
+   * the order now owes. A cancelled order owes nothing, so its whole net paid is
+   * refundable; an active order is refundable only to the extent it's overpaid.
+   */
+  private refundableAmount(order: SoWithRelations): Decimal {
+    const netPaid = this.amountPaid(order).minus(this.amountRefunded(order));
+    const owed = order.status === "CANCELLED" ? new Decimal(0) : this.orderTotal(order);
+    return Decimal.max(0, netPaid.minus(owed));
   }
 
   /**
@@ -969,6 +1062,7 @@ export class SalesOrderService {
         },
         workOrders: { include: { target: true }, orderBy: { createdAt: "asc" } },
         payments: { include: { receivedBy: true }, orderBy: { receivedAt: "asc" } },
+        refunds: { include: { issuedBy: true }, orderBy: { issuedAt: "asc" } },
       },
     });
     if (!order) throw new NotFoundException("Sales order not found");
@@ -1048,7 +1142,13 @@ export class SalesOrderService {
     const totalRevenue = totalRevenueDec.toString();
     const amountPaidDec = this.amountPaid(order);
     const amountPaid = amountPaidDec.toString();
-    const balanceDue = totalRevenueDec.minus(amountPaidDec).toString();
+    const amountRefundedDec = this.amountRefunded(order);
+    const amountRefunded = amountRefundedDec.toString();
+    // Net of refunds: what the customer has effectively paid toward the order.
+    const balanceDue = totalRevenueDec
+      .minus(amountPaidDec.minus(amountRefundedDec))
+      .toString();
+    const refundableAmount = this.refundableAmount(order).toString();
     const payments = order.payments.map((p) => ({
       id: p.id,
       amount: p.amount.toString(),
@@ -1058,6 +1158,16 @@ export class SalesOrderService {
       note: p.note,
       receivedByName: p.receivedBy?.displayName ?? null,
       receivedAt: p.receivedAt.toISOString(),
+    }));
+    const refunds = order.refunds.map((r) => ({
+      id: r.id,
+      amount: r.amount.toString(),
+      method: r.method as PaymentMethod,
+      reason: r.reason as RefundReason,
+      reference: r.reference,
+      note: r.note,
+      issuedByName: r.issuedBy?.displayName ?? null,
+      issuedAt: r.issuedAt.toISOString(),
     }));
     const shipments = order.shipments.map((s) => {
       const sLines = s.lines.map((sl) => ({
@@ -1104,10 +1214,13 @@ export class SalesOrderService {
       notes: order.notes,
       totalRevenue,
       amountPaid,
+      amountRefunded,
       balanceDue,
+      refundableAmount,
       packedAt: order.packedAt?.toISOString() ?? null,
       lines,
       payments,
+      refunds,
       shipments,
       workOrders: order.workOrders.map((w) => ({
         id: w.id,
