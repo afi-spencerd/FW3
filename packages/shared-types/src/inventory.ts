@@ -34,6 +34,19 @@ export function kgEquivalent(poundsQty: string): string {
 }
 
 /**
+ * Largest under-receipt (in a PO line's own handling unit) still treated as
+ * fully received. Absorbs the sub-unit rounding drift that kg↔lb conversion and
+ * 4-dp storage introduce across partial receipts, so a line isn't stranded at
+ * PARTIAL by a fraction — while staying far below any real shortfall.
+ */
+export const RECEIPT_TOLERANCE = "0.001";
+
+/** Whether a received quantity has reached the ordered quantity (within tolerance). */
+export function isFullyReceived(ordered: string, received: string): boolean {
+  return Number(received) >= Number(ordered) - Number(RECEIPT_TOLERANCE);
+}
+
+/**
  * Item tiers: raw materials (purchased ingredients), semi-finished "bases"
  * (solutions/mixtures — made from a formula AND usable in other formulas), and
  * finished goods (fragrances).

@@ -15,6 +15,7 @@ import {
   type PurchaseOrderLineInput,
   type PurchaseOrderSummary,
   QC_SUITE_BY_FORM,
+  RECEIPT_TOLERANCE,
   type ReceivePurchaseOrder,
   type UnitOfMeasure,
   type UpdatePurchaseOrder,
@@ -233,7 +234,9 @@ export class PurchaseOrderService {
         // containers); the remaining check stays in that unit.
         const remaining = line.quantityOrdered.minus(line.quantityReceived);
         const qty = new Decimal(recv.quantity);
-        if (qty.greaterThan(remaining)) {
+        // Tolerate a rounding-hair overage (e.g. an auto-filled "receive remaining"
+        // that computes a fraction over the stored remaining) before rejecting.
+        if (qty.greaterThan(remaining.plus(RECEIPT_TOLERANCE))) {
           throw new BadRequestException(
             `Cannot receive ${qty} of ${subjectSku}: only ${remaining} remaining`,
           );

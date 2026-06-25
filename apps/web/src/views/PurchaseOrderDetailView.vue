@@ -2,6 +2,7 @@
 import { computed, onMounted, reactive, ref } from "vue";
 import { useRouter } from "vue-router";
 import {
+  isFullyReceived,
   KG_TO_LB_FORMULA,
   LB_PER_KG,
   type Location,
@@ -42,7 +43,16 @@ const canCancel = computed(
 );
 
 function remaining(ordered: string, received: string): number {
+  // A line within tolerance is effectively complete — don't show a fractional remainder.
+  if (isFullyReceived(ordered, received)) return 0;
   return Number(ordered) - Number(received);
+}
+
+// Fill the receive field with the exact outstanding quantity (in the line's unit),
+// so the receiver never hand-converts from a pound weight to hit the order exactly.
+function fillRemaining(line: { id: string; quantityOrdered: string; quantityReceived: string }): void {
+  const rem = Number(line.quantityOrdered) - Number(line.quantityReceived);
+  receiveQty[line.id] = String(Math.round(rem * 10000) / 10000);
 }
 
 // KG lines are entered in kg; show what they'll store as (pounds).
@@ -166,6 +176,14 @@ onMounted(load);
                 <template v-else-if="line.lineType === 'CONTAINER'">each</template>
                 <template v-else>lb</template>
               </div>
+              <a
+                v-if="remaining(line.quantityOrdered, line.quantityReceived) > 0"
+                href="#"
+                style="font-size: 0.75rem"
+                @click.prevent="fillRemaining(line)"
+              >
+                Receive remaining
+              </a>
             </td>
             <td v-if="canReceive">
               <input
