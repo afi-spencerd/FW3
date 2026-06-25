@@ -22,15 +22,18 @@
   - production efficiency
   - company holidays
   - production cost factor (currently 80% RMC)
-- [ ] complete QB sync
-- [ ] location rules (i.e. no move back to receiving dock after moved to warehouse)
-- [ ] profit margin per customer ranking
-- [ ] partial payments
-  - [ ] mark "paid" when `sum(partial_payment.amount) == due`
-- [ ] issue refunds
+- [x] profit margin per customer ranking
+- [x] partial payments
+  - [x] mark "paid" when `sum(partial_payment.amount) == due`
+- [x] issue refunds
   - overpayment
   - approved cancellation
-- [ ] separate floor from 2lb pours
+- [x] separate floor from 2lb pours
+- [x] customer PO field on SO
+- [x] SO CSV import
+- [ ] schedule work order for semi-finished good (base)
+- [ ] complete QB sync
+- [ ] location rules (i.e. no move back to receiving dock after moved to warehouse)
 - [ ] query robot RMs
 
 ### Tools
@@ -76,10 +79,20 @@
   - [x] prevent "losing our shirt"
   - [x] unit cost per line
   - [x] default to business-wide profit margin
+- [x] sell RM to customer
+- [x] order FG from vendor
+- [x] auto-generate SO number based on existing ERP scheme
+- [x] trust proxy in prod for session cookies work on Caddy
+- [x] show available stock on WO page
+- [ ] FG BOM missing on page
+- [ ] default WO number based on existing ERP scheme
+- [ ] record QC approve actor
+- [ ] record robot operator
+- [ ] record all involved compounders (2lb A-F, 2lb G-Z, and Floor)
+- [ ] record packer
+- [ ] shift times for all 4 shifts (A, B, C, and D)
 - [ ] schema still showing (itemstock, itemstocklocation) & (inventorytx, locationmove). interrigate agent
 - [ ] allow packing before QC
-- [ ] sell RM to customer
-- [ ] order FG from vendor
 
 ## Designer
 
