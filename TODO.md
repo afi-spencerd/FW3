@@ -31,7 +31,9 @@
 - [x] separate floor from 2lb pours
 - [x] customer PO field on SO
 - [x] SO CSV import
-- [ ] schedule work order for semi-finished good (base)
+- [x] filter SO by customer, status. sort-by on all columns. add search.
+- [ ] reserve FG for SO
+- [ ] schedule work order for semi-finished good (base) from Scheduler
 - [ ] complete QB sync
 - [ ] location rules (i.e. no move back to receiving dock after moved to warehouse)
 - [ ] query robot RMs
@@ -41,7 +43,7 @@
 - [ ] scheduling
   - [x] init
 - [ ] customer service
-  - [ ] make SO "confirmed" or "requested" when customer pays
+  - [x] make SO "confirmed" or "requested" when customer pays
   - [ ] customer purchase & cost history
   - [ ] merge customer entries (link ids? allow unmerge)
     - [ ] sync history, contacts, addresses
@@ -84,14 +86,21 @@
 - [x] auto-generate SO number based on existing ERP scheme
 - [x] trust proxy in prod for session cookies work on Caddy
 - [x] show available stock on WO page
-- [ ] FG BOM missing on page
+- [x] FG BOM missing on formula details page
+- [x] Formula and Finished Good Page duplication
+- [x] Customer credit limit & A/R
+- [ ] avg cost for rm on po
+- [ ] From shipping, show FG available
+- [ ] duplicate fields on Create WO & WO target confusing
+- [ ] "F-codes" on FG for backwards compatibility
 - [ ] default WO number based on existing ERP scheme
+- [ ] default PO number based on existing ERP scheme
 - [ ] record QC approve actor
 - [ ] record robot operator
 - [ ] record all involved compounders (2lb A-F, 2lb G-Z, and Floor)
 - [ ] record packer
 - [ ] shift times for all 4 shifts (A, B, C, and D)
-- [ ] schema still showing (itemstock, itemstocklocation) & (inventorytx, locationmove). interrigate agent
+- [ ] schema still showing (itemstock, itemstocklocation) & (inventorytx, locationmove). interrogate agent
 - [ ] allow packing before QC
 
 ## Designer
