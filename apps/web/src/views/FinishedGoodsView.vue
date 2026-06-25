@@ -57,6 +57,13 @@ onMounted(load);
       <h2 style="margin: 0">Finished goods</h2>
       <span class="spacer" />
       <input v-model="search" placeholder="Search SKU or name…" style="max-width: 240px" />
+      <RouterLink
+        v-if="auth.hasPermission(PERMISSIONS.INVENTORY_CREATE)"
+        class="btn primary"
+        :to="{ name: 'inventory-new', query: { type: 'FINISHED_GOOD', return: 'finished-goods' } }"
+      >
+        New finished good
+      </RouterLink>
     </div>
     <p class="inactive" style="font-size: 0.85rem">
       Finished fragrances and their regulatory status. Compliance, flash point,

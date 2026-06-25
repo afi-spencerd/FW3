@@ -34,9 +34,13 @@ import {
   STOCK_STATUSES,
   UNITS_OF_MEASURE,
   updateInventoryItemSchema,
+  type BatchRequirements,
   type FgRegulatory,
-  type Formula,
   type FormulaSummary,
+  type InventoryItem,
+  createFormulaSchema,
+  updateFormulaSchema,
+  kgEquivalent,
 } from "@fw3/shared-types";
 import { api, ApiError } from "../lib/api";
 import { weightLabel } from "../lib/weight";
@@ -129,40 +133,188 @@ async function refreshFormPak(): Promise<void> {
   }
 }
 
-// --- Bill of materials (the FG's formula recipe), edit mode only ---
+// --- Bill of materials / formula recipe (finished goods + bases) ---
 const canReadFormula = auth.hasPermission(PERMISSIONS.FORMULA_READ);
-const formulaVersions = ref<FormulaSummary[]>([]);
-const selectedFormulaId = ref<string | null>(null);
-const bom = ref<Formula | null>(null);
-const bomError = ref<string | null>(null);
-// Recipe percentages should sum to 100; show the total so a bad formula is obvious.
-const bomTotal = computed(() =>
-  (bom.value?.lines ?? []).reduce((sum, l) => sum + Number(l.percentage), 0),
+const canEditFormula =
+  auth.hasPermission(PERMISSIONS.FORMULA_CREATE) ||
+  auth.hasPermission(PERMISSIONS.FORMULA_UPDATE);
+const canDeleteFormula = auth.hasPermission(PERMISSIONS.FORMULA_DELETE);
+// Finished goods and bases are manufactured from a recipe; raw materials are not.
+const isManufactured = computed(
+  () => form.itemType === "FINISHED_GOOD" || form.itemType === "SEMI_FINISHED",
 );
 
+const formulaVersions = ref<FormulaSummary[]>([]);
+const selectedFormulaId = ref<string | null>(null);
+const bomError = ref<string | null>(null);
+const bomBusy = ref(false);
+// True while composing an unsaved new version (no formula id yet).
+const isNewVersion = ref(false);
+// Components selectable in a recipe: raw materials + bases, never a finished good,
+// and never the item itself (the backend also guards transitive cycles).
+const components = ref<InventoryItem[]>([]);
+
+// The editable recipe for the selected (or new) version.
+const recipe = reactive({
+  name: "",
+  notes: "",
+  isActive: true,
+  lines: [] as { rawMaterialId: string; percentage: string }[],
+});
+const percentTotal = computed(() =>
+  recipe.lines.reduce((sum, l) => sum + (Number(l.percentage) || 0), 0),
+);
+const totalIsValid = computed(() => Math.abs(percentTotal.value - 100) < 1e-9);
+function addLine(): void {
+  recipe.lines.push({ rawMaterialId: "", percentage: "0" });
+}
+function removeLine(index: number): void {
+  recipe.lines.splice(index, 1);
+}
+function resetRecipeForCreate(): void {
+  recipe.name = "";
+  recipe.notes = "";
+  recipe.isActive = true;
+  recipe.lines = [{ rawMaterialId: "", percentage: "0" }];
+}
+function recipePayload() {
+  return {
+    name: recipe.name,
+    notes: recipe.notes || undefined,
+    isActive: recipe.isActive,
+    lines: recipe.lines.map((l, i) => ({
+      rawMaterialId: l.rawMaterialId,
+      percentage: l.percentage,
+      sortOrder: i,
+    })),
+  };
+}
+
+async function loadComponents(): Promise<void> {
+  if (!canReadFormula) return;
+  const all = await api.listInventory({ pageSize: 200 });
+  components.value = all.items.filter(
+    (i) => i.itemType !== "FINISHED_GOOD" && i.id !== props.id,
+  );
+}
+
+/** Edit mode: load this item's formula versions and the selected one's lines. */
 async function loadBom(): Promise<void> {
-  if (!props.id || form.itemType !== "FINISHED_GOOD" || !canReadFormula) return;
+  if (!props.id || !isManufactured.value || !canReadFormula) return;
   bomError.value = null;
   try {
+    await loadComponents();
     formulaVersions.value = await api.listFormulasForItem(props.id);
     // Versions arrive active-first / newest-first, so the first is the default.
     selectedFormulaId.value = formulaVersions.value[0]?.id ?? null;
-    await loadBomLines();
+    await loadSelectedVersion();
   } catch (err) {
     bomError.value = err instanceof ApiError ? err.message : "Failed to load";
   }
 }
 
-async function loadBomLines(): Promise<void> {
+async function loadSelectedVersion(): Promise<void> {
+  isNewVersion.value = false;
   if (!selectedFormulaId.value) {
-    bom.value = null;
+    resetRecipeForCreate();
+    recipe.lines = [];
     return;
   }
   bomError.value = null;
   try {
-    bom.value = await api.getFormula(selectedFormulaId.value);
+    const f = await api.getFormula(selectedFormulaId.value);
+    recipe.name = f.name;
+    recipe.notes = f.notes ?? "";
+    recipe.isActive = f.isActive;
+    recipe.lines = f.lines.map((l) => ({
+      rawMaterialId: l.rawMaterialId,
+      percentage: l.percentage,
+    }));
   } catch (err) {
     bomError.value = err instanceof ApiError ? err.message : "Failed to load";
+  }
+}
+
+/** Start a new version, pre-filled from the current one (revise & bump). */
+function startNewVersion(): void {
+  isNewVersion.value = true;
+  selectedFormulaId.value = null;
+  if (!recipe.lines.length) addLine();
+}
+function cancelNewVersion(): void {
+  selectedFormulaId.value = formulaVersions.value[0]?.id ?? null;
+  void loadSelectedVersion();
+}
+
+async function saveRecipe(): Promise<void> {
+  if (!props.id) return;
+  bomError.value = null;
+  bomBusy.value = true;
+  try {
+    if (selectedFormulaId.value && !isNewVersion.value) {
+      const parsed = updateFormulaSchema.safeParse(recipePayload());
+      if (!parsed.success) {
+        bomError.value = parsed.error.issues
+          .map((i) => `${i.path.join(".") || "recipe"}: ${i.message}`)
+          .join("; ");
+        return;
+      }
+      await api.updateFormula(selectedFormulaId.value, parsed.data);
+    } else {
+      // New version: the backend assigns the next version for this item.
+      const parsed = createFormulaSchema.safeParse({
+        ...recipePayload(),
+        finishedGoodId: props.id,
+      });
+      if (!parsed.success) {
+        bomError.value = parsed.error.issues
+          .map((i) => `${i.path.join(".") || "recipe"}: ${i.message}`)
+          .join("; ");
+        return;
+      }
+      const created = await api.createFormula(parsed.data);
+      selectedFormulaId.value = created.id;
+    }
+    formulaVersions.value = await api.listFormulasForItem(props.id);
+    await loadSelectedVersion();
+  } catch (err) {
+    bomError.value = err instanceof ApiError ? err.message : "Save failed";
+  } finally {
+    bomBusy.value = false;
+  }
+}
+
+async function deleteVersion(): Promise<void> {
+  if (!props.id || !selectedFormulaId.value) return;
+  if (!confirm(`Delete formula "${recipe.name}"? This cannot be undone.`)) return;
+  bomError.value = null;
+  bomBusy.value = true;
+  try {
+    await api.deleteFormula(selectedFormulaId.value);
+    formulaVersions.value = await api.listFormulasForItem(props.id);
+    selectedFormulaId.value = formulaVersions.value[0]?.id ?? null;
+    await loadSelectedVersion();
+  } catch (err) {
+    bomError.value = err instanceof ApiError ? err.message : "Delete failed";
+  } finally {
+    bomBusy.value = false;
+  }
+}
+
+// Batch calculator for the selected saved version.
+const batchSize = ref("1");
+const requirements = ref<BatchRequirements | null>(null);
+const calcError = ref<string | null>(null);
+async function calculate(): Promise<void> {
+  if (!selectedFormulaId.value) return;
+  calcError.value = null;
+  try {
+    requirements.value = await api.formulaRequirements(selectedFormulaId.value, {
+      batchSize: batchSize.value,
+      unit: "LB",
+    });
+  } catch (err) {
+    calcError.value = err instanceof ApiError ? err.message : "Calculation failed";
   }
 }
 
@@ -385,7 +537,18 @@ async function saveSpecs(): Promise<void> {
 }
 
 onMounted(async () => {
-  if (!props.id) return;
+  if (!props.id) {
+    // Create mode: prime the recipe editor (shown only for manufactured items).
+    if (canReadFormula) {
+      try {
+        await loadComponents();
+      } catch {
+        /* component list is non-critical for creating the item itself */
+      }
+      resetRecipeForCreate();
+    }
+    return;
+  }
   try {
     const item = await api.getInventory(props.id);
     Object.assign(form, {
@@ -491,7 +654,28 @@ async function submit(): Promise<void> {
         );
         return;
       }
-      await api.createInventory(parsed.data);
+      const created = await api.createInventory(parsed.data);
+      // A manufactured item created with a recipe: save the formula too, then
+      // land on its edit page where full version management lives.
+      const hasRecipe =
+        isManufactured.value &&
+        recipe.lines.some((l) => l.rawMaterialId && Number(l.percentage) > 0);
+      if (hasRecipe) {
+        const parsedF = createFormulaSchema.safeParse({
+          ...recipePayload(),
+          finishedGoodId: created.id,
+        });
+        if (!parsedF.success) {
+          formError.value =
+            "Item created, but the recipe is invalid — add it on the item page: " +
+            parsedF.error.issues.map((i) => i.message).join("; ");
+          await router.push({ name: "inventory-edit", params: { id: created.id } });
+          return;
+        }
+        await api.createFormula(parsedF.data);
+        await router.push({ name: "inventory-edit", params: { id: created.id } });
+        return;
+      }
     }
     await router.push({ name: returnRoute });
   } catch (err) {
@@ -968,63 +1152,229 @@ async function submit(): Promise<void> {
       </div>
     </div>
 
+    <!-- Recipe editor for manufactured items (finished goods + bases), edit mode -->
     <div
-      v-if="isEdit && isFinishedGood && canReadFormula"
+      v-if="isEdit && isManufactured && canReadFormula"
       class="panel"
       style="margin-top: 1rem"
     >
       <div class="toolbar">
         <h3 style="margin: 0">Bill of materials</h3>
         <span class="spacer" />
-        <label v-if="formulaVersions.length" style="font-size: 0.85rem">
+        <label v-if="formulaVersions.length && !isNewVersion" style="font-size: 0.85rem">
           Version:
-          <select v-model="selectedFormulaId" @change="loadBomLines">
+          <select v-model="selectedFormulaId" @change="loadSelectedVersion">
             <option v-for="v in formulaVersions" :key="v.id" :value="v.id">
               v{{ v.version }}{{ v.isActive ? " (active)" : "" }}
             </option>
           </select>
         </label>
-        <router-link
-          v-if="selectedFormulaId"
-          :to="{ name: 'formula-edit', params: { id: selectedFormulaId } }"
+        <span v-if="isNewVersion" class="inactive" style="font-size: 0.85rem">
+          New version (unsaved)
+        </span>
+        <button
+          v-if="canEditFormula && formulaVersions.length && !isNewVersion"
+          @click="startNewVersion"
         >
-          Open formula
-        </router-link>
+          + New version
+        </button>
+        <button v-if="isNewVersion && formulaVersions.length" @click="cancelNewVersion">
+          Cancel
+        </button>
       </div>
       <div v-if="bomError" class="banner error">{{ bomError }}</div>
 
-      <p v-if="!formulaVersions.length" class="inactive" style="font-size: 0.85rem">
-        No formula defined for this finished good.
-      </p>
-      <template v-else-if="bom">
-        <p class="inactive" style="font-size: 0.85rem">
-          <strong>{{ bom.name }}</strong> (v{{ bom.version }})<span v-if="bom.notes">
-            — {{ bom.notes }}</span
-          >
-        </p>
+      <template v-if="!selectedFormulaId && !isNewVersion">
+        <p class="inactive" style="font-size: 0.85rem">No recipe defined yet.</p>
+        <button v-if="canEditFormula" class="primary" @click="startNewVersion">
+          Add recipe
+        </button>
+      </template>
+
+      <template v-else>
+        <div class="grid-2">
+          <div class="field">
+            <label>Recipe name</label>
+            <input v-model="recipe.name" :disabled="!canEditFormula" />
+          </div>
+          <div class="field">
+            <label>Notes</label>
+            <input v-model="recipe.notes" :disabled="!canEditFormula" />
+          </div>
+        </div>
+        <div class="field">
+          <label>
+            <input
+              type="checkbox"
+              v-model="recipe.isActive"
+              :disabled="!canEditFormula"
+              style="width: auto"
+            />
+            Active
+          </label>
+        </div>
+
         <table>
           <thead>
-            <tr><th>Component</th><th class="num">%</th></tr>
+            <tr>
+              <th>Component (raw material or base)</th>
+              <th class="num" style="width: 120px">Percent</th>
+              <th v-if="canEditFormula" style="width: 40px"></th>
+            </tr>
           </thead>
           <tbody>
-            <tr v-for="line in bom.lines" :key="line.id">
+            <tr v-for="(line, index) in recipe.lines" :key="index">
               <td>
-                {{ line.rawMaterialName }}
-                <span class="inactive">({{ line.rawMaterialSku }})</span>
+                <select v-model="line.rawMaterialId" :disabled="!canEditFormula">
+                  <option value="" disabled>Select a component…</option>
+                  <option v-for="m in components" :key="m.id" :value="m.id">
+                    {{ m.name }} ({{ m.sku }})
+                  </option>
+                </select>
               </td>
-              <td class="num">{{ line.percentage }}</td>
+              <td class="num">
+                <input
+                  v-model="line.percentage"
+                  inputmode="decimal"
+                  style="text-align: right"
+                  :disabled="!canEditFormula"
+                />
+              </td>
+              <td v-if="canEditFormula">
+                <button class="danger" @click="removeLine(index)">✕</button>
+              </td>
             </tr>
           </tbody>
           <tfoot>
             <tr>
-              <td>Total</td>
-              <td class="num" :class="{ warn: Math.abs(bomTotal - 100) > 0.0001 }">
-                {{ bomTotal.toFixed(4) }}
+              <td>
+                <button v-if="canEditFormula" @click="addLine">+ Add material</button>
+                <span v-else>Total</span>
               </td>
+              <td class="num" :style="{ color: totalIsValid ? 'var(--ok)' : 'var(--danger)' }">
+                <strong>{{ percentTotal.toFixed(4) }}%</strong>
+              </td>
+              <td v-if="canEditFormula"></td>
             </tr>
           </tfoot>
         </table>
+        <p class="inactive" style="font-size: 0.85rem">
+          Percentages must sum to exactly 100.
+        </p>
+
+        <div v-if="canEditFormula" class="toolbar">
+          <button class="primary" :disabled="bomBusy" @click="saveRecipe">
+            {{
+              bomBusy
+                ? "Saving…"
+                : isNewVersion || !selectedFormulaId
+                  ? "Create version"
+                  : "Save recipe"
+            }}
+          </button>
+          <button
+            v-if="canDeleteFormula && selectedFormulaId && !isNewVersion"
+            class="danger"
+            :disabled="bomBusy"
+            @click="deleteVersion"
+          >
+            Delete version
+          </button>
+        </div>
+
+        <template v-if="selectedFormulaId && !isNewVersion">
+          <h4 style="margin-top: 1rem">Batch calculator</h4>
+          <p class="inactive" style="font-size: 0.85rem">
+            Enter a batch size in pounds to see each component's required weight.
+          </p>
+          <div v-if="calcError" class="banner error">{{ calcError }}</div>
+          <div class="toolbar">
+            <input v-model="batchSize" inputmode="decimal" style="max-width: 140px" />
+            <span class="inactive" style="align-self: center">lb</span>
+            <button @click="calculate">Calculate</button>
+          </div>
+          <table v-if="requirements">
+            <thead>
+              <tr>
+                <th>Component</th>
+                <th class="num">Percent</th>
+                <th class="num">Required (lb)</th>
+                <th class="num">kg equivalent</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="line in requirements.lines" :key="line.rawMaterialId">
+                <td>{{ line.name }} <span class="inactive">({{ line.sku }})</span></td>
+                <td class="num">{{ line.percentage }}%</td>
+                <td class="num">{{ line.requiredQuantity }}</td>
+                <td class="num">
+                  {{ line.handlingUnit === "KG" ? kgEquivalent(line.requiredQuantity) + " kg" : "—" }}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </template>
       </template>
+    </div>
+
+    <!-- Recipe editor for a brand-new manufactured item; saved with the item -->
+    <div
+      v-if="!isEdit && isManufactured && canEditFormula"
+      class="panel"
+      style="margin-top: 1rem"
+    >
+      <h3 style="margin: 0 0 0.5rem">Recipe (optional)</h3>
+      <p class="inactive" style="font-size: 0.85rem">
+        Define the bill of materials now, or leave it blank and add it later — it's
+        saved together with the item.
+      </p>
+      <div class="grid-2">
+        <div class="field">
+          <label>Recipe name</label>
+          <input v-model="recipe.name" />
+        </div>
+        <div class="field">
+          <label>Notes</label>
+          <input v-model="recipe.notes" />
+        </div>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Component (raw material or base)</th>
+            <th class="num" style="width: 120px">Percent</th>
+            <th style="width: 40px"></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="(line, index) in recipe.lines" :key="index">
+            <td>
+              <select v-model="line.rawMaterialId">
+                <option value="" disabled>Select a component…</option>
+                <option v-for="m in components" :key="m.id" :value="m.id">
+                  {{ m.name }} ({{ m.sku }})
+                </option>
+              </select>
+            </td>
+            <td class="num">
+              <input v-model="line.percentage" inputmode="decimal" style="text-align: right" />
+            </td>
+            <td><button class="danger" @click="removeLine(index)">✕</button></td>
+          </tr>
+        </tbody>
+        <tfoot>
+          <tr>
+            <td><button @click="addLine">+ Add material</button></td>
+            <td class="num" :style="{ color: totalIsValid ? 'var(--ok)' : 'var(--danger)' }">
+              <strong>{{ percentTotal.toFixed(4) }}%</strong>
+            </td>
+            <td></td>
+          </tr>
+        </tfoot>
+      </table>
+      <p class="inactive" style="font-size: 0.85rem">
+        If you add materials, percentages must sum to exactly 100.
+      </p>
     </div>
 
     <div v-if="isEdit && isFinishedGood" class="panel" style="margin-top: 1rem">

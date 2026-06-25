@@ -72,10 +72,14 @@ export const router = createRouter({
       props: true,
     },
     {
+      // Formulas are now edited on each finished-good / base item page.
+      // Keep the old paths as redirects so existing links don't dead-end.
       path: "/formulas",
-      name: "formulas",
-      component: () => import("./views/FormulaListView.vue"),
-      meta: { requiresAuth: true },
+      redirect: { name: "finished-goods" },
+    },
+    {
+      path: "/formulas/:pathMatch(.*)*",
+      redirect: { name: "finished-goods" },
     },
     {
       path: "/quality",
@@ -118,19 +122,6 @@ export const router = createRouter({
       path: "/production/:id",
       name: "production-detail",
       component: () => import("./views/ProductionDetailView.vue"),
-      meta: { requiresAuth: true },
-      props: true,
-    },
-    {
-      path: "/formulas/new",
-      name: "formula-new",
-      component: () => import("./views/FormulaFormView.vue"),
-      meta: { requiresAuth: true },
-    },
-    {
-      path: "/formulas/:id",
-      name: "formula-edit",
-      component: () => import("./views/FormulaFormView.vue"),
       meta: { requiresAuth: true },
       props: true,
     },
