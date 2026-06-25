@@ -36,6 +36,14 @@ import { FormulaService } from "../formula/formula.service";
 import { Prisma } from "../generated/prisma/client";
 import { extendedValue } from "../inventory/valuation";
 import { poStatusFromLines } from "../purchasing/po-status";
+import {
+  amountPaid,
+  amountRefunded,
+  openBalance,
+  orderBalance,
+  orderTotal,
+  refundableAmount,
+} from "./sales-order.balances";
 import { StockService } from "../stock/stock.service";
 
 type SoWithRelations = Prisma.SalesOrderGetPayload<{
@@ -132,6 +140,70 @@ export class SalesOrderService {
       canOverride
         ? `Lines priced below cost: ${detail}. Set allowBelowCost to override.`
         : `Lines priced below cost: ${detail}. You are not permitted to sell below cost.`,
+    );
+  }
+
+  /**
+   * A customer's current credit exposure: the sum of open balances across their
+   * non-cancelled orders (each clamped ≥ 0, so an overpaid order can't offset a
+   * debt). This is the live receivable the credit limit is measured against.
+   */
+  private async customerExposure(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    customerId: string,
+  ): Promise<Decimal> {
+    const orders = await tx.salesOrder.findMany({
+      where: { tenantId, customerId, status: { not: "CANCELLED" } },
+      select: {
+        status: true,
+        lines: { select: { quantityOrdered: true, unitPrice: true } },
+        payments: { select: { amount: true } },
+        refunds: { select: { amount: true } },
+      },
+    });
+    return orders.reduce((sum, o) => sum.plus(openBalance(o)), new Decimal(0));
+  }
+
+  /**
+   * Block a new order that would push the customer past their credit limit
+   * (existing exposure + this order's total > limit). A customer with no limit
+   * set (null) is never blocked. A user with the credit-override permission who
+   * opts in (allowOverLimit) may proceed; the projection is returned so the
+   * caller can audit the override. Mirrors the below-cost guard.
+   */
+  private async assertCreditLimit(
+    user: AuthenticatedUser,
+    tx: Prisma.TransactionClient,
+    customer: { id: string; name: string; creditLimit: Prisma.Decimal | null },
+    lines: SalesOrderLineInput[],
+    allowOverLimit: boolean | undefined,
+  ): Promise<{ creditLimit: string; priorExposure: string; orderTotal: string } | null> {
+    if (customer.creditLimit == null) return null; // no limit configured
+    const limit = new Decimal(customer.creditLimit.toString());
+    const newOrderTotal = lines.reduce(
+      (sum, l) => sum.plus(new Decimal(extendedValue(l.quantityOrdered, l.unitPrice))),
+      new Decimal(0),
+    );
+    const priorExposure = await this.customerExposure(tx, user.tenantId, customer.id);
+    const projected = priorExposure.plus(newOrderTotal);
+    if (projected.lessThanOrEqualTo(limit)) return null;
+
+    const detail =
+      `${customer.name}'s credit limit is ${limit.toDecimalPlaces(2)}; this order would raise ` +
+      `their balance to ${projected.toDecimalPlaces(2)} (current ${priorExposure.toDecimalPlaces(2)})`;
+    const canOverride = user.permissions.includes(PERMISSIONS.SO_CREDIT_OVERRIDE);
+    if (canOverride && allowOverLimit) {
+      return {
+        creditLimit: limit.toString(),
+        priorExposure: priorExposure.toString(),
+        orderTotal: newOrderTotal.toString(),
+      };
+    }
+    throw new BadRequestException(
+      canOverride
+        ? `${detail}. Set allowOverLimit to override.`
+        : `${detail}. You are not permitted to exceed a customer's credit limit.`,
     );
   }
 
@@ -280,6 +352,13 @@ export class SalesOrderService {
         if (!customer) throw new BadRequestException("Customer not found");
         await this.assertSellable(tx, user.tenantId, input.lines);
         const belowCost = await this.assertPricing(user, input.lines, input.allowBelowCost);
+        const overLimit = await this.assertCreditLimit(
+          user,
+          tx,
+          customer,
+          input.lines,
+          input.allowOverLimit,
+        );
 
         // Default the ship-by to a few days after the order date when sales
         // doesn't set one, so every order has a date the scheduler can sequence on.
@@ -309,7 +388,11 @@ export class SalesOrderService {
           entityType: "SalesOrder",
           entityId: order.id,
           action: "CREATE",
-          after: belowCost.length ? { ...input, belowCostOverride: belowCost } : input,
+          after: {
+            ...input,
+            ...(belowCost.length ? { belowCostOverride: belowCost } : {}),
+            ...(overLimit ? { creditLimitOverride: overLimit } : {}),
+          },
         });
         return order.id;
       });
@@ -448,6 +531,7 @@ export class SalesOrderService {
           requestedShipDate: this.toIsoDate(head.requestedShipDate),
           notes: head.notes,
           allowBelowCost: group.rows.some((r) => r.allowBelowCost) || undefined,
+          allowOverLimit: group.rows.some((r) => r.allowOverLimit) || undefined,
           lines,
         });
         results.push({
@@ -813,8 +897,8 @@ export class SalesOrderService {
       if (order.status === "CANCELLED") {
         throw new BadRequestException("Cannot record a payment on a cancelled order");
       }
-      const total = this.orderTotal(order);
-      const paid = this.amountPaid(order);
+      const total = orderTotal(order);
+      const paid = amountPaid(order);
       const balance = total.minus(paid);
       const amount = new Decimal(input.amount);
       if (balance.lessThanOrEqualTo(0)) {
@@ -897,7 +981,7 @@ export class SalesOrderService {
         );
       }
 
-      const refundable = this.refundableAmount(order);
+      const refundable = refundableAmount(order);
       if (refundable.lessThanOrEqualTo(0)) {
         throw new BadRequestException(
           isCancelled
@@ -959,35 +1043,6 @@ export class SalesOrderService {
       after: r.after,
       createdAt: r.createdAt.toISOString(),
     }));
-  }
-
-  private orderTotal(order: SoWithRelations): Decimal {
-    return order.lines.reduce(
-      (sum, l) => sum.plus(new Decimal(extendedValue(l.quantityOrdered.toString(), l.unitPrice.toString()))),
-      new Decimal(0),
-    );
-  }
-  private amountPaid(order: SoWithRelations): Decimal {
-    return order.payments.reduce(
-      (sum, p) => sum.plus(new Decimal(p.amount.toString())),
-      new Decimal(0),
-    );
-  }
-  private amountRefunded(order: SoWithRelations): Decimal {
-    return order.refunds.reduce(
-      (sum, r) => sum.plus(new Decimal(r.amount.toString())),
-      new Decimal(0),
-    );
-  }
-  /**
-   * What can still be refunded: net payments (paid − already refunded) above what
-   * the order now owes. A cancelled order owes nothing, so its whole net paid is
-   * refundable; an active order is refundable only to the extent it's overpaid.
-   */
-  private refundableAmount(order: SoWithRelations): Decimal {
-    const netPaid = this.amountPaid(order).minus(this.amountRefunded(order));
-    const owed = order.status === "CANCELLED" ? new Decimal(0) : this.orderTotal(order);
-    return Decimal.max(0, netPaid.minus(owed));
   }
 
   /**
@@ -1167,20 +1222,14 @@ export class SalesOrderService {
       containerQuantity:
         line.containerQuantity === null ? null : line.containerQuantity.toString(),
     }));
-    const totalRevenueDec = lines.reduce(
-      (sum, l) => sum.plus(l.lineRevenue),
-      new Decimal(0),
-    );
-    const totalRevenue = totalRevenueDec.toString();
-    const amountPaidDec = this.amountPaid(order);
-    const amountPaid = amountPaidDec.toString();
-    const amountRefundedDec = this.amountRefunded(order);
-    const amountRefunded = amountRefundedDec.toString();
+    // Shared money math — same helpers AR aggregation uses, so they never drift.
+    const bal = orderBalance(order);
+    const totalRevenue = bal.totalRevenue.toString();
+    const amountPaid = bal.amountPaid.toString();
+    const amountRefunded = bal.amountRefunded.toString();
     // Net of refunds: what the customer has effectively paid toward the order.
-    const balanceDue = totalRevenueDec
-      .minus(amountPaidDec.minus(amountRefundedDec))
-      .toString();
-    const refundableAmount = this.refundableAmount(order).toString();
+    const balanceDue = bal.balanceDue.toString();
+    const refundable = refundableAmount(order).toString();
     const payments = order.payments.map((p) => ({
       id: p.id,
       amount: p.amount.toString(),
@@ -1249,7 +1298,7 @@ export class SalesOrderService {
       amountPaid,
       amountRefunded,
       balanceDue,
-      refundableAmount,
+      refundableAmount: refundable,
       packedAt: order.packedAt?.toISOString() ?? null,
       lines,
       payments,

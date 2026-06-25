@@ -48,6 +48,22 @@ export const NET_PAYMENT_TERMS = [
   "NET_90",
 ] as const satisfies readonly PaymentTerms[];
 
+/**
+ * How many days after the order date payment is due, per terms. Drives accounts-
+ * receivable aging (a balance is "past due" once today is beyond order date +
+ * these days). COD/PREPAID/DUE_ON_RECEIPT are due immediately.
+ */
+export const PAYMENT_TERM_DAYS: Record<PaymentTerms, number> = {
+  DUE_ON_RECEIPT: 0,
+  COD: 0,
+  PREPAID: 0,
+  NET_15: 15,
+  NET_30: 30,
+  NET_45: 45,
+  NET_60: 60,
+  NET_90: 90,
+};
+
 export const addressInputSchema = z.object({
   kind: addressKindSchema.default("OTHER"),
   label: z.string().trim().max(100).optional(),

@@ -29,13 +29,18 @@ export const createCustomerSchema = z.object({
   taxId: z.string().trim().max(50).optional(),
   paymentTerms: paymentTermsSchema.optional(),
   rating: customerRatingSchema.optional(),
+  /** Maximum total open balance allowed; omitted = no limit. Enforced on SO create. */
+  creditLimit: moneyString.optional(),
   notes: z.string().trim().max(2000).optional(),
   isActive: z.boolean().default(true),
   /** Full set of addresses / contacts; on update these replace the existing set. */
   addresses: z.array(addressInputSchema).default([]),
   contacts: z.array(contactInputSchema).default([]),
 });
-export const updateCustomerSchema = createCustomerSchema.partial();
+// `creditLimit` overridden to nullish so an existing limit can be cleared (null = no limit).
+export const updateCustomerSchema = createCustomerSchema
+  .partial()
+  .extend({ creditLimit: moneyString.nullish() });
 
 export const customerSchema = z.object({
   id: z.string().uuid(),
@@ -48,6 +53,8 @@ export const customerSchema = z.object({
   taxId: z.string().nullable(),
   paymentTerms: paymentTermsSchema.nullable(),
   rating: customerRatingSchema.nullable(),
+  /** Maximum total open balance allowed; null = no limit. */
+  creditLimit: z.string().nullable(),
   notes: z.string().nullable(),
   isActive: z.boolean(),
   addresses: z.array(addressSchema),
@@ -116,6 +123,8 @@ export const createSalesOrderSchema = z.object({
   lines: z.array(soLineInputSchema).min(1),
   /** Permit lines priced below cost (requires the so:price-override permission). */
   allowBelowCost: z.boolean().optional(),
+  /** Permit exceeding the customer's credit limit (requires so:credit-override). */
+  allowOverLimit: z.boolean().optional(),
 });
 
 export const updateSalesOrderSchema = z.object({
@@ -370,6 +379,7 @@ export const importSalesOrderRowSchema = z.object({
   packingSku: z.string().trim().max(64).optional(),
   packingQty: positiveQty.optional(),
   allowBelowCost: z.boolean().optional(),
+  allowOverLimit: z.boolean().optional(),
 });
 
 export const importSalesOrdersSchema = z.object({

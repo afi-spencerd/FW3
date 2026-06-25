@@ -19,6 +19,8 @@ import type {
   CreateVendor,
   CreateCustomer,
   Customer,
+  ArSummaryRow,
+  ArDetail,
   Formula,
   FormulaSummary,
   InventoryItem,
@@ -379,6 +381,10 @@ export const api = {
       method: "PUT",
       body: JSON.stringify(data),
     }),
+
+  listAr: () => request<ArSummaryRow[]>("/accounts-receivable"),
+  customerAr: (customerId: string) =>
+    request<ArDetail>(`/accounts-receivable/${customerId}`),
 
   getItemCost: (id: string) => request<ItemCost>(`/inventory/${id}/cost`),
   customerPriceHistory: (customerId: string) =>

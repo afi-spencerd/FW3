@@ -38,6 +38,8 @@ export const PERMISSIONS = {
   SO_SHIP: "so:ship",
   // Override the can't-sell-below-cost guard on a sales order.
   SO_PRICE_OVERRIDE: "so:price-override",
+  // Override the customer-credit-limit guard when creating a sales order.
+  SO_CREDIT_OVERRIDE: "so:credit-override",
   // Customer service: turn a (paid / net-terms) sales order into work orders.
   SO_REQUEST_PRODUCTION: "so:request-production",
   // Record payments against a sales order.
@@ -98,6 +100,7 @@ export const BUILTIN_ROLES = {
     PERMISSIONS.SO_CREATE,
     PERMISSIONS.SO_UPDATE,
     PERMISSIONS.SO_SHIP,
+    PERMISSIONS.SO_CREDIT_OVERRIDE,
     PERMISSIONS.SO_REQUEST_PRODUCTION,
     PERMISSIONS.SO_RECORD_PAYMENT,
     PERMISSIONS.SO_ISSUE_REFUND,

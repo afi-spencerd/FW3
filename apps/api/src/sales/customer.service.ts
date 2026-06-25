@@ -93,6 +93,7 @@ export class CustomerService {
             taxId: input.taxId ?? null,
             paymentTerms: input.paymentTerms ?? null,
             rating: input.rating ?? null,
+            creditLimit: input.creditLimit ?? null,
             notes: input.notes ?? null,
             isActive: input.isActive,
             addresses: { create: input.addresses.map(addressData) },
@@ -137,6 +138,7 @@ export class CustomerService {
             ...(input.taxId === undefined ? {} : { taxId: input.taxId ?? null }),
             ...(input.paymentTerms === undefined ? {} : { paymentTerms: input.paymentTerms ?? null }),
             ...(input.rating === undefined ? {} : { rating: input.rating ?? null }),
+            ...(input.creditLimit === undefined ? {} : { creditLimit: input.creditLimit ?? null }),
             ...(input.notes === undefined ? {} : { notes: input.notes ?? null }),
             ...(input.isActive === undefined ? {} : { isActive: input.isActive }),
             // Addresses / contacts, when supplied, replace the whole set.
@@ -175,6 +177,7 @@ export class CustomerService {
       taxId: c.taxId,
       paymentTerms: c.paymentTerms as PaymentTerms | null,
       rating: c.rating as CustomerRating | null,
+      creditLimit: c.creditLimit?.toString() ?? null,
       notes: c.notes,
       isActive: c.isActive,
       addresses: c.addresses.map((a) => ({

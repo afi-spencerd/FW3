@@ -2,6 +2,7 @@
 import { computed, onMounted, reactive, ref } from "vue";
 import { useRouter } from "vue-router";
 import {
+  type ArDetail,
   type Container,
   containersForWeight,
   createSalesOrderSchema,
@@ -18,6 +19,10 @@ import { useAuthStore } from "../stores/auth";
 const router = useRouter();
 const auth = useAuthStore();
 const canOverride = auth.hasPermission(PERMISSIONS.SO_PRICE_OVERRIDE);
+const canOverrideCredit = auth.hasPermission(PERMISSIONS.SO_CREDIT_OVERRIDE);
+// Selected customer's live AR position (credit limit + current exposure).
+const customerAr = ref<ArDetail | null>(null);
+const allowOverLimit = ref(false);
 const customers = ref<Customer[]>([]);
 const items = ref<InventoryItem[]>([]);
 const containers = ref<Container[]>([]);
@@ -109,9 +114,20 @@ function recomputeMargin(): void {
   marginPct.value = (rating && marginByRating[rating]) ?? baseMargin.value;
 }
 
+async function loadCustomerAr(): Promise<void> {
+  customerAr.value = null;
+  allowOverLimit.value = false;
+  if (!form.customerId) return;
+  try {
+    customerAr.value = await api.customerAr(form.customerId);
+  } catch {
+    /* AR is advisory on the form; the server enforces the limit on save */
+  }
+}
+
 async function onCustomerChange(): Promise<void> {
   recomputeMargin();
-  await loadPriceHistory();
+  await Promise.all([loadPriceHistory(), loadCustomerAr()]);
 }
 
 /** All-in cost per unit for the line. */
@@ -163,6 +179,23 @@ const anyBelowCost = computed(() => form.lines.some((l) => belowCost(l)));
 // Below-cost lines block saving unless an authorized user opts to override.
 const blockedByCost = computed(
   () => anyBelowCost.value && !(canOverride && allowBelowCost.value),
+);
+
+// ---- Credit limit ----
+const creditLimit = computed(() => customerAr.value?.creditLimit ?? null);
+const currentExposure = computed(() => Number(customerAr.value?.currentExposure ?? 0));
+// Credit still available before this order; null when the customer has no limit.
+const availableCredit = computed(() =>
+  creditLimit.value === null ? null : Number(creditLimit.value) - currentExposure.value,
+);
+// This order would push the customer's open balance past their limit.
+const overLimit = computed(
+  () =>
+    creditLimit.value !== null &&
+    currentExposure.value + Number(total.value) > Number(creditLimit.value) + 1e-9,
+);
+const blockedByLimit = computed(
+  () => overLimit.value && !(canOverrideCredit && allowOverLimit.value),
 );
 
 // Default the container count from fill capacity (overridable). Recomputed when
@@ -236,6 +269,7 @@ async function submit(): Promise<void> {
         : undefined,
       notes: form.notes || undefined,
       allowBelowCost: allowBelowCost.value || undefined,
+      allowOverLimit: allowOverLimit.value || undefined,
       lines: form.lines.map((l, i) => ({
         lineType: l.lineType,
         itemId: l.lineType === "ITEM" ? l.itemId : undefined,
@@ -289,6 +323,13 @@ async function submit(): Promise<void> {
             <option value="" disabled>Select a customer…</option>
             <option v-for="c in customers" :key="c.id" :value="c.id">{{ c.name }}</option>
           </select>
+          <span v-if="customerAr && creditLimit !== null" class="inactive" style="font-size: 0.75rem">
+            Available credit:
+            <strong :class="{ below: availableCredit !== null && availableCredit < 0 }">
+              ${{ availableCredit!.toFixed(2) }}
+            </strong>
+            of ${{ Number(creditLimit).toFixed(2) }} limit (owes ${{ currentExposure.toFixed(2) }})
+          </span>
         </div>
         <div class="field">
           <label>Customer PO</label>
@@ -432,8 +473,19 @@ async function submit(): Promise<void> {
         <span v-else> You are not permitted to sell below cost — raise the price to continue.</span>
       </div>
 
+      <div v-if="overLimit" class="banner error" style="margin-top: 1rem">
+        This order would put {{ customerAr?.customerName }} at
+        ${{ (currentExposure + Number(total)).toFixed(2) }} — past their
+        ${{ Number(creditLimit).toFixed(2) }} credit limit.
+        <label v-if="canOverrideCredit" style="display: block; margin-top: 0.4rem; font-weight: normal">
+          <input type="checkbox" v-model="allowOverLimit" style="width: auto" />
+          Override and exceed the credit limit (recorded in the audit trail)
+        </label>
+        <span v-else> You are not permitted to exceed a customer's credit limit.</span>
+      </div>
+
       <div class="toolbar">
-        <button class="primary" :disabled="busy || blockedByCost" @click="submit">
+        <button class="primary" :disabled="busy || blockedByCost || blockedByLimit" @click="submit">
           {{ busy ? "Saving…" : "Create SO" }}
         </button>
         <button @click="router.push({ name: 'sales-orders' })">Cancel</button>

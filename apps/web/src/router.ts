@@ -189,6 +189,19 @@ export const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
+      path: "/accounts-receivable",
+      name: "accounts-receivable",
+      component: () => import("./views/AccountsReceivableView.vue"),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: "/accounts-receivable/:customerId",
+      name: "accounts-receivable-detail",
+      component: () => import("./views/AccountsReceivableDetailView.vue"),
+      meta: { requiresAuth: true },
+      props: true,
+    },
+    {
       path: "/shipping",
       name: "shipping",
       component: () => import("./views/ShippingView.vue"),

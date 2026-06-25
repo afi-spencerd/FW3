@@ -72,6 +72,7 @@ const form = reactive({
   taxId: "",
   paymentTerms: "" as PaymentTerms | "",
   rating: "" as CustomerRating | "",
+  creditLimit: "",
   notes: "",
   isActive: true,
   addresses: [] as AddressRow[],
@@ -87,6 +88,7 @@ function apply(c: Customer): void {
   form.taxId = c.taxId ?? "";
   form.paymentTerms = c.paymentTerms ?? "";
   form.rating = c.rating ?? "";
+  form.creditLimit = c.creditLimit ?? "";
   form.notes = c.notes ?? "";
   form.isActive = c.isActive;
   form.addresses = c.addresses.map((a) => ({
@@ -134,6 +136,7 @@ async function save(): Promise<void> {
       taxId: form.taxId || undefined,
       paymentTerms: form.paymentTerms || undefined,
       rating: form.rating || undefined,
+      creditLimit: form.creditLimit.trim() || undefined,
       notes: form.notes || undefined,
       isActive: form.isActive,
       addresses: form.addresses
@@ -160,8 +163,15 @@ async function save(): Promise<void> {
           notes: c.notes || undefined,
         })),
     };
-    if (props.id) await api.updateCustomer(props.id, payload);
-    else await api.createCustomer(payload);
+    if (props.id) {
+      // Blanking the field clears the limit (null = no limit); create can't send null.
+      await api.updateCustomer(props.id, {
+        ...payload,
+        creditLimit: form.creditLimit.trim() === "" ? null : form.creditLimit,
+      });
+    } else {
+      await api.createCustomer(payload);
+    }
     await router.push({ name: "customers" });
   } catch (err) {
     error.value = err instanceof ApiError ? err.message : "Save failed";
@@ -203,6 +213,13 @@ async function save(): Promise<void> {
               <option value="">— unrated</option>
               <option v-for="r in CUSTOMER_RATINGS" :key="r" :value="r">{{ r }}</option>
             </select>
+          </div>
+          <div class="field">
+            <label>Credit limit</label>
+            <input v-model="form.creditLimit" inputmode="decimal" placeholder="No limit" />
+            <span class="inactive" style="font-size: 0.75rem">
+              Max open balance. Blank = no limit; 0 = prepay only.
+            </span>
           </div>
           <div class="field">
             <label><input type="checkbox" v-model="form.isActive" style="width: auto" /> Active</label>

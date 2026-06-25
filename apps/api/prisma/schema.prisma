@@ -664,6 +664,7 @@ model Customer {
   taxId     String?  @db.NVarChar(50)
   paymentTerms String? @db.NVarChar(20) // DUE_ON_RECEIPT | NET_15 | ... (CHECK in migration)
   rating    String?  @db.NVarChar(1) // A | B | C | D — sales buy-volume rating (CHECK in migration)
+  creditLimit Decimal? @db.Decimal(19, 4) // null = no limit; 0 = prepay-only (CHECK >= 0 in migration)
   notes     String?  @db.NVarChar(2000)
   isActive  Boolean  @default(true)
   // QuickBooks linkage (set by the agent sync round-trip).
