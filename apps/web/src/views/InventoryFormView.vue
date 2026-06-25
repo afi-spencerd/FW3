@@ -35,6 +35,8 @@ import {
   UNITS_OF_MEASURE,
   updateInventoryItemSchema,
   type FgRegulatory,
+  type Formula,
+  type FormulaSummary,
 } from "@fw3/shared-types";
 import { api, ApiError } from "../lib/api";
 import { weightLabel } from "../lib/weight";
@@ -124,6 +126,43 @@ async function refreshFormPak(): Promise<void> {
     fgRegError.value = err instanceof ApiError ? err.message : "Refresh failed";
   } finally {
     fgRegBusy.value = false;
+  }
+}
+
+// --- Bill of materials (the FG's formula recipe), edit mode only ---
+const canReadFormula = auth.hasPermission(PERMISSIONS.FORMULA_READ);
+const formulaVersions = ref<FormulaSummary[]>([]);
+const selectedFormulaId = ref<string | null>(null);
+const bom = ref<Formula | null>(null);
+const bomError = ref<string | null>(null);
+// Recipe percentages should sum to 100; show the total so a bad formula is obvious.
+const bomTotal = computed(() =>
+  (bom.value?.lines ?? []).reduce((sum, l) => sum + Number(l.percentage), 0),
+);
+
+async function loadBom(): Promise<void> {
+  if (!props.id || form.itemType !== "FINISHED_GOOD" || !canReadFormula) return;
+  bomError.value = null;
+  try {
+    formulaVersions.value = await api.listFormulasForItem(props.id);
+    // Versions arrive active-first / newest-first, so the first is the default.
+    selectedFormulaId.value = formulaVersions.value[0]?.id ?? null;
+    await loadBomLines();
+  } catch (err) {
+    bomError.value = err instanceof ApiError ? err.message : "Failed to load";
+  }
+}
+
+async function loadBomLines(): Promise<void> {
+  if (!selectedFormulaId.value) {
+    bom.value = null;
+    return;
+  }
+  bomError.value = null;
+  try {
+    bom.value = await api.getFormula(selectedFormulaId.value);
+  } catch (err) {
+    bomError.value = err instanceof ApiError ? err.message : "Failed to load";
   }
 }
 
@@ -379,6 +418,7 @@ onMounted(async () => {
     await loadLocations();
     await loadSpecs();
     await loadFgRegulatory();
+    await loadBom();
   } catch (err) {
     formError.value = err instanceof ApiError ? err.message : "Failed to load";
   }
@@ -926,6 +966,65 @@ async function submit(): Promise<void> {
           {{ specBusy ? "Saving…" : "Save QC spec" }}
         </button>
       </div>
+    </div>
+
+    <div
+      v-if="isEdit && isFinishedGood && canReadFormula"
+      class="panel"
+      style="margin-top: 1rem"
+    >
+      <div class="toolbar">
+        <h3 style="margin: 0">Bill of materials</h3>
+        <span class="spacer" />
+        <label v-if="formulaVersions.length" style="font-size: 0.85rem">
+          Version:
+          <select v-model="selectedFormulaId" @change="loadBomLines">
+            <option v-for="v in formulaVersions" :key="v.id" :value="v.id">
+              v{{ v.version }}{{ v.isActive ? " (active)" : "" }}
+            </option>
+          </select>
+        </label>
+        <router-link
+          v-if="selectedFormulaId"
+          :to="{ name: 'formula-edit', params: { id: selectedFormulaId } }"
+        >
+          Open formula
+        </router-link>
+      </div>
+      <div v-if="bomError" class="banner error">{{ bomError }}</div>
+
+      <p v-if="!formulaVersions.length" class="inactive" style="font-size: 0.85rem">
+        No formula defined for this finished good.
+      </p>
+      <template v-else-if="bom">
+        <p class="inactive" style="font-size: 0.85rem">
+          <strong>{{ bom.name }}</strong> (v{{ bom.version }})<span v-if="bom.notes">
+            — {{ bom.notes }}</span
+          >
+        </p>
+        <table>
+          <thead>
+            <tr><th>Component</th><th class="num">%</th></tr>
+          </thead>
+          <tbody>
+            <tr v-for="line in bom.lines" :key="line.id">
+              <td>
+                {{ line.rawMaterialName }}
+                <span class="inactive">({{ line.rawMaterialSku }})</span>
+              </td>
+              <td class="num">{{ line.percentage }}</td>
+            </tr>
+          </tbody>
+          <tfoot>
+            <tr>
+              <td>Total</td>
+              <td class="num" :class="{ warn: Math.abs(bomTotal - 100) > 0.0001 }">
+                {{ bomTotal.toFixed(4) }}
+              </td>
+            </tr>
+          </tfoot>
+        </table>
+      </template>
     </div>
 
     <div v-if="isEdit && isFinishedGood" class="panel" style="margin-top: 1rem">

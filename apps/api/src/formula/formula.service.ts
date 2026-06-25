@@ -36,7 +36,28 @@ export class FormulaService {
       include: { finishedGood: true, _count: { select: { lines: true } } },
       orderBy: { createdAt: "desc" },
     });
-    return formulas.map((f) => ({
+    return formulas.map((f) => this.toSummary(f));
+  }
+
+  /** A finished good's formula versions, active-first then newest version. */
+  async listByFinishedGood(
+    tenantId: string,
+    finishedGoodId: string,
+  ): Promise<FormulaSummary[]> {
+    const formulas = await this.prisma.formula.findMany({
+      where: { tenantId, finishedGoodId },
+      include: { finishedGood: true, _count: { select: { lines: true } } },
+      orderBy: [{ isActive: "desc" }, { version: "desc" }],
+    });
+    return formulas.map((f) => this.toSummary(f));
+  }
+
+  private toSummary(
+    f: Prisma.FormulaGetPayload<{
+      include: { finishedGood: true; _count: { select: { lines: true } } };
+    }>,
+  ): FormulaSummary {
+    return {
       id: f.id,
       tenantId: f.tenantId,
       finishedGoodId: f.finishedGoodId,
@@ -49,7 +70,7 @@ export class FormulaService {
       lineCount: f._count.lines,
       createdAt: f.createdAt.toISOString(),
       updatedAt: f.updatedAt.toISOString(),
-    }));
+    };
   }
 
   async getById(tenantId: string, id: string): Promise<Formula> {

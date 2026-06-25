@@ -60,14 +60,15 @@ describe("ProductionService.getById availability", () => {
   it("attaches INV and WIP availability per line from stock positions", async () => {
     const svc = build(workOrder([line()]));
     const dto = await svc.getById("t1", "wo1");
-    expect(dto.lines[0].invAvailable).toBe("45.3");
-    expect(dto.lines[0].wipAvailable).toBe("12");
+    expect(dto.lines[0]?.invAvailable).toBe("45.3");
+    expect(dto.lines[0]?.wipAvailable).toBe("12");
   });
 
   it("leaves availability undefined for components with no stock position", async () => {
     const svc = build(workOrder([line({ id: "l2", componentId: "compB" })]));
     const dto = await svc.getById("t1", "wo1");
-    expect(dto.lines[0].invAvailable).toBeUndefined();
-    expect(dto.lines[0].wipAvailable).toBeUndefined();
+    expect(dto.lines).toHaveLength(1);
+    expect(dto.lines[0]?.invAvailable).toBeUndefined();
+    expect(dto.lines[0]?.wipAvailable).toBeUndefined();
   });
 });

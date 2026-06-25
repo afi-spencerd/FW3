@@ -37,6 +37,15 @@ export class FormulaController {
     return this.formulas.list(user.tenantId);
   }
 
+  @Get("by-finished-good/:itemId")
+  @RequirePermissions(PERMISSIONS.FORMULA_READ)
+  listByFinishedGood(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param("itemId") itemId: string,
+  ) {
+    return this.formulas.listByFinishedGood(user.tenantId, itemId);
+  }
+
   @Get(":id")
   @RequirePermissions(PERMISSIONS.FORMULA_READ)
   getById(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string) {

@@ -324,6 +324,8 @@ export const api = {
   purchasingReorder: () => request<PurchasingReorder>("/purchasing/reorder"),
 
   listFormulas: () => request<FormulaSummary[]>("/formulas"),
+  listFormulasForItem: (itemId: string) =>
+    request<FormulaSummary[]>(`/formulas/by-finished-good/${itemId}`),
   getFormula: (id: string) => request<Formula>(`/formulas/${id}`),
   createFormula: (data: CreateFormula) =>
     request<Formula>("/formulas", { method: "POST", body: JSON.stringify(data) }),
