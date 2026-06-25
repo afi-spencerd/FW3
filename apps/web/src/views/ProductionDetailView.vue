@@ -21,6 +21,18 @@ const busy = ref(false);
 
 const canExecute = computed(() => auth.hasPermission(PERMISSIONS.PRODUCTION_EXECUTE));
 
+type Line = ProductionWorkOrder["lines"][number];
+
+/**
+ * A pour can't proceed if neither bucket covers the requirement: on-hand (INV,
+ * stageable) plus already-staged WIP is short of what the line needs. INV/WIP are
+ * per-item totals, so this ignores contention with other work orders.
+ */
+function isShort(line: Line): boolean {
+  const available = Number(line.invAvailable ?? 0) + Number(line.wipAvailable ?? 0);
+  return available < Number(line.requiredQty);
+}
+
 async function load(): Promise<void> {
   error.value = null;
   try {
@@ -84,6 +96,8 @@ onMounted(load);
             <th class="num">Required (lb)</th>
             <th class="num">Staged (lb)</th>
             <th class="num">Consumed (lb)</th>
+            <th class="num">On-hand (lb)</th>
+            <th class="num">Staged WIP (lb)</th>
             <th class="num">kg equivalent</th>
             <th>Assigned to</th>
           </tr>
@@ -94,6 +108,11 @@ onMounted(load);
             <td class="num">{{ line.requiredQty }}</td>
             <td class="num">{{ line.stagedQty }}</td>
             <td class="num">{{ line.consumedQty }}</td>
+            <td class="num" :class="{ short: isShort(line) }">
+              {{ line.invAvailable ?? "0" }}
+              <span v-if="isShort(line)" title="Not enough material to pour">⚠</span>
+            </td>
+            <td class="num">{{ line.wipAvailable ?? "0" }}</td>
             <td class="num">
               {{ line.handlingUnit === "KG" ? kgEquivalent(line.requiredQty) + " kg" : "—" }}
             </td>
@@ -126,3 +145,10 @@ onMounted(load);
     </div>
   </div>
 </template>
+
+<style scoped>
+.short {
+  color: #b45309;
+  font-weight: 600;
+}
+</style>

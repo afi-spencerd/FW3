@@ -91,7 +91,17 @@ export class ProductionService {
   }
 
   async getById(tenantId: string, id: string): Promise<ProductionWorkOrder> {
-    return this.toDto(await this.loadWorkOrder(this.prisma, tenantId, id));
+    const wo = await this.loadWorkOrder(this.prisma, tenantId, id);
+    // Attach current stock availability per component so the compounder can see
+    // whether each pour can proceed (mirrors the scheduler's feasibility check).
+    const positions = await this.stock.getStockPositions(tenantId);
+    const invByItem = new Map(
+      positions.filter((p) => p.status === "INV").map((p) => [p.itemId, p.quantity]),
+    );
+    const wipByItem = new Map(
+      positions.filter((p) => p.status === "WIP").map((p) => [p.itemId, p.quantity]),
+    );
+    return this.toDto(wo, { invByItem, wipByItem });
   }
 
   /** Create a planned work order; expand the formula into component requirements. */
@@ -452,7 +462,13 @@ export class ProductionService {
     return workOrder;
   }
 
-  private toDto(workOrder: WorkOrderWithRelations): ProductionWorkOrder {
+  private toDto(
+    workOrder: WorkOrderWithRelations,
+    availability?: {
+      invByItem: Map<string, string>;
+      wipByItem: Map<string, string>;
+    },
+  ): ProductionWorkOrder {
     return {
       id: workOrder.id,
       tenantId: workOrder.tenantId,
@@ -479,6 +495,8 @@ export class ProductionService {
         requiredQty: line.requiredQty.toString(),
         stagedQty: line.stagedQty.toString(),
         consumedQty: line.consumedQty.toString(),
+        invAvailable: availability?.invByItem.get(line.componentId) ?? undefined,
+        wipAvailable: availability?.wipByItem.get(line.componentId) ?? undefined,
         sortOrder: line.sortOrder,
         assignedLocation: line.assignedLocation as PourLocation | null,
       })),

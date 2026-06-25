@@ -105,6 +105,10 @@ export const productionWorkOrderLineSchema = z.object({
   requiredQty: z.string(),
   stagedQty: z.string(),
   consumedQty: z.string(),
+  /** Usable on-hand (INV) for this component, in pounds. Populated on the detail view. */
+  invAvailable: z.string().optional(),
+  /** WIP available to pour for this component, in pounds. Populated on the detail view. */
+  wipAvailable: z.string().optional(),
   sortOrder: z.number().int(),
   /** Where this pour is assigned (null for legacy lines created before routing). */
   assignedLocation: pourLocationSchema.nullable(),
