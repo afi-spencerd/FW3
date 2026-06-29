@@ -32,7 +32,11 @@
 - [x] customer PO field on SO
 - [x] SO CSV import
 - [x] filter SO by customer, status. sort-by on all columns. add search.
-- [ ] reserve FG for SO
+- [x] cycle counts for item rather than location
+- [x] filters & sorting on Work Orders
+- [x] reserve FG for SO
+- [ ] filters & sorting on Vendors
+- [ ] filters & sorting on Customers
 - [ ] schedule work order for semi-finished good (base) from Scheduler
 - [ ] complete QB sync
 - [ ] location rules (i.e. no move back to receiving dock after moved to warehouse)
@@ -42,6 +46,7 @@
 
 - [ ] scheduling
   - [x] init
+  - [ ] request FG stock from alert
 - [ ] customer service
   - [x] make SO "confirmed" or "requested" when customer pays
   - [ ] customer purchase & cost history
@@ -89,8 +94,14 @@
 - [x] FG BOM missing on formula details page
 - [x] Formula and Finished Good Page duplication
 - [x] Customer credit limit & A/R
+- [x] showing other locations for assignment on location-specific cycle counts
+- [x] From shipping, show FG available
+- [ ] major visibility loss from shipping FG created for one SO out from under it to another
+- [ ] WO planned date
+- [ ] always show lbs for ordered amount
+- [ ] remove "melting point" solid check for now *(until QC able to explain their process)*
+- [ ] notes on QC odor judgement optional
 - [ ] avg cost for rm on po
-- [ ] From shipping, show FG available
 - [ ] duplicate fields on Create WO & WO target confusing
 - [ ] "F-codes" on FG for backwards compatibility
 - [ ] default WO number based on existing ERP scheme
