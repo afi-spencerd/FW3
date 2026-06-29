@@ -9,6 +9,7 @@ import {
   LOCATED_STOCK_STATUSES,
   type Location,
   PERMISSIONS,
+  scopeLeafLocationIds,
 } from "@fw3/shared-types";
 import { api, ApiError } from "../lib/api";
 import { useAuthStore } from "../stores/auth";
@@ -30,12 +31,24 @@ const isOpen = computed(() => count.value?.status === "OPEN");
 
 // Found-item entry
 const items = ref<InventoryItem[]>([]);
+const allLocations = ref<Location[]>([]);
 const leafLocations = ref<Location[]>([]);
 const found = reactive({
   itemId: "",
   status: "INV" as LocatedStockStatus,
   locationId: "",
   quantity: "0",
+});
+
+// Found items may only be assigned to locations within this count's scope.
+const scopeLocations = computed(() => {
+  const ids = scopeLeafLocationIds(
+    allLocations.value,
+    count.value?.scopeLocationId ?? null,
+  );
+  return ids === null
+    ? leafLocations.value
+    : leafLocations.value.filter((l) => ids.includes(l.id));
 });
 
 async function load(): Promise<void> {
@@ -51,6 +64,7 @@ async function load(): Promise<void> {
         api.listLocations(),
       ]);
       items.value = inv.items;
+      allLocations.value = locs;
       leafLocations.value = locs.filter((l) => l.active && isStockableKind(l.kind));
     }
   } catch (err) {
@@ -210,7 +224,7 @@ onMounted(load);
           </select>
           <select v-model="found.locationId" style="max-width: 220px">
             <option value="">Location…</option>
-            <option v-for="loc in leafLocations" :key="loc.id" :value="loc.id">{{ loc.code }} — {{ loc.name }}</option>
+            <option v-for="loc in scopeLocations" :key="loc.id" :value="loc.id">{{ loc.code }} — {{ loc.name }}</option>
           </select>
           <input v-model="found.quantity" inputmode="decimal" placeholder="Qty (lb)" style="max-width: 110px" />
           <button :disabled="busy || !found.itemId || !found.locationId" @click="addFound">Add</button>

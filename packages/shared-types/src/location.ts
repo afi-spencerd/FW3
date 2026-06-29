@@ -190,6 +190,31 @@ export const locationStockRowSchema = z.object({
 });
 
 export type Location = z.infer<typeof locationSchema>;
+
+/**
+ * Stockable leaf location ids within a cycle-count scope, computed in-memory.
+ * A `null` scopeLocationId (whole tenant) returns `null` = no restriction.
+ * Mirrors CycleCountService.resolveScopeLeaves: a RACK/AREA scope is itself;
+ * a BUILDING expands to its racks/areas; an AISLE to the racks under it.
+ */
+export function scopeLeafLocationIds(
+  locations: Location[],
+  scopeLocationId: string | null,
+): string[] | null {
+  if (!scopeLocationId) return null;
+  const scope = locations.find((l) => l.id === scopeLocationId);
+  if (!scope) return [];
+  if (isStockableKind(scope.kind)) return [scope.id];
+  return locations
+    .filter(
+      (l) =>
+        isStockableKind(l.kind) &&
+        (scope.kind === "BUILDING"
+          ? l.buildingId === scope.id
+          : l.parentId === scope.id),
+    )
+    .map((l) => l.id);
+}
 export type CreateLocation = z.infer<typeof createLocationSchema>;
 export type UpdateLocation = z.infer<typeof updateLocationSchema>;
 export type MoveStock = z.infer<typeof moveStockSchema>;

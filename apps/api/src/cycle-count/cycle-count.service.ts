@@ -128,6 +128,11 @@ export class CycleCountService {
         throw new BadRequestException(`Cannot record counts on a ${count.status} cycle count`);
       }
       const lineIds = new Set(count.lines.map((l) => l.id));
+      const scopeLeaves = await this.resolveScopeLeaves(
+        user.tenantId,
+        count.scopeLocationId ?? undefined,
+      );
+      const inScope = scopeLeaves ? new Set(scopeLeaves) : null; // null = all locations
 
       for (const entry of input.lines) {
         if (!lineIds.has(entry.lineId)) {
@@ -148,6 +153,11 @@ export class CycleCountService {
         if (!location) throw new BadRequestException("Found location not found");
         if (location.kind !== "RACK" && location.kind !== "AREA") {
           throw new BadRequestException(`${location.name} cannot hold stock`);
+        }
+        if (inScope && !inScope.has(f.locationId)) {
+          throw new BadRequestException(
+            `${location.name} is outside this count's scope`,
+          );
         }
         const existing = await tx.itemStockLocation.findUnique({
           where: {
