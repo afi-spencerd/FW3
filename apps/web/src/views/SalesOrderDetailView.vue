@@ -485,6 +485,16 @@ onMounted(load);
               <template v-if="lineWorkOrder(line.id)">
                 {{ lineWorkOrder(line.id)!.status }}
               </template>
+              <span
+                v-else-if="
+                  line.lineType === 'ITEM' &&
+                  remaining(line.quantityOrdered, line.quantityShipped) > 0
+                "
+                class="needs-batch"
+                title="No work order is reserved for this line"
+              >
+                Needs batch
+              </span>
               <span v-else class="inactive">—</span>
             </td>
             <td v-if="canShip" class="num">
@@ -676,6 +686,10 @@ onMounted(load);
 
 <style scoped>
 .pending {
+  color: #b45309;
+  font-weight: 600;
+}
+.needs-batch {
   color: #b45309;
   font-weight: 600;
 }

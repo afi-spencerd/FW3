@@ -6,6 +6,8 @@ import {
   PERMISSIONS,
   POUR_LOCATION_LABELS,
   type ProductionWorkOrder,
+  type SalesOrder,
+  type SalesOrderSummary,
 } from "@fw3/shared-types";
 import { api, ApiError } from "../lib/api";
 import { useAuthStore } from "../stores/auth";
@@ -20,6 +22,72 @@ const notice = ref<string | null>(null);
 const busy = ref(false);
 
 const canExecute = computed(() => auth.hasPermission(PERMISSIONS.PRODUCTION_EXECUTE));
+const canSchedule = computed(() => auth.hasPermission(PERMISSIONS.PRODUCTION_SCHEDULE));
+
+// ---- Reassignment ----
+const salesOrders = ref<SalesOrderSummary[]>([]);
+const showReassign = ref(false);
+const targetSoId = ref("");
+const targetSo = ref<SalesOrder | null>(null);
+const targetLineId = ref("");
+
+// Live orders other than the one this batch is already reserved for.
+const reassignTargets = computed(() =>
+  salesOrders.value.filter(
+    (s) => s.status !== "CANCELLED" && s.id !== run.value?.salesOrderId,
+  ),
+);
+
+// Lines on the chosen order that order the item this work order produces — the
+// batch can only be re-reserved against a matching line.
+const matchingLines = computed(() => {
+  if (!targetSo.value || !run.value) return [];
+  return targetSo.value.lines.filter(
+    (l) => l.lineType === "ITEM" && l.itemId === run.value!.targetItemId,
+  );
+});
+
+async function openReassign(): Promise<void> {
+  showReassign.value = true;
+  if (salesOrders.value.length === 0) {
+    try {
+      salesOrders.value = await api.listSalesOrders();
+    } catch (err) {
+      error.value = err instanceof ApiError ? err.message : "Failed to load orders";
+    }
+  }
+}
+
+async function loadTargetSo(): Promise<void> {
+  targetSo.value = null;
+  targetLineId.value = "";
+  if (!targetSoId.value) return;
+  try {
+    targetSo.value = await api.getSalesOrder(targetSoId.value);
+    // Pin the line automatically when there's exactly one match.
+    if (matchingLines.value.length === 1) {
+      targetLineId.value = matchingLines.value[0]!.id;
+    }
+  } catch (err) {
+    error.value = err instanceof ApiError ? err.message : "Failed to load order";
+  }
+}
+
+async function confirmReassign(): Promise<void> {
+  if (!run.value || !targetSoId.value || !targetLineId.value) return;
+  await act(
+    () =>
+      api.reassignProductionWorkOrder(run.value!.id, {
+        salesOrderId: targetSoId.value,
+        salesOrderLineId: targetLineId.value,
+      }),
+    "Work order reassigned. The original sales order line now needs a new batch.",
+  );
+  showReassign.value = false;
+  targetSoId.value = "";
+  targetSo.value = null;
+  targetLineId.value = "";
+}
 
 type Line = ProductionWorkOrder["lines"][number];
 
@@ -85,6 +153,10 @@ onMounted(load);
         <div class="metric"><div class="label">Status</div><div class="value" style="font-size: 1rem">{{ run.status }}</div></div>
         <div class="metric"><div class="label">Batch</div><div class="value" style="font-size: 1rem">{{ run.batchSize }} {{ run.batchUnit }}</div></div>
         <div class="metric"><div class="label">Output</div><div class="value" style="font-size: 1rem">{{ run.outputQty }}</div></div>
+        <div class="metric">
+          <div class="label">Reserved for</div>
+          <div class="value" style="font-size: 1rem">{{ run.soNumber ?? "Unreserved" }}</div>
+        </div>
       </div>
       <p class="inactive" style="font-size: 0.85rem">Formula: {{ run.formulaName }}</p>
 
@@ -141,6 +213,56 @@ onMounted(load);
         <button v-if="run.status === 'PLANNED'" class="danger" :disabled="busy" @click="cancel">
           Cancel
         </button>
+      </div>
+
+      <div v-if="canSchedule && run.status !== 'CANCELLED'" class="reassign">
+        <button v-if="!showReassign" :disabled="busy" @click="openReassign">
+          Reassign to another sales order…
+        </button>
+        <div v-else>
+          <h3 style="margin-bottom: 0.25rem">Reassign work order</h3>
+          <p class="inactive" style="font-size: 0.85rem; margin-top: 0">
+            Re-reserves this batch — and any finished goods it has already
+            produced — for the chosen order. The current order's line will need a
+            new batch.
+          </p>
+          <div class="toolbar" style="gap: 0.5rem">
+            <select v-model="targetSoId" style="max-width: 280px" @change="loadTargetSo">
+              <option value="">Select a sales order…</option>
+              <option v-for="s in reassignTargets" :key="s.id" :value="s.id">
+                {{ s.soNumber }} — {{ s.customerName }}
+              </option>
+            </select>
+            <select
+              v-if="matchingLines.length > 1"
+              v-model="targetLineId"
+              style="max-width: 280px"
+            >
+              <option value="">Select a line…</option>
+              <option v-for="l in matchingLines" :key="l.id" :value="l.id">
+                {{ l.itemSku }} — {{ l.quantityOrdered }} ordered
+              </option>
+            </select>
+          </div>
+          <p
+            v-if="targetSo && matchingLines.length === 0"
+            class="banner error"
+            style="font-size: 0.85rem"
+          >
+            {{ run.targetName }} ({{ run.targetSku }}) isn't on that order — pick an
+            order that includes this item.
+          </p>
+          <div class="toolbar">
+            <button
+              class="primary"
+              :disabled="busy || !targetSoId || !targetLineId"
+              @click="confirmReassign"
+            >
+              Confirm reassignment
+            </button>
+            <button :disabled="busy" @click="showReassign = false">Cancel</button>
+          </div>
+        </div>
       </div>
     </div>
   </div>

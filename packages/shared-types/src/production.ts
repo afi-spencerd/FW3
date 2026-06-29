@@ -231,6 +231,17 @@ export const repositionWorkOrderSchema = z.object({
   position: z.number().int().min(0),
 });
 
+/**
+ * Reassign (re-reserve) a work order to a different sales order. The optional
+ * line pins the batch to a specific order line; omit it to attach to the order
+ * only. Moving a work order leaves its original sales order line uncovered, so
+ * that line can be re-requested for a fresh batch.
+ */
+export const reassignWorkOrderSchema = z.object({
+  salesOrderId: z.string().uuid(),
+  salesOrderLineId: z.string().uuid().optional(),
+});
+
 export type CreateProductionWorkOrder = z.infer<
   typeof createProductionWorkOrderSchema
 >;
@@ -250,4 +261,5 @@ export type SchedulerBoard = z.infer<typeof schedulerBoardSchema>;
 export type EnqueueWorkOrder = z.infer<typeof enqueueWorkOrderSchema>;
 export type QueueByRules = z.infer<typeof queueByRulesSchema>;
 export type RepositionWorkOrder = z.infer<typeof repositionWorkOrderSchema>;
+export type ReassignWorkOrder = z.infer<typeof reassignWorkOrderSchema>;
 export type SetPourLocation = z.infer<typeof setPourLocationSchema>;

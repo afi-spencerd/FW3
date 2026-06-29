@@ -12,6 +12,8 @@ import {
   type CreateProductionWorkOrder,
   createProductionWorkOrderSchema,
   PERMISSIONS,
+  type ReassignWorkOrder,
+  reassignWorkOrderSchema,
   type SetPourLocation,
   setPourLocationSchema,
 } from "@fw3/shared-types";
@@ -65,6 +67,18 @@ export class ProductionController {
   @RequirePermissions(PERMISSIONS.PRODUCTION_EXECUTE)
   cancel(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string) {
     return this.production.cancel(user, id);
+  }
+
+  // Reassign (re-reserve) a work order to a different sales order. Audited with
+  // the acting user, so who authorised the move and when is traceable.
+  @Post(":id/reassign")
+  @RequirePermissions(PERMISSIONS.PRODUCTION_SCHEDULE)
+  reassign(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param("id") id: string,
+    @Body(new ZodValidationPipe(reassignWorkOrderSchema)) body: ReassignWorkOrder,
+  ) {
+    return this.production.reassign(user, id, body);
   }
 
   // Pour routing: recompute all line assignments from the rules, or override one.

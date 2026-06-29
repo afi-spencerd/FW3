@@ -704,7 +704,10 @@ export class SalesOrderService {
       }
 
       // Items: OUT at average cost, FIFO-attributed to the FG's INV lots (one
-      // ledger line per lot). StockService rejects shipping more than on hand.
+      // ledger line per lot). StockService rejects shipping more than on hand,
+      // and — passing this order as the reservation context — refuses to draw
+      // lots reserved for a *different* sales order (a batch produced for SO-A
+      // can't be quietly used to ship SO-B).
       const shipDoc = {
         docType: "SALES_ORDER" as const,
         docId: id,
@@ -719,6 +722,7 @@ export class SalesOrderService {
             user.tenantId,
             { itemId: entry.line.itemId!, type: "SHIPMENT", direction: "OUT", quantity: entry.qty },
             shipDoc,
+            id,
           ),
         );
       }

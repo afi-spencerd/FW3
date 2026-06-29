@@ -53,6 +53,7 @@ import type {
   ProductionWorkOrder,
   ProductionWorkOrderSummary,
   QcLotStatus,
+  ReassignWorkOrder,
   RecordQualityResults,
   SetItemQualitySpecs,
   StockPosition,
@@ -282,6 +283,11 @@ export const api = {
   cancelProductionWorkOrder: (id: string) =>
     request<ProductionWorkOrder>(`/production-work-orders/${id}/cancel`, {
       method: "POST",
+    }),
+  reassignProductionWorkOrder: (id: string, data: ReassignWorkOrder) =>
+    request<ProductionWorkOrder>(`/production-work-orders/${id}/reassign`, {
+      method: "POST",
+      body: JSON.stringify(data),
     }),
 
   // ---- Scheduler ----

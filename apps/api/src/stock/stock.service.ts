@@ -201,6 +201,15 @@ export class StockService {
   /**
    * Per-lot availability in a bucket = signed Σ of the lot's ledger lines there,
    * oldest lot first. Used to FIFO-attribute an outbound movement to lots.
+   *
+   * When `reservedForSalesOrderId` is supplied (a shipment for that order), lots
+   * reserved for a *different* sales order are excluded: a lot's reservation is
+   * the sales order of the work order that produced it (resolved live via
+   * `ReceivedLot.sourceWorkOrderId` → `ProductionWorkOrder.salesOrderId`, so
+   * reassigning a work order moves its lot's reservation with it). Lots with no
+   * producing work order (purchase receipts) or whose work order has no sales
+   * order (ad-hoc batches) are unreserved and always eligible. If the eligible
+   * lots can't cover the quantity, the shipment is hard-blocked.
    */
   private async allocateLotsFifo(
     tx: Prisma.TransactionClient,
@@ -208,20 +217,63 @@ export class StockService {
     itemId: string,
     status: StockStatus,
     quantity: string,
+    reservedForSalesOrderId?: string,
   ): Promise<LotAllocation[]> {
     const grouped = await tx.inventoryTxn.groupBy({
       by: ["lotId"],
       where: { tenantId, itemId, status, lotId: { not: null } },
       _sum: { quantity: true },
     });
-    const lotIds = grouped
+    let lotIds = grouped
       .filter((g) => g.lotId && g._sum.quantity && g._sum.quantity.greaterThan(0))
       .map((g) => ({ lotId: g.lotId as string, available: g._sum.quantity!.toString() }));
     if (lotIds.length === 0) return [{ lotId: null, quantity }];
     const lots = await tx.receivedLot.findMany({
       where: { id: { in: lotIds.map((l) => l.lotId) } },
-      select: { id: true, receivedAt: true },
+      select: { id: true, receivedAt: true, sourceWorkOrderId: true },
     });
+    const lotMeta = new Map(lots.map((l) => [l.id, l]));
+
+    if (reservedForSalesOrderId !== undefined) {
+      const sourceWoIds = [
+        ...new Set(
+          lots
+            .map((l) => l.sourceWorkOrderId)
+            .filter((v): v is string => v !== null),
+        ),
+      ];
+      const wos = sourceWoIds.length
+        ? await tx.productionWorkOrder.findMany({
+            where: { id: { in: sourceWoIds } },
+            select: { id: true, salesOrderId: true },
+          })
+        : [];
+      const woSalesOrder = new Map(wos.map((w) => [w.id, w.salesOrderId]));
+      const reservedFor = (lotId: string): string | null => {
+        const woId = lotMeta.get(lotId)?.sourceWorkOrderId;
+        return woId ? (woSalesOrder.get(woId) ?? null) : null;
+      };
+      const permitted = lotIds.filter((l) => {
+        const r = reservedFor(l.lotId);
+        return r === null || r === reservedForSalesOrderId;
+      });
+      const available = permitted.reduce(
+        (sum, l) => sum.plus(new Decimal(l.available)),
+        new Decimal(0),
+      );
+      if (available.lessThan(new Decimal(quantity))) {
+        const item = await tx.inventoryItem.findFirst({
+          where: { id: itemId, tenantId },
+          select: { sku: true },
+        });
+        throw new BadRequestException(
+          `Cannot ship ${quantity} of ${item?.sku ?? itemId}: only ${available.toString()} ` +
+            `is available for this order; the remainder is reserved for other sales orders.`,
+        );
+      }
+      lotIds = permitted;
+    }
+
     const receivedAt = new Map(lots.map((l) => [l.id, l.receivedAt.getTime()]));
     lotIds.sort(
       (a, b) => (receivedAt.get(a.lotId) ?? 0) - (receivedAt.get(b.lotId) ?? 0),
@@ -240,6 +292,7 @@ export class StockService {
     tenantId: string,
     movement: Movement,
     doc: PostingDoc,
+    reservedForSalesOrderId?: string,
   ): Promise<{ unitCost: string; value: string }> {
     const status: StockStatus = movement.status ?? "INV";
     const allocations = await this.allocateLotsFifo(
@@ -248,6 +301,7 @@ export class StockService {
       movement.itemId,
       status,
       movement.quantity,
+      reservedForSalesOrderId,
     );
     let totalValue = new Decimal(0);
     let unitCost = "0";

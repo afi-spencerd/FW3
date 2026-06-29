@@ -13,6 +13,7 @@ import {
   type ProductionStatus,
   type ProductionWorkOrder,
   type ProductionWorkOrderSummary,
+  type ReassignWorkOrder,
   type PhysicalForm,
   QC_SUITE_BY_FORM,
   type UnitOfMeasure,
@@ -439,6 +440,91 @@ export class ProductionService {
         entityId: id,
         action: "UPDATE",
         after: { status: "CANCELLED" },
+      });
+    });
+    return this.getById(user.tenantId, id);
+  }
+
+  /**
+   * Reassign (re-reserve) a work order to a different sales order. Any
+   * finished-good lot it has already produced is re-reserved automatically
+   * (the reservation resolves live through the work order), and the original
+   * sales order line is left uncovered so it can be re-requested for a fresh
+   * batch. Audited with the acting user so the authorisation is traceable.
+   */
+  async reassign(
+    user: AuthenticatedUser,
+    id: string,
+    input: ReassignWorkOrder,
+  ): Promise<ProductionWorkOrder> {
+    await this.prisma.$transaction(async (tx) => {
+      const workOrder = await this.loadWorkOrder(tx, user.tenantId, id);
+      if (workOrder.status === "CANCELLED") {
+        throw new BadRequestException("Cannot reassign a cancelled work order");
+      }
+
+      const targetOrder = await tx.salesOrder.findFirst({
+        where: { id: input.salesOrderId, tenantId: user.tenantId },
+      });
+      if (!targetOrder) {
+        throw new BadRequestException("Target sales order not found");
+      }
+      if (targetOrder.status === "CANCELLED") {
+        throw new BadRequestException("Cannot reassign to a cancelled sales order");
+      }
+
+      // An explicit target line must belong to that order and order the same
+      // item this work order produces.
+      let targetLineId: string | null = null;
+      if (input.salesOrderLineId) {
+        const line = await tx.salesOrderLine.findFirst({
+          where: { id: input.salesOrderLineId, salesOrderId: input.salesOrderId },
+        });
+        if (!line) {
+          throw new BadRequestException(
+            "Target line is not on the target sales order",
+          );
+        }
+        if (line.itemId !== workOrder.targetItemId) {
+          throw new BadRequestException(
+            "Target line orders a different item than this work order produces",
+          );
+        }
+        targetLineId = line.id;
+      }
+
+      const before = {
+        salesOrderId: workOrder.salesOrderId,
+        salesOrderLineId: workOrder.salesOrderLineId,
+      };
+      if (
+        before.salesOrderId === input.salesOrderId &&
+        before.salesOrderLineId === targetLineId
+      ) {
+        throw new BadRequestException(
+          "Work order is already assigned to that sales order",
+        );
+      }
+
+      await tx.productionWorkOrder.update({
+        where: { id },
+        data: {
+          salesOrderId: input.salesOrderId,
+          salesOrderLineId: targetLineId,
+        },
+      });
+
+      await this.audit.record(tx, {
+        tenantId: user.tenantId,
+        actorId: user.id,
+        entityType: "ProductionWorkOrder",
+        entityId: id,
+        action: "UPDATE",
+        before,
+        after: {
+          salesOrderId: input.salesOrderId,
+          salesOrderLineId: targetLineId,
+        },
       });
     });
     return this.getById(user.tenantId, id);
