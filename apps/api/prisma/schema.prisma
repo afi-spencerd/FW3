@@ -213,6 +213,7 @@ model InventoryItem {
   stockLocations          ItemStockLocation[]
   locationMoves           LocationMove[]
   componentPours          CompounderPour[]          @relation("ComponentPours")
+  cycleCountItemScopes    CycleCount[]              @relation("CycleCountItemScope")
   cycleCountLines         CycleCountLine[]
   scrapRecords            ScrapRecord[]
   vendorReturns           VendorReturn[]
@@ -1151,7 +1152,8 @@ model CycleCount {
   reference       String    @db.NVarChar(50)
   status          String    @default("OPEN") @db.NVarChar(20) // OPEN | COMPLETED | CANCELLED
   blind           Boolean   @default(false)
-  scopeLocationId String?   @db.Char(36) // null = whole tenant
+  scopeLocationId String?   @db.Char(36) // null = whole tenant (mutually exclusive with scopeItemId)
+  scopeItemId     String?   @db.Char(36) // set = count this one item across all locations
   note            String?   @db.NVarChar(500)
   createdById     String    @db.Char(36)
   completedById   String?   @db.Char(36)
@@ -1161,6 +1163,7 @@ model CycleCount {
 
   tenant        Tenant           @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   scopeLocation Location?        @relation(fields: [scopeLocationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  scopeItem     InventoryItem?   @relation("CycleCountItemScope", fields: [scopeItemId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   createdBy     User             @relation("CycleCountCreatedBy", fields: [createdById], references: [id], onDelete: NoAction, onUpdate: NoAction)
   completedBy   User?            @relation("CycleCountCompletedBy", fields: [completedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
   lines         CycleCountLine[]

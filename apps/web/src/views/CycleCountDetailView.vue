@@ -51,6 +51,13 @@ const scopeLocations = computed(() => {
     : leafLocations.value.filter((l) => ids.includes(l.id));
 });
 
+// An item-scoped count only counts its one item, so found items are locked to it.
+const foundItems = computed(() =>
+  count.value?.scopeItemId
+    ? items.value.filter((i) => i.id === count.value?.scopeItemId)
+    : items.value,
+);
+
 async function load(): Promise<void> {
   error.value = null;
   try {
@@ -67,6 +74,8 @@ async function load(): Promise<void> {
       allLocations.value = locs;
       leafLocations.value = locs.filter((l) => l.active && isStockableKind(l.kind));
     }
+    // Item-scoped counts can only add their one item; preselect and lock it.
+    if (count.value.scopeItemId) found.itemId = count.value.scopeItemId;
   } catch (err) {
     error.value = err instanceof ApiError ? err.message : "Failed to load";
   }
@@ -108,7 +117,8 @@ async function addFound(): Promise<void> {
       ],
     });
     for (const l of count.value.lines) counts[l.id] = l.countedQty ?? "";
-    found.itemId = "";
+    // Keep the item locked for item-scoped counts; otherwise clear it.
+    found.itemId = count.value.scopeItemId ?? "";
     found.locationId = "";
     found.quantity = "0";
     notice.value = "Found item added.";
@@ -215,9 +225,9 @@ onMounted(load);
       <div v-if="isOpen && canManage" style="margin-top: 1.5rem">
         <h4>Add found item (present but not on the snapshot)</h4>
         <div class="toolbar" style="flex-wrap: wrap">
-          <select v-model="found.itemId" style="max-width: 240px">
+          <select v-model="found.itemId" :disabled="!!count.scopeItemId" style="max-width: 240px">
             <option value="">Item…</option>
-            <option v-for="i in items" :key="i.id" :value="i.id">{{ i.sku }} — {{ i.name }}</option>
+            <option v-for="i in foundItems" :key="i.id" :value="i.id">{{ i.sku }} — {{ i.name }}</option>
           </select>
           <select v-model="found.status" style="max-width: 130px">
             <option v-for="s in LOCATED_STOCK_STATUSES" :key="s" :value="s">{{ s }}</option>

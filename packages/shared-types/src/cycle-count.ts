@@ -4,9 +4,10 @@ import { locatedStockStatusSchema } from "./stock.js";
 
 /**
  * Cycle counts: verify physical inventory at locations against the system and
- * post the variances as adjustments. Scope is a location (a rack/area, or a
- * building/aisle that expands to its leaves) or the whole tenant. Only located
- * stock (INV, QUARANTINE) is counted; WIP (cans/vat) is not location-counted.
+ * post the variances as adjustments. Scope is one of: a location (a rack/area, or
+ * a building/aisle that expands to its leaves), a single item across all locations,
+ * or the whole tenant. Only located stock (INV, QUARANTINE) is counted; WIP
+ * (cans/vat) is not location-counted.
  */
 
 export const CYCLE_COUNT_STATUSES = ["OPEN", "COMPLETED", "CANCELLED"] as const;
@@ -18,15 +19,25 @@ const countQuantity = quantityString.refine(
   "must be zero or greater",
 );
 
-/** Open a new count. Omit scopeLocationId to count every location. */
-export const createCycleCountSchema = z.object({
-  scopeLocationId: z.string().uuid().optional(),
-  /** Hide system quantities from the counter until the count is posted. */
-  blind: z.boolean().default(false),
-  note: z.string().trim().max(500).optional(),
-  /** Optional human reference; auto-generated when omitted. */
-  reference: z.string().trim().max(50).optional(),
-});
+/**
+ * Open a new count. Scope is at most one of scopeLocationId or scopeItemId;
+ * omit both to count every location.
+ */
+export const createCycleCountSchema = z
+  .object({
+    scopeLocationId: z.string().uuid().optional(),
+    /** Count this one item across every location it sits in. */
+    scopeItemId: z.string().uuid().optional(),
+    /** Hide system quantities from the counter until the count is posted. */
+    blind: z.boolean().default(false),
+    note: z.string().trim().max(500).optional(),
+    /** Optional human reference; auto-generated when omitted. */
+    reference: z.string().trim().max(50).optional(),
+  })
+  .refine((d) => !(d.scopeLocationId && d.scopeItemId), {
+    message: "A count is scoped by location or by item, not both",
+    path: ["scopeItemId"],
+  });
 
 /** Enter counted quantities for existing lines, and add any items found. */
 export const recordCycleCountsSchema = z.object({
@@ -74,6 +85,7 @@ export const cycleCountSummarySchema = z.object({
   status: cycleCountStatusSchema,
   blind: z.boolean(),
   scopeLocationId: z.string().uuid().nullable(),
+  scopeItemId: z.string().uuid().nullable(),
   scopeLabel: z.string(),
   note: z.string().nullable(),
   lineCount: z.number().int(),

@@ -22,6 +22,7 @@ import { type Movement, StockService } from "../stock/stock.service";
 type CountWithRelations = Prisma.CycleCountGetPayload<{
   include: {
     scopeLocation: true;
+    scopeItem: true;
     lines: { include: { item: true; location: true } };
   };
 }>;
@@ -42,6 +43,7 @@ export class CycleCountService {
       where: { tenantId, ...(status ? { status } : {}) },
       include: {
         scopeLocation: true,
+        scopeItem: true,
         lines: { include: { item: true, location: true } },
       },
       orderBy: { createdAt: "desc" },
@@ -58,14 +60,25 @@ export class CycleCountService {
   }
 
   /**
-   * Open a count: snapshot a line for every located item currently in scope
-   * (a location subtree, or the whole tenant). The counter can add found items
-   * later.
+   * Open a count: snapshot a line for every located item currently in scope —
+   * a location subtree, a single item across all locations, or the whole tenant.
+   * The counter can add found items later.
    */
   async create(
     user: AuthenticatedUser,
     input: CreateCycleCount,
   ): Promise<CycleCount> {
+    if (input.scopeLocationId && input.scopeItemId) {
+      throw new BadRequestException(
+        "A count is scoped by location or by item, not both",
+      );
+    }
+    if (input.scopeItemId) {
+      const item = await this.prisma.inventoryItem.findFirst({
+        where: { id: input.scopeItemId, tenantId: user.tenantId },
+      });
+      if (!item) throw new BadRequestException("Scope item not found");
+    }
     const leafIds = await this.resolveScopeLeaves(user.tenantId, input.scopeLocationId);
     const reference =
       input.reference?.trim() || `CC-${Date.now().toString(36).toUpperCase()}`;
@@ -74,6 +87,7 @@ export class CycleCountService {
       where: {
         tenantId: user.tenantId,
         quantity: { gt: 0 },
+        ...(input.scopeItemId ? { itemId: input.scopeItemId } : {}),
         ...(leafIds ? { locationId: { in: leafIds } } : {}),
       },
     });
@@ -86,6 +100,7 @@ export class CycleCountService {
           status: "OPEN",
           blind: input.blind,
           scopeLocationId: input.scopeLocationId ?? null,
+          scopeItemId: input.scopeItemId ?? null,
           note: input.note ?? null,
           createdById: user.id,
           lines: {
@@ -105,7 +120,12 @@ export class CycleCountService {
         entityType: "CycleCount",
         entityId: count.id,
         action: "CREATE",
-        after: { reference, scopeLocationId: input.scopeLocationId, blind: input.blind },
+        after: {
+          reference,
+          scopeLocationId: input.scopeLocationId,
+          scopeItemId: input.scopeItemId,
+          blind: input.blind,
+        },
       });
       return count.id;
     });
@@ -154,7 +174,13 @@ export class CycleCountService {
         if (location.kind !== "RACK" && location.kind !== "AREA") {
           throw new BadRequestException(`${location.name} cannot hold stock`);
         }
-        if (inScope && !inScope.has(f.locationId)) {
+        // Item-scoped counts only count the one item (any location); location-scoped
+        // counts only count locations within the scope (any item).
+        if (count.scopeItemId) {
+          if (f.itemId !== count.scopeItemId) {
+            throw new BadRequestException("Found item is outside this count's scope");
+          }
+        } else if (inScope && !inScope.has(f.locationId)) {
           throw new BadRequestException(
             `${location.name} is outside this count's scope`,
           );
@@ -342,6 +368,7 @@ export class CycleCountService {
       where: { id, tenantId },
       include: {
         scopeLocation: true,
+        scopeItem: true,
         lines: {
           include: { item: true, location: true },
           orderBy: { createdAt: "asc" },
@@ -389,9 +416,12 @@ export class CycleCountService {
       status: count.status as CycleCountStatus,
       blind: count.blind,
       scopeLocationId: count.scopeLocationId,
-      scopeLabel: count.scopeLocation
-        ? `${count.scopeLocation.code} — ${count.scopeLocation.name}`
-        : "All locations",
+      scopeItemId: count.scopeItemId,
+      scopeLabel: count.scopeItem
+        ? `${count.scopeItem.sku} — ${count.scopeItem.name} (all locations)`
+        : count.scopeLocation
+          ? `${count.scopeLocation.code} — ${count.scopeLocation.name}`
+          : "All locations",
       note: count.note,
       lineCount: lines.length,
       countedCount,
